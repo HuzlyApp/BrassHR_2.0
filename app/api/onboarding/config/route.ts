@@ -68,6 +68,7 @@ export async function GET(req: NextRequest) {
           workflowPhase: gated.workflowPhase,
           applicationId: gated.applicationId,
           postHireActivatedAt: gated.postHireActivatedAt,
+          allWorkflowSteps: gated.allWorkflowSteps,
         });
       } catch (err: unknown) {
         if (!(err instanceof JobApplicationGateError)) throw err;
@@ -100,6 +101,7 @@ export async function GET(req: NextRequest) {
           workflowPhase: gated.workflowPhase,
           applicationId: gated.applicationId,
           postHireActivatedAt: gated.postHireActivatedAt,
+          allWorkflowSteps: gated.allWorkflowSteps,
         });
       } catch (err: unknown) {
         if (err instanceof JobApplicationGateError) {
@@ -183,6 +185,7 @@ export async function GET(req: NextRequest) {
       workflowPhase: gated.workflowPhase,
       applicationId: gated.applicationId,
       postHireActivatedAt: gated.postHireActivatedAt,
+      allWorkflowSteps: gated.allWorkflowSteps,
     });
   } catch (err: unknown) {
     console.error("[onboarding/config]", err);

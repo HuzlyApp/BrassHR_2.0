@@ -48,6 +48,9 @@ export async function GET(req: NextRequest) {
       scopedApplicationId,
       Boolean(jobToken) && !scopedApplicationId
     );
+    if (progress && phaseRecord?.phase) {
+      progress.workflowPhase = phaseRecord.phase;
+    }
     return NextResponse.json({ progress, workerId: ctx.workerId, tenantId: ctx.tenantId });
   } catch (err: unknown) {
     console.error("[onboarding/progress]", err);

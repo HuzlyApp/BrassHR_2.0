@@ -130,7 +130,7 @@ export default function WorkflowStepStaffActionModal({
 }) {
   const branding = useTenantBranding();
   const [note, setNote] = useState("");
-  const [notifyCandidate, setNotifyCandidate] = useState(true);
+  const [notifyCandidate, setNotifyCandidate] = useState(false);
 
   // Portal content sits outside the branding wrapper, so re-declare the tenant palette here.
   const brandStyle = useMemo(
@@ -146,7 +146,7 @@ export default function WorkflowStepStaffActionModal({
   useEffect(() => {
     if (!action) return;
     setNote("");
-    setNotifyCandidate(true);
+    setNotifyCandidate(false);
   }, [action]);
 
   const baseCopy = action
