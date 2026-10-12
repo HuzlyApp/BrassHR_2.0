@@ -253,7 +253,7 @@ export function WorkerDashboardOverview({
           />
         </h1>
         <p className="mt-1 font-[Inter,sans-serif] text-[14px] font-normal leading-5 text-[#6B7280] max-[319px]:text-[13px] sm:text-[16px] sm:leading-6">
-          Here&apos;s what happening with you schedule and work!
+          Here&apos;s what&apos;s happening with your schedule and work!
         </p>
       </header>
 
