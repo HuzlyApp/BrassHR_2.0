@@ -1,12 +1,13 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Download, Eye } from "lucide-react";
 import { useOnboardingConfigOptional } from "@/app/components/onboarding/OnboardingConfigProvider";
 import { persistStepProgress } from "@/lib/onboarding/use-mark-step-in-progress-if-pending";
 import { skipOnboardingStep } from "@/lib/onboarding/skip-onboarding-step";
 import { isOnboardingStepSkippable } from "@/lib/onboarding/is-step-skippable";
 import { stepUsesFirmaSigning } from "@/lib/onboarding/firma-step-settings";
+import { isAgreementOrSignatureStep } from "@/lib/onboarding/is-agreement-step";
 import { useApplicantSigningEmail } from "@/lib/onboarding/use-applicant-signing-email";
 import {
   buildPostHireSubmissionData,
@@ -109,6 +110,60 @@ export default function PostHireStepScreen({
                 ))}
             </dl>
           ) : null}
+
+          {(() => {
+            const rowData = progressRow?.data && typeof progressRow.data === "object" && !Array.isArray(progressRow.data)
+              ? (progressRow.data as Record<string, unknown>)
+              : {};
+            const isAgreement =
+              usesFirma ||
+              isAgreementOrSignatureStep(step) ||
+              Boolean(rowData.signing_request_id || rowData.firma_status || rowData.download_url);
+            const downloadUrl = (rowData.download_url as string) || (rowData.signed_document_url as string) || null;
+            const signingRequestId = (rowData.signing_request_id as string) || null;
+
+            if (!isAgreement || (!downloadUrl && !signingRequestId)) return null;
+
+            return (
+              <div className="mt-4 flex flex-wrap items-center gap-2.5 pt-3 border-t border-slate-100">
+                <a
+                  href={
+                    downloadUrl ||
+                    `/api/onboarding/firma-sign/download?${new URLSearchParams({
+                      applicantId: applicantId || "",
+                      stepKey: step.step_key || "",
+                      signingRequestId: signingRequestId || "",
+                    }).toString()}`
+                  }
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[color:var(--brand-primary)] bg-white px-3 py-1.5 text-xs font-semibold text-[color:var(--brand-primary)] shadow-sm transition hover:bg-slate-50"
+                >
+                  <Eye className="h-3.5 w-3.5" aria-hidden />
+                  Preview Signed Agreement
+                </a>
+                <a
+                  href={
+                    downloadUrl ||
+                    `/api/onboarding/firma-sign/download?${new URLSearchParams({
+                      applicantId: applicantId || "",
+                      stepKey: step.step_key || "",
+                      signingRequestId: signingRequestId || "",
+                      redirect: "true",
+                    }).toString()}`
+                  }
+                  target="_blank"
+                  rel="noreferrer"
+                  download={`${step.title || "Signed_Agreement"}.pdf`}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-primary)] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:brightness-95"
+                >
+                  <Download className="h-3.5 w-3.5" aria-hidden />
+                  Download Signed Agreement
+                </a>
+              </div>
+            );
+          })()}
+
           {!usesFirma ? (
             <button
               type="button"
