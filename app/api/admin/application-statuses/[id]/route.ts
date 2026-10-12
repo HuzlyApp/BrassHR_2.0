@@ -112,7 +112,7 @@ export async function PATCH(
           groupId: status.groupId,
           groupSystemKey: status.groupSystemKey,
         },
-      },
+      } as Record<string, unknown>,
       request: req,
     });
 
@@ -157,9 +157,9 @@ export async function DELETE(
       entityType: "application_status",
       entityId: statusId,
       tenantId,
-      metadata: before
+      metadata: (before
         ? { name: before.name, groupId: before.groupId, groupSystemKey: before.groupSystemKey }
-        : null,
+        : undefined) as Record<string, unknown> | undefined,
       request: req,
     });
 
