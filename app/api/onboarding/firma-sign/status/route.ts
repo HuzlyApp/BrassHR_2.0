@@ -17,6 +17,7 @@ import {
   sanitizeESignatureUserMessage,
 } from "@/lib/e-signature/user-facing";
 import { autoConvertCandidateAfterAgreement } from "@/lib/onboarding/auto-convert-after-agreement";
+import { notifyRecruiterOnAgreementStepCompletion } from "@/lib/onboarding/notify-recruiter-on-agreement-step";
 
 export const runtime = "nodejs";
 
@@ -193,6 +194,21 @@ export async function GET(req: NextRequest) {
         });
       } catch (conversionError) {
         console.error("[onboarding/firma-sign/status] auto conversion failed", conversionError);
+      }
+
+      try {
+        await notifyRecruiterOnAgreementStepCompletion(supabase, {
+          tenantId: resolved.tenantId,
+          workerId,
+          applicationId: applicationId || null,
+          step: resolved.step,
+          stepKey: resolved.step.step_key,
+          data: nextData,
+          origin: req.nextUrl.origin,
+          request: req,
+        });
+      } catch (notifyError) {
+        console.warn("[onboarding/firma-sign/status] recruiter agreement notification failed", notifyError);
       }
     }
 

@@ -37,6 +37,7 @@ import {
   autoConvertCandidateAfterAgreement,
   ensureCandidateConvertedIfAgreementCompleted,
 } from "@/lib/onboarding/auto-convert-after-agreement";
+import { notifyRecruiterOnAgreementStepCompletion } from "@/lib/onboarding/notify-recruiter-on-agreement-step";
 
 export const runtime = "nodejs";
 
@@ -449,6 +450,21 @@ export async function POST(req: NextRequest) {
         }
       } catch (conversionError) {
         console.error("[onboarding/progress/step] auto conversion failed", conversionError);
+      }
+
+      try {
+        await notifyRecruiterOnAgreementStepCompletion(supabase, {
+          tenantId: ctx.tenantId,
+          workerId: ctx.workerId,
+          applicationId: applicationId || null,
+          step: stepRow,
+          stepKey: body.stepKey,
+          data: body.data,
+          origin: req.nextUrl.origin,
+          request: req,
+        });
+      } catch (notifyError) {
+        console.warn("[onboarding/progress/step] recruiter agreement notification failed", notifyError);
       }
 
       try {
