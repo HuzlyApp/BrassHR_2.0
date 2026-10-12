@@ -417,6 +417,37 @@ export async function getFirmaSigningRequestUsers(
   return normalizeFirmaSigningRequestUsers(response);
 }
 
+export type FirmaSigningRequestDownload = {
+  status: string;
+  is_partial?: boolean;
+  download_url: string;
+  generated_at?: string;
+  expires_at?: string;
+};
+
+export async function getFirmaSigningRequestDownload(
+  signingRequestId: string,
+  workspaceId: string
+): Promise<FirmaSigningRequestDownload> {
+  return firmaRequest<FirmaSigningRequestDownload>(
+    `/signing-requests/${signingRequestId}/download`,
+    { workspaceId, retries: 1 }
+  );
+}
+
+export async function tryGetFirmaSigningRequestDownload(
+  signingRequestId: string,
+  workspaceId: string
+): Promise<string | null> {
+  try {
+    const res = await getFirmaSigningRequestDownload(signingRequestId, workspaceId);
+    return res.download_url?.trim() || null;
+  } catch (err) {
+    console.warn("[firma] tryGetFirmaSigningRequestDownload failed:", err);
+    return null;
+  }
+}
+
 export type FirmaWorkspace = {
   id: string;
   name?: string;

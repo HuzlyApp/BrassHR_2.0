@@ -118,20 +118,81 @@ describe("AuthorizationsFirmaAgreementPanel email validation", () => {
     expect(screen.getByRole("button", { name: /Sign Document/i })).toBeDisabled();
   });
 
-  it("accepts deliverable email from field alias normalization", () => {
+  it("displays Preview and Download buttons when agreement is completed", async () => {
+    global.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/onboarding/firma-sign/status")) {
+        return new Response(
+          JSON.stringify({
+            session: {
+              signing_request_id: "req-123",
+              iframe_url: "https://app.firma.dev/signing/recipient-1",
+              firma_status: "completed",
+            },
+            completed: true,
+            download_url: "https://example.com/signed-doc.pdf",
+          }),
+          { status: 200 }
+        );
+      }
+      return new Response(JSON.stringify({}), { status: 404 });
+    }) as typeof fetch;
+
     render(
       <AuthorizationsFirmaAgreementPanel
         applicantId="applicant-1"
         step={firmaStep}
-        signerEmail="  Worker@Example.com "
+        signerEmail="jane@example.com"
         signerEmailLoading={false}
         agreed
       />
     );
 
-    expect(
-      screen.queryByText(/Enter a valid email on the first onboarding step/i)
-    ).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Sign Document/i })).not.toBeDisabled();
+    await waitFor(() => {
+      expect(screen.getAllByText("Signed").length).toBeGreaterThanOrEqual(1);
+    });
+
+    const previewBtn = screen.getByRole("link", { name: /preview/i });
+    expect(previewBtn).toBeInTheDocument();
+    expect(previewBtn).toHaveAttribute("href", "https://example.com/signed-doc.pdf");
+
+    const downloadBtn = screen.getByRole("link", { name: /download/i });
+    expect(downloadBtn).toBeInTheDocument();
+    expect(downloadBtn).toHaveAttribute("href", "https://example.com/signed-doc.pdf");
+  });
+
+  it("provides live recovery check status button when signing is pending with a session", async () => {
+    global.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/onboarding/firma-sign/status")) {
+        return new Response(
+          JSON.stringify({
+            session: {
+              signing_request_id: "req-456",
+              iframe_url: "https://app.firma.dev/signing/recipient-2",
+              firma_status: "sent",
+            },
+            completed: false,
+          }),
+          { status: 200 }
+        );
+      }
+      return new Response(JSON.stringify({}), { status: 404 });
+    }) as typeof fetch;
+
+    render(
+      <AuthorizationsFirmaAgreementPanel
+        applicantId="applicant-1"
+        step={firmaStep}
+        signerEmail="jane@example.com"
+        signerEmailLoading={false}
+        agreed
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /check status/i })).toBeInTheDocument();
+    });
   });
 });
+

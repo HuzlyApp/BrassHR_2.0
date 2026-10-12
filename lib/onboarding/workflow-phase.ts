@@ -82,8 +82,9 @@ export function applicantMayActOnStep(params: {
     return false;
   }
   if (params.stepPhase === "post_hire") {
-    if (params.isHired !== true || params.postHireSuspended) return false;
-    return params.activePhase === "post_hire";
+    if (params.postHireSuspended) return false;
+    if (params.isHired !== true && params.activePhase !== "post_hire") return false;
+    return params.activePhase === "post_hire" || params.isHired === true;
   }
   return params.activePhase === params.stepPhase;
 }

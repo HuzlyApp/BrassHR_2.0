@@ -12,6 +12,7 @@ import {
 } from "react";
 import type {
   TenantOnboardingConfig,
+  TenantOnboardingStep,
   WorkerOnboardingProgressPayload,
   OnboardingStepStatus,
 } from "@/lib/onboarding/types";
@@ -48,6 +49,7 @@ type Ctx = {
   applicantId: string | null;
   applicationId: string | null;
   workflowPhase: ApplicantLifecyclePhase;
+  allWorkflowSteps?: TenantOnboardingStep[];
   refresh: () => Promise<void>;
   updateStepStatus: (
     stepKey: string,
@@ -110,6 +112,7 @@ function mergeProgressMonotonic(
 
 type ConfigPayload = {
   config?: TenantOnboardingConfig;
+  allWorkflowSteps?: TenantOnboardingStep[];
   error?: string;
   detail?: string;
   code?: string;
@@ -145,6 +148,7 @@ export default function OnboardingConfigProvider({ children }: { children: React
   const { sessionReady, sessionLoading } = useApplicantSession();
 
   const [config, setConfig] = useState<TenantOnboardingConfig | null>(null);
+  const [allWorkflowSteps, setAllWorkflowSteps] = useState<TenantOnboardingStep[]>([]);
   const [progress, setProgress] = useState<WorkerOnboardingProgressPayload | null>(null);
   const [loadingConfig, setLoadingConfig] = useState(true);
   const [loadingProgress, setLoadingProgress] = useState(true);
@@ -272,6 +276,10 @@ export default function OnboardingConfigProvider({ children }: { children: React
           setRecoveredJobToken(recovered);
         }
         setConfig(applyApplicantConfigFilters(configRes.data.config));
+        setAllWorkflowSteps(
+          configRes.data.allWorkflowSteps ??
+            configRes.data.config.steps.filter((s) => s.is_enabled)
+        );
         setWorkflowPhase(configRes.data.workflowPhase ?? "pre_hire");
         setApplicationId(configRes.data.applicationId ?? (applicationIdFromUrl || null));
         setSource(
@@ -342,7 +350,9 @@ export default function OnboardingConfigProvider({ children }: { children: React
       const slug = resolveClientOnboardingTenantSlug(search);
       const matchedStep =
         config?.steps.find((s) => s.step_key === stepKey) ??
-        config?.steps.find((s) => s.step_key.replace(/_\d+$/, "") === stepKey.replace(/_\d+$/, ""));
+        config?.steps.find((s) => s.step_key.replace(/_\d+$/, "") === stepKey.replace(/_\d+$/, "")) ??
+        allWorkflowSteps.find((s) => s.step_key === stepKey) ??
+        allWorkflowSteps.find((s) => s.step_key.replace(/_\d+$/, "") === stepKey.replace(/_\d+$/, ""));
       const jobToken = resolvedJobToken;
       const res = await fetch("/api/onboarding/progress/step", {
         method: "POST",
@@ -376,6 +386,10 @@ export default function OnboardingConfigProvider({ children }: { children: React
         config?.steps.find((s) => s.step_key === stepKey) ??
         config?.steps.find(
           (s) => s.step_key.replace(/_\d+$/, "") === stepKey.replace(/_\d+$/, "")
+        ) ??
+        allWorkflowSteps.find((s) => s.step_key === stepKey) ??
+        allWorkflowSteps.find(
+          (s) => s.step_key.replace(/_\d+$/, "") === stepKey.replace(/_\d+$/, "")
         );
       if (step) {
         setProgress((prev) => {
@@ -400,7 +414,7 @@ export default function OnboardingConfigProvider({ children }: { children: React
         setProgressHydrated(true);
       }
     },
-    [isDraftPreview, config?.steps, resolvedJobToken, applicationIdFromUrl, applicationId]
+    [isDraftPreview, config?.steps, allWorkflowSteps, resolvedJobToken, applicationIdFromUrl, applicationId]
   );
 
   const maxAllowedStepIndex = useMemo(
@@ -436,6 +450,7 @@ export default function OnboardingConfigProvider({ children }: { children: React
       applicantId,
       applicationId,
       workflowPhase,
+      allWorkflowSteps,
       refresh,
       updateStepStatus,
       maxAllowedStepIndex,
@@ -454,6 +469,7 @@ export default function OnboardingConfigProvider({ children }: { children: React
       applicantId,
       applicationId,
       workflowPhase,
+      allWorkflowSteps,
       refresh,
       updateStepStatus,
       maxAllowedStepIndex,

@@ -173,7 +173,7 @@ export async function POST(req: Request, context: RouteContext) {
       action: body.action,
       note: body.note ?? null,
       actor: { userId: resolved.auth.userId, email: resolved.auth.email },
-      notifyCandidate: body.action === "complete" && body.notifyCandidate !== false,
+      notifyCandidate: body.action === "complete" && body.notifyCandidate === true,
       origin: resolveApplicantEmailAppOrigin(req, body.clientOrigin),
       request: req,
     });
