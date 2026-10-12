@@ -83,12 +83,14 @@ export function AdminRecruiterHeader({
   const profileAreaRef = useRef<HTMLDivElement>(null);
   const notificationsButtonRef = useRef<HTMLButtonElement>(null);
   const [markingAllRead, setMarkingAllRead] = useState(false);
+  const [clearingAll, setClearingAll] = useState(false);
 
   const markNotificationRead = useCallback(
     async (notificationId: string) => {
       const previous = queryClient.getQueryData<AdminHeaderDataPayload>(ADMIN_HEADER_DATA_QUERY_KEY);
       const target = previous?.notifications.find((item) => item.id === notificationId);
       const wasUnread = target ? !target.is_read : true;
+      if (!wasUnread) return;
 
       queryClient.setQueryData<AdminHeaderDataPayload>(ADMIN_HEADER_DATA_QUERY_KEY, (current) => {
         if (!current) return current;
@@ -117,6 +119,34 @@ export function AdminRecruiterHeader({
     },
     [queryClient]
   );
+
+  const clearAllNotifications = useCallback(async () => {
+    if (clearingAll || notifications.length === 0) return;
+    setClearingAll(true);
+    const previous = queryClient.getQueryData<AdminHeaderDataPayload>(ADMIN_HEADER_DATA_QUERY_KEY);
+    queryClient.setQueryData<AdminHeaderDataPayload>(ADMIN_HEADER_DATA_QUERY_KEY, (current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        notifications: [],
+        unreadNotifications: 0,
+      };
+    });
+
+    try {
+      const res = await fetch("/api/admin/header-data", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clear_notifications" }),
+      });
+      if (!res.ok) throw new Error("clear failed");
+      await queryClient.invalidateQueries({ queryKey: ADMIN_HEADER_DATA_QUERY_KEY });
+    } catch {
+      if (previous) queryClient.setQueryData(ADMIN_HEADER_DATA_QUERY_KEY, previous);
+    } finally {
+      setClearingAll(false);
+    }
+  }, [clearingAll, notifications.length, queryClient]);
 
   const markAllNotificationsRead = useCallback(async () => {
     if (markingAllRead || unreadNotifications <= 0) return;
@@ -329,16 +359,28 @@ export function AdminRecruiterHeader({
                 >
                   <div className="flex items-center justify-between gap-2 border-b border-[#E2E8F0] px-4 py-3">
                     <p className="text-sm font-semibold text-[#0F172A]">Notifications</p>
-                    {unreadNotifications > 0 ? (
-                      <button
-                        type="button"
-                        onClick={() => void markAllNotificationsRead()}
-                        disabled={markingAllRead}
-                        className="text-xs font-semibold text-[#0EA5A4] hover:underline disabled:opacity-60"
-                      >
-                        Mark all as read
-                      </button>
-                    ) : null}
+                    <div className="flex items-center gap-3">
+                      {notifications.length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => void clearAllNotifications()}
+                          disabled={clearingAll}
+                          className="text-xs font-semibold text-red-600 hover:text-red-700 hover:underline disabled:opacity-60"
+                        >
+                          Clear all
+                        </button>
+                      ) : null}
+                      {unreadNotifications > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => void markAllNotificationsRead()}
+                          disabled={markingAllRead}
+                          className="text-xs font-semibold text-[#0EA5A4] hover:underline disabled:opacity-60"
+                        >
+                          Mark all as read
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                   <div className="max-h-[320px] overflow-y-auto">
                     {headerDataLoading ? (
@@ -367,10 +409,6 @@ export function AdminRecruiterHeader({
                           type="button"
                           onClick={() => {
                             void markNotificationRead(notification.id);
-                            setShowNotifications(false);
-                            if (notification.link) {
-                              router.push(notification.link);
-                            }
                           }}
                           className={`block w-full border-b border-[#F1F5F9] px-4 py-3 text-left transition hover:bg-[#F8FAFC] ${
                             notification.is_read ? "opacity-70" : "bg-[#F8FAFC]"

@@ -4,7 +4,11 @@ export const OFFER_ACCEPTANCE_STEP_TYPE = "offer-acceptance";
 
 export function isOfferAcceptanceStepType(stepType: string | null | undefined): boolean {
   const value = String(stepType ?? "").trim().toLowerCase().replace(/_/g, "-");
-  return value === OFFER_ACCEPTANCE_STEP_TYPE || value === "offer-accepted";
+  return (
+    value === OFFER_ACCEPTANCE_STEP_TYPE ||
+    value === "offer-accepted" ||
+    value === "pay-rate-accepted"
+  );
 }
 
 export type OfferDetails = {

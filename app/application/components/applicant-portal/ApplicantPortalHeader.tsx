@@ -69,6 +69,7 @@ export function ApplicantPortalHeader({
   const [searchOpen, setSearchOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [markingAllRead, setMarkingAllRead] = useState(false);
+  const [clearingAll, setClearingAll] = useState(false);
   const profileAreaRef = useRef<HTMLDivElement>(null);
   const actionsAreaRef = useRef<HTMLDivElement>(null);
   const searchAreaRef = useRef<HTMLDivElement>(null);
@@ -108,13 +109,12 @@ export function ApplicantPortalHeader({
       const previousUnread = unreadNotifications;
       const target = notifications.find((item) => item.id === notificationId);
       const wasUnread = target ? !target.is_read : false;
+      if (!wasUnread) return;
 
       setNotifications((current) =>
         current.map((item) => (item.id === notificationId ? { ...item, is_read: true } : item))
       );
-      if (wasUnread) {
-        setUnreadNotifications((current) => Math.max(0, current - 1));
-      }
+      setUnreadNotifications((current) => Math.max(0, current - 1));
 
       try {
         const headers = await authHeaders();
@@ -132,6 +132,32 @@ export function ApplicantPortalHeader({
     },
     [authHeaders, notifications, unreadNotifications]
   );
+
+  const clearAllNotifications = useCallback(async () => {
+    if (clearingAll || notifications.length === 0) return;
+    setClearingAll(true);
+    const previousNotifications = notifications;
+    const previousUnread = unreadNotifications;
+
+    setUnreadNotifications(0);
+    setNotifications([]);
+
+    try {
+      const headers = await authHeaders();
+      if (!headers) throw new Error("auth");
+      const res = await fetch("/api/applicant-portal/notifications", {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clear_notifications" }),
+      });
+      if (!res.ok) throw new Error("clear failed");
+    } catch {
+      setNotifications(previousNotifications);
+      setUnreadNotifications(previousUnread);
+    } finally {
+      setClearingAll(false);
+    }
+  }, [authHeaders, clearingAll, notifications, unreadNotifications]);
 
   const markAllNotificationsRead = useCallback(async () => {
     if (markingAllRead || unreadNotifications <= 0) return;
@@ -411,16 +437,28 @@ export function ApplicantPortalHeader({
               >
                 <div className="flex items-center justify-between gap-2 border-b border-[#E2E8F0] px-4 py-3">
                   <p className="text-sm font-semibold text-[#0F172A]">Notifications</p>
-                  {unreadNotifications > 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => void markAllNotificationsRead()}
-                      disabled={markingAllRead}
-                      className="text-xs font-semibold text-[#0EA5A4] hover:underline disabled:opacity-60"
-                    >
-                      Mark all as read
-                    </button>
-                  ) : null}
+                  <div className="flex items-center gap-3">
+                    {notifications.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => void clearAllNotifications()}
+                        disabled={clearingAll}
+                        className="text-xs font-semibold text-red-600 hover:text-red-700 hover:underline disabled:opacity-60"
+                      >
+                        Clear all
+                      </button>
+                    ) : null}
+                    {unreadNotifications > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => void markAllNotificationsRead()}
+                        disabled={markingAllRead}
+                        className="text-xs font-semibold text-[#0EA5A4] hover:underline disabled:opacity-60"
+                      >
+                        Mark all as read
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
                 <div className="max-h-[320px] overflow-y-auto">
                   {notifications.length === 0 ? (
@@ -432,10 +470,6 @@ export function ApplicantPortalHeader({
                         type="button"
                         onClick={() => {
                           void markNotificationRead(notification.id);
-                          setNotificationsOpen(false);
-                          if (notification.link) {
-                            router.push(notification.link);
-                          }
                         }}
                         className={`block w-full border-b border-[#F1F5F9] px-4 py-3 text-left transition hover:bg-[#F8FAFC] ${
                           notification.is_read ? "opacity-70" : "bg-[#F8FAFC]"
