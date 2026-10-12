@@ -336,6 +336,7 @@ export function AuthorizationsFirmaAgreementPanel({
                         applicantId: applicantId || "",
                         stepKey: stepKey || "",
                         signingRequestId: signingRequestId || "",
+                        redirect: "true",
                       }).toString()}`
                     }
                     target="_blank"
@@ -355,6 +356,8 @@ export function AuthorizationsFirmaAgreementPanel({
                             stepKey: stepKey || "",
                             signingRequestId: signingRequestId || "",
                             redirect: "true",
+                            download: "true",
+                            filename: `${cardTitle}.pdf`,
                           }).toString()}`
                     }
                     target="_blank"

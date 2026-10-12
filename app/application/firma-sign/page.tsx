@@ -447,6 +447,7 @@ export default function FirmaSignPage() {
                       applicantId: resolveApplicantId(search) || "",
                       stepKey: stepKey || "",
                       signingRequestId: signingRequestId || "",
+                      redirect: "true",
                     }).toString()}`
                   }
                   target="_blank"
@@ -464,6 +465,8 @@ export default function FirmaSignPage() {
                       stepKey: stepKey || "",
                       signingRequestId: signingRequestId || "",
                       redirect: "true",
+                      download: "true",
+                      filename: `${stepTitle || "Signed_Agreement"}.pdf`,
                     }).toString()}`
                   }
                   target="_blank"

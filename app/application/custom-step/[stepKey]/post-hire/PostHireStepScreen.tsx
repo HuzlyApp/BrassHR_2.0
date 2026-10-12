@@ -133,6 +133,7 @@ export default function PostHireStepScreen({
                       applicantId: applicantId || "",
                       stepKey: step.step_key || "",
                       signingRequestId: signingRequestId || "",
+                      redirect: "true",
                     }).toString()}`
                   }
                   target="_blank"
@@ -150,6 +151,8 @@ export default function PostHireStepScreen({
                       stepKey: step.step_key || "",
                       signingRequestId: signingRequestId || "",
                       redirect: "true",
+                      download: "true",
+                      filename: `${step.title || "Signed_Agreement"}.pdf`,
                     }).toString()}`
                   }
                   target="_blank"
