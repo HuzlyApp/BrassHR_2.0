@@ -14,6 +14,7 @@ import {
   Handshake,
   Layers,
   Mail,
+  RefreshCw,
   ShieldCheck,
   UploadCloud,
   Users,
@@ -360,7 +361,7 @@ export default function CandidateWorkflowStepModal({
   onOpenChange,
   loading,
   error,
-  inspection,
+  inspection: initialInspection,
   workerId,
   onStepUpdated,
   onScheduleInterview,
@@ -377,19 +378,63 @@ export default function CandidateWorkflowStepModal({
   onScheduleInterview?: () => void;
 }) {
   const branding = useTenantBranding();
+  const [activeInspectionOverride, setActiveInspectionOverride] = useState<WorkflowStepInspection | null>(null);
+  const inspection = activeInspectionOverride ?? initialInspection;
+  const currentInspection = inspection;
   const title = inspection?.step.title ?? "Step details";
   const stepId = inspection?.step.id ?? null;
   const [pendingAction, setPendingAction] = useState<StaffStepAction | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: "success" | "warning"; message: string } | null>(null);
+  const [resyncing, setResyncing] = useState(false);
+  const [resyncNotice, setResyncNotice] = useState<{ tone: "success" | "warning"; message: string } | null>(null);
   const [statusRevision, setStatusRevision] = useState(0);
 
   useEffect(() => {
+    setActiveInspectionOverride(null);
     setPendingAction(null);
     setActionError(null);
     setNotice(null);
+    setResyncNotice(null);
   }, [stepId, open]);
+
+  async function handleResyncFirma() {
+    if (!workerId || !stepId || resyncing) return;
+    setResyncing(true);
+    setResyncNotice(null);
+    try {
+      const res = await fetch(
+        `/api/admin/candidates/${encodeURIComponent(workerId)}/workflow-steps/${encodeURIComponent(stepId)}/resync-firma`,
+        { method: "POST" }
+      );
+      const json = await res.json();
+      if (!res.ok) {
+        setResyncNotice({
+          tone: "warning",
+          message: json.error || "Failed to re-sync signing status from Firma.",
+        });
+        return;
+      }
+      if (json.inspection) {
+        setActiveInspectionOverride(json.inspection);
+      }
+      setResyncNotice({
+        tone: "success",
+        message: json.is_signed
+          ? "Signing status confirmed as Signed. Agreement document is available to preview and download."
+          : `Live signing status re-synced: ${json.firma_status || "Pending"}.`,
+      });
+      await onStepUpdated?.();
+    } catch (err) {
+      setResyncNotice({
+        tone: "warning",
+        message: err instanceof Error ? err.message : "Failed to re-sync signing status.",
+      });
+    } finally {
+      setResyncing(false);
+    }
+  }
 
   // Radix portals render outside the branding wrapper, so re-declare the vars here
   // and drive the header/button colours straight from the tenant palette. The header
@@ -406,34 +451,34 @@ export default function CandidateWorkflowStepModal({
     [branding]
   );
 
-  const staffAction = inspection?.staffAction;
-  const staffReview = inspection?.staffReview ?? null;
+  const staffAction = currentInspection?.staffAction;
+  const staffReview = currentInspection?.staffReview ?? null;
   const canAct = Boolean(workerId && staffAction?.allowed && staffAction.actions.length);
-  const KindIcon = inspection ? KIND_ICONS[inspection.kind] : Layers;
+  const KindIcon = currentInspection ? KIND_ICONS[currentInspection.kind] : Layers;
   const variant = staffAction?.variant ?? "default";
-  const enrollmentNotReady = inspection?.enrollment?.decision === "not_ready";
-  const statusLabel = !inspection
+  const enrollmentNotReady = currentInspection?.enrollment?.decision === "not_ready";
+  const statusLabel = !currentInspection
     ? ""
     : enrollmentNotReady
       ? "Not ready"
-      : stepDisplayStatusLabel(inspection.step);
-  const interviewState = inspection ? interviewStepStatus(inspection.step) : null;
-  const statusTone: BadgeTone = !inspection
+      : stepDisplayStatusLabel(currentInspection.step);
+  const interviewState = currentInspection ? interviewStepStatus(currentInspection.step) : null;
+  const statusTone: BadgeTone = !currentInspection
     ? "neutral"
     : enrollmentNotReady
       ? "warning"
       : interviewState
       ? interviewState.tone
-      : isDecisionVariant(staffStepVariantForLibraryId(inspection.step.stepType))
-        ? STATUS_TONE[DECISION_TONE[inspection.step.displayStatus] ?? inspection.step.displayStatus]
-        : STATUS_TONE[inspection.step.displayStatus];
-  const interviews = inspection?.interviews ?? null;
+      : isDecisionVariant(staffStepVariantForLibraryId(currentInspection.step.stepType))
+        ? STATUS_TONE[DECISION_TONE[currentInspection.step.displayStatus] ?? currentInspection.step.displayStatus]
+        : STATUS_TONE[currentInspection.step.displayStatus];
+  const interviews = currentInspection?.interviews ?? null;
   const interviewsNewestFirst = useMemo(
     () => (interviews ? [...interviews].reverse() : []),
     [interviews]
   );
-  const latestInterviewId = inspection?.step.interview?.latest?.id ?? null;
-  const activeInterviewCount = inspection?.step.interview?.count ?? 0;
+  const latestInterviewId = currentInspection?.step.interview?.latest?.id ?? null;
+  const activeInterviewCount = currentInspection?.step.interview?.count ?? 0;
   const canSchedule = Boolean(
     onScheduleInterview &&
       interviewState &&
@@ -441,13 +486,13 @@ export default function CandidateWorkflowStepModal({
       interviewState.key !== "rejected"
   );
   const ownership = workflowStepOwnershipCopy({
-    kind: inspection?.kind,
+    kind: currentInspection?.kind,
     staffCanAct: Boolean(staffAction?.allowed),
-    displayStatus: inspection?.step.displayStatus,
+    displayStatus: currentInspection?.step.displayStatus,
   });
   const stepSideLabel = ownership.badge;
   const screeningApplicationId =
-    inspection?.step.stepType === RECRUITER_SCREENING_STEP_TYPE ? inspection.applicationId : null;
+    currentInspection?.step.stepType === RECRUITER_SCREENING_STEP_TYPE ? currentInspection.applicationId : null;
   const formQuestions = useMemo(() => {
     const questions = inspection?.form?.questions ?? [];
     return screeningApplicationId
@@ -587,15 +632,15 @@ export default function CandidateWorkflowStepModal({
                 {title}
               </Dialog.Title>
               <Dialog.Description id="workflow-step-inspection-desc" className="mt-1 text-xs text-slate-600">
-                {inspection
+                {currentInspection
                   ? [
-                      lifecyclePhaseLabel(inspection.phase),
-                      titleCase(inspection.step.stepType),
-                      inspection.step.required ? "Required" : "Optional",
+                      lifecyclePhaseLabel(currentInspection.phase),
+                      titleCase(currentInspection.step.stepType),
+                      currentInspection.step.required ? "Required" : "Optional",
                     ].join(" · ")
                   : "Candidate workflow step"}
               </Dialog.Description>
-              {inspection ? (
+              {currentInspection ? (
                 <span
                   className="mt-2 inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold"
                   style={{
@@ -606,13 +651,13 @@ export default function CandidateWorkflowStepModal({
                   {stepSideLabel}
                 </span>
               ) : null}
-              {inspection ? (
+              {currentInspection ? (
                 <p className="mt-2 text-xs text-slate-600">{ownership.note}</p>
               ) : null}
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
-              {inspection ? (
+              {currentInspection ? (
                 <span className="hidden sm:inline-flex">
                   <StatusBadge tone={statusTone} label={statusLabel} className="shadow-sm" />
                 </span>
@@ -1025,24 +1070,106 @@ export default function CandidateWorkflowStepModal({
                 ) : null}
 
                 {inspection.agreement ? (
-                  <Section title="eSignature">
+                  <Section title="Signed Agreement & eSignature">
                     <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                       <Meta label="Agreement" value={inspection.agreement.documentName} />
-                      <Meta label="Signature status" value={inspection.agreement.signatureStatus} />
-                      <Meta label="Sent" value={formatDateTime(inspection.agreement.sentAt)} />
-                      <Meta label="Viewed" value={formatDateTime(inspection.agreement.viewedAt)} />
-                      <Meta label="Signed" value={formatDateTime(inspection.agreement.signedAt)} />
+                      <div className="min-w-0">
+                        <dt className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                          Signature Status
+                        </dt>
+                        <dd className="mt-0.5">
+                          <StatusBadge
+                            tone={
+                              inspection.agreement.isSigned ||
+                              inspection.agreement.signatureStatus.toLowerCase().includes("signed") ||
+                              inspection.agreement.signatureStatus.toLowerCase().includes("completed")
+                                ? "success"
+                                : "warning"
+                            }
+                            label={inspection.agreement.signatureStatus}
+                          />
+                        </dd>
+                      </div>
                       <Meta label="Signer" value={inspection.agreement.signerIdentity} />
+                      <Meta label="Sent" value={formatDateTime(inspection.agreement.sentAt)} />
+                      {inspection.agreement.viewedAt ? (
+                        <Meta label="Viewed" value={formatDateTime(inspection.agreement.viewedAt)} />
+                      ) : null}
+                      <Meta label="Signed" value={formatDateTime(inspection.agreement.signedAt)} />
+                      {inspection.agreement.signingRequestId ? (
+                        <Meta label="Signing Request ID" value={inspection.agreement.signingRequestId} />
+                      ) : null}
                     </dl>
-                    {inspection.agreement.completedDocumentUrl ? (
-                      <a
-                        href={inspection.agreement.completedDocumentUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-3 inline-block text-xs font-semibold text-[color:var(--brand-primary)] hover:underline"
+
+                    {resyncNotice ? (
+                      <div
+                        role="status"
+                        className={`mt-3 rounded-lg border px-3 py-2 text-xs font-medium ${
+                          resyncNotice.tone === "success"
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                            : "border-amber-200 bg-amber-50 text-amber-900"
+                        }`}
                       >
-                        View completed document
-                      </a>
+                        {resyncNotice.message}
+                      </div>
+                    ) : null}
+
+                    {/* Action buttons: Preview, Download, and Re-sync Recovery */}
+                    <div className="mt-4 flex flex-wrap items-center gap-2.5 pt-3 border-t border-slate-100">
+                      {inspection.agreement.completedDocumentUrl ? (
+                        <a
+                          href={inspection.agreement.completedDocumentUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1.5 rounded-lg border bg-white px-3.5 py-2 text-xs font-semibold shadow-sm transition hover:brightness-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                          style={{
+                            borderColor: "var(--brand-primary)",
+                            color: "var(--brand-primary)",
+                            backgroundColor: "color-mix(in srgb, var(--brand-primary) 6%, white)",
+                          }}
+                        >
+                          <Eye className="h-3.5 w-3.5" aria-hidden />
+                          Preview Signed Agreement
+                        </a>
+                      ) : null}
+
+                      {inspection.agreement.downloadUrl || inspection.agreement.completedDocumentUrl ? (
+                        <a
+                          href={inspection.agreement.downloadUrl || inspection.agreement.completedDocumentUrl!}
+                          target="_blank"
+                          rel="noreferrer"
+                          download={`${inspection.agreement.documentName || "Signed_Agreement"}.pdf`}
+                          className="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold shadow-sm transition hover:brightness-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                          style={{
+                            background: "var(--step-modal-cta)",
+                            color: "var(--step-modal-on-primary)",
+                          }}
+                        >
+                          <Download className="h-3.5 w-3.5" aria-hidden />
+                          Download Signed Agreement
+                        </a>
+                      ) : null}
+
+                      {inspection.agreement.canResync && workerId ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleResyncFirma()}
+                          disabled={resyncing}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          <RefreshCw
+                            className={`h-3.5 w-3.5 ${resyncing ? "animate-spin text-slate-400" : "text-slate-500"}`}
+                            aria-hidden
+                          />
+                          {resyncing ? "Re-syncing with Firma…" : "Re-sync signing status"}
+                        </button>
+                      ) : null}
+                    </div>
+
+                    {!inspection.agreement.isSigned && inspection.agreement.canResync ? (
+                      <p className="mt-2 text-[11px] text-slate-500">
+                        If the candidate has signed or document sync was delayed, click &quot;Re-sync signing status&quot; to check live status with the provider.
+                      </p>
                     ) : null}
                   </Section>
                 ) : null}

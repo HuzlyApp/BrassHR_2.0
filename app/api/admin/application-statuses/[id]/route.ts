@@ -159,7 +159,7 @@ export async function DELETE(
       tenantId,
       metadata: before
         ? { name: before.name, groupId: before.groupId, groupSystemKey: before.groupSystemKey }
-        : null,
+        : undefined,
       request: req,
     });
 

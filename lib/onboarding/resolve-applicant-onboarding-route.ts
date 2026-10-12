@@ -9,6 +9,7 @@ import {
   getLegacyFallbackSteps,
   resolveApplicantEnabledSteps,
 } from "@/lib/onboarding/tenant-step-navigation";
+import { readStepLifecyclePhase } from "@/lib/onboarding/workflow-phase";
 import type {
   TenantOnboardingConfig,
   TenantOnboardingStep,
@@ -43,6 +44,8 @@ const EXEMPT_PATH_PREFIXES = [
 const POST_SUBMIT_ALLOWED_PREFIXES = [
   "/application/success",
   "/application/application-status",
+  "/application/pre-hire-completion",
+  "/application/post-hire-completion",
 ] as const;
 
 function isPostSubmitAllowedPath(pathname: string): boolean {
@@ -134,7 +137,13 @@ export function resolveApplicantOnboardingRoute(
     return { status: "allow" };
   }
 
-  if (progress?.submittedAt) {
+  const currentStep = resolveApplicantStepFromPath(normalizedPath, search, enabledSteps);
+  const isPostHireStep = Boolean(currentStep && readStepLifecyclePhase(currentStep) === "post_hire");
+  const isPostHirePhase =
+    progress?.workflowPhase === "post_hire" ||
+    (enabledSteps.length > 0 && enabledSteps.every((s) => readStepLifecyclePhase(s) === "post_hire"));
+
+  if (progress?.submittedAt && !isPostHireStep && !isPostHirePhase) {
     if (isPostSubmitAllowedPath(normalizedPath) || isExemptApplicantPath(normalizedPath)) {
       return { status: "allow" };
     }
@@ -149,8 +158,6 @@ export function resolveApplicantOnboardingRoute(
     }
     return { status: "redirect", href };
   }
-
-  const currentStep = resolveApplicantStepFromPath(normalizedPath, search, enabledSteps);
   const maxAllowed = computeMaxAllowedStepIndex(config, progress, normalizedPath);
   if (maxAllowed < 1) {
     const href = mergeOnboardingQuery(

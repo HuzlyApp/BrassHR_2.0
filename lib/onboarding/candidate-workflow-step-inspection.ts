@@ -92,7 +92,11 @@ import {
 import {
   getFirmaRecruiterTemplateId,
   isFirmaAttachableWorkflowStepId,
+  isFirmaSigningComplete,
 } from "@/lib/onboarding/firma-step-settings";
+import { tryGetFirmaSigningRequestDownload } from "@/lib/firma/client";
+import { resolveTenantFirmaWorkspaceId } from "@/lib/firma/resolve-tenant-workspace";
+import { isAgreementOrSignatureStep } from "@/lib/onboarding/is-agreement-step";
 import {
   interviewStepStatus,
   isInterviewStep,
@@ -196,6 +200,11 @@ export type WorkflowStepInspection = {
     signedAt: string | null;
     signerIdentity: string | null;
     completedDocumentUrl: string | null;
+    downloadUrl: string | null;
+    signingRequestId: string | null;
+    firmaStatus: string | null;
+    canResync: boolean;
+    isSigned: boolean;
     auditHistory: Array<{ status: string; at: string | null }>;
   } | null;
   authorization: {
@@ -948,40 +957,106 @@ export async function loadCandidateWorkflowStepInspection(
   }
 
   let agreement: WorkflowStepInspection["agreement"] = null;
+  const isAgreementStep =
+    kind === "agreement" ||
+    isAgreementOrSignatureStep({
+      id: mapped.id,
+      stepKey: mapped.stepKey,
+      stepType: mapped.stepType,
+      title: mapped.title,
+      phase: mapped.phase,
+      metadata: (record.settings as Record<string, unknown> | null) ?? null,
+      data: progressData,
+    });
+
   // A signing session opened before a re-publish stays on the replaced step.
   const sessionStepIds = [mappedTenantStepId, asText(progressData[REPLACED_STEP_DATA_KEY])].filter(
     (id): id is string => Boolean(id)
   );
-  if (kind === "agreement" || (kind === "background_check" && sessionStepIds.length)) {
+
+  if (isAgreementStep || (kind === "background_check" && sessionStepIds.length)) {
     let query = supabase
       .from("worker_firma_signing_sessions")
       .select(
-        "id, onboarding_step_id, firma_status, created_at, updated_at, recruiter_template_id"
+        "id, onboarding_step_id, firma_status, created_at, updated_at, recruiter_template_id, signing_request_id, firma_workspace_id"
       )
       .eq("tenant_id", tenantId)
       .eq("worker_id", workerId)
       .order("created_at", { ascending: false });
-    if (sessionStepIds.length) query = query.in("onboarding_step_id", sessionStepIds);
+
+    if (sessionStepIds.length) {
+      query = query.in("onboarding_step_id", sessionStepIds);
+    } else if (mapped.id) {
+      query = query.eq("onboarding_step_id", mapped.id);
+    }
     const { data: sessions } = await query;
-    const session = ((sessions ?? []) as Array<Record<string, unknown>>)[0] ?? null;
+    let session = ((sessions ?? []) as Array<Record<string, unknown>>)[0] ?? null;
+
+    if (!session && asText(progressData.signing_request_id)) {
+      const { data: byRequestId } = await supabase
+        .from("worker_firma_signing_sessions")
+        .select(
+          "id, onboarding_step_id, firma_status, created_at, updated_at, recruiter_template_id, signing_request_id, firma_workspace_id"
+        )
+        .eq("tenant_id", tenantId)
+        .eq("signing_request_id", asText(progressData.signing_request_id)!)
+        .maybeSingle();
+      if (byRequestId) session = byRequestId;
+    }
+
+    const signingRequestId = asText(session?.signing_request_id) ?? asText(progressData.signing_request_id);
+    const firmaStatus = asText(session?.firma_status) ?? asText(progressData.firma_status);
+    const isSigned =
+      isFirmaSigningComplete(firmaStatus) ||
+      mapped.displayStatus === "completed" ||
+      mapped.displayStatus === "approved" ||
+      progressData.firma_signed === true ||
+      progressData.authorization_agreed === true;
+
     const completedDoc = documents.find((doc) => doc.verificationStatus === "approved") ?? documents[0] ?? null;
-    agreement = session
-      ? {
-          documentName: mapped.title,
-          signatureStatus: signatureStatusLabel(asText(session.firma_status)),
-          sentAt: asText(session.created_at),
-          viewedAt: null,
-          signedAt:
-            String(session.firma_status ?? "").toLowerCase() === "completed"
-              ? asText(session.updated_at)
-              : null,
-          signerIdentity: "Applicant",
-          completedDocumentUrl: completedDoc?.previewUrl ?? null,
-          auditHistory: [
-            { status: signatureStatusLabel(asText(session.firma_status)), at: asText(session.updated_at) },
-          ],
+    let resolvedDownloadUrl =
+      asText(progressData.download_url) ??
+      asText(progressData.signed_document_url) ??
+      completedDoc?.downloadUrl ??
+      null;
+
+    if (!resolvedDownloadUrl && signingRequestId) {
+      try {
+        const wsId =
+          asText(session?.firma_workspace_id) ??
+          (await resolveTenantFirmaWorkspaceId(supabase, tenantId).catch(() => null));
+        if (wsId) {
+          resolvedDownloadUrl = await tryGetFirmaSigningRequestDownload(signingRequestId, wsId);
         }
-      : null;
+      } catch {
+        /* best effort fetch */
+      }
+    }
+
+    if (session || signingRequestId || isAgreementStep) {
+      agreement = {
+        documentName: mapped.title,
+        signatureStatus: signatureStatusLabel(firmaStatus ?? (isSigned ? "completed" : "pending")),
+        sentAt: asText(session?.created_at) ?? asText(mapped.assignedAt),
+        viewedAt: null,
+        signedAt: isSigned
+          ? asText(session?.updated_at) ?? asText(progress?.completed_at) ?? asText(mapped.completedAt)
+          : null,
+        signerIdentity: candidateName || "Applicant",
+        completedDocumentUrl: resolvedDownloadUrl ?? completedDoc?.previewUrl ?? null,
+        downloadUrl: resolvedDownloadUrl ?? completedDoc?.downloadUrl ?? null,
+        signingRequestId,
+        firmaStatus,
+        canResync: Boolean(signingRequestId || session || mappedTenantStepId),
+        isSigned,
+        auditHistory: [
+          {
+            status: signatureStatusLabel(firmaStatus ?? (isSigned ? "completed" : "pending")),
+            at: asText(session?.updated_at) ?? asText(progress?.completed_at) ?? asText(session?.created_at),
+          },
+        ],
+      };
+    }
   }
 
   let authorization: WorkflowStepInspection["authorization"] = null;

@@ -15,6 +15,9 @@ import OnboardingLayout from "@/app/components/OnboardingLayout";
 import ApplicantRecruiterNotes from "@/app/application/components/ApplicantRecruiterNotes";
 import type { ApplicationStatusKey } from "@/lib/applicant-portal";
 import { sendApplicationSubmissionEmail } from "@/lib/onboarding/send-application-submission-email";
+import PreHireCompletionView from "@/app/application/components/completion/PreHireCompletionView";
+import PostHireCompletionView from "@/app/application/components/completion/PostHireCompletionView";
+import type { WorkflowCompletionResult } from "@/lib/onboarding/workflow-completion-check";
 
 type ApplicationStatusResponse = {
   applicationStatus?: ApplicationStatusKey;
@@ -77,6 +80,7 @@ export default function ApplicationStatusPage() {
   const [applicationStatus, setApplicationStatus] = useState<ApplicationStatusKey>("pending");
   const [statusLabel, setStatusLabel] = useState("Pending");
   const [submittedAt, setSubmittedAt] = useState<string | null>(null);
+  const [completionResult, setCompletionResult] = useState<WorkflowCompletionResult | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -93,18 +97,34 @@ export default function ApplicationStatusPage() {
       }
 
       try {
-        const res = await fetch(
-          `/api/onboarding/application-status?applicantId=${encodeURIComponent(applicantId)}`,
-          { cache: "no-store" }
-        );
-        const data = (await res.json()) as ApplicationStatusResponse;
+        const tenant = searchParams.get("tenant")?.trim() || "";
+        const [statusRes, compRes] = await Promise.allSettled([
+          fetch(
+            `/api/onboarding/application-status?applicantId=${encodeURIComponent(applicantId)}`,
+            { cache: "no-store" }
+          ),
+          fetch(
+            `/api/onboarding/completion-status?applicantId=${encodeURIComponent(applicantId)}${
+              tenant ? `&tenant=${encodeURIComponent(tenant)}` : ""
+            }`,
+            { cache: "no-store" }
+          ),
+        ]);
+
         if (!alive) return;
-        if (res.ok) {
+
+        if (statusRes.status === "fulfilled" && statusRes.value.ok) {
+          const data = (await statusRes.value.json()) as ApplicationStatusResponse;
           setApplicationStatus(data.applicationStatus ?? "pending");
           setStatusLabel(data.statusLabel ?? "Pending");
           setSubmittedAt(data.submittedAt ?? new Date().toISOString());
         } else {
           setSubmittedAt(new Date().toISOString());
+        }
+
+        if (compRes.status === "fulfilled" && compRes.value.ok) {
+          const compData = (await compRes.value.json()) as WorkflowCompletionResult;
+          setCompletionResult(compData);
         }
       } catch {
         if (alive) setSubmittedAt(new Date().toISOString());
@@ -116,7 +136,7 @@ export default function ApplicationStatusPage() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [searchParams]);
 
   useEffect(() => {
     if (emailSentRef.current) return;
@@ -140,42 +160,39 @@ export default function ApplicationStatusPage() {
   const isApproved = applicationStatus === "approved";
   const submittedDateLabel = formatSubmittedDate(submittedAt);
   const completion = searchParams.get("completion");
-  const isPreHireComplete = completion === "pre_hire";
-  const isPostHireComplete = completion === "post_hire";
-  const completionTitle = isPostHireComplete
-    ? "Congratulations"
-    : "Pre-hire steps are completed";
-  const completionMessage = isPostHireComplete
-    ? "You have completed all post-hire steps. Your onboarding is complete and you are ready for work. Please watch your email for any final details from your recruiter."
-    : "Your pre-hire steps are complete. The post-hire part will be ready next, and your recruiter will email you when it is time to continue.";
+  const isExplicitPreHire = completion === "pre_hire";
+  const isExplicitPostHire = completion === "post_hire";
 
-  if (isPreHireComplete || isPostHireComplete) {
+  const showPostHireCompleted =
+    isExplicitPostHire ||
+    (!isExplicitPreHire && completionResult?.allComplete === true);
+
+  const showPreHireCompleted =
+    isExplicitPreHire ||
+    (!isExplicitPostHire &&
+      completionResult?.preHire?.isComplete === true &&
+      !completionResult?.postHire?.isComplete);
+
+  if (showPostHireCompleted) {
     return (
       <OnboardingLayout
         cardClassName="min-[700px]:grid-cols-[minmax(0,2fr)_minmax(180px,1fr)] min-[1200px]:grid-cols-[minmax(0,1.65fr)_minmax(220px,1fr)]"
         rightPanelImageClassName="object-cover object-center grayscale opacity-60"
         rightPanelOverlayClassName="bg-white/65"
       >
-        <div className={APPLICANT_SHELL_TALL_CLASS}>
-          <div className="flex flex-1 flex-col items-center justify-center text-center">
-            <div
-              className="mb-5 flex h-16 w-16 items-center justify-center rounded-full text-white"
-              style={{ backgroundColor: isPostHireComplete ? "#16a34a" : branding.primaryHex }}
-            >
-              <CheckCircle2 className="h-8 w-8" strokeWidth={2.5} />
-            </div>
-            <h1
-              className={`${APPLICANT_TITLE_CLASS} ${
-                isPostHireComplete ? "text-green-700" : "text-slate-900"
-              }`}
-            >
-              {completionTitle}
-            </h1>
-            <p className="mt-4 max-w-[520px] text-base leading-7 text-slate-600">
-              {completionMessage}
-            </p>
-          </div>
-        </div>
+        <PostHireCompletionView completionResult={completionResult} />
+      </OnboardingLayout>
+    );
+  }
+
+  if (showPreHireCompleted) {
+    return (
+      <OnboardingLayout
+        cardClassName="min-[700px]:grid-cols-[minmax(0,2fr)_minmax(180px,1fr)] min-[1200px]:grid-cols-[minmax(0,1.65fr)_minmax(220px,1fr)]"
+        rightPanelImageClassName="object-cover object-center grayscale opacity-60"
+        rightPanelOverlayClassName="bg-white/65"
+      >
+        <PreHireCompletionView completionResult={completionResult} />
       </OnboardingLayout>
     );
   }

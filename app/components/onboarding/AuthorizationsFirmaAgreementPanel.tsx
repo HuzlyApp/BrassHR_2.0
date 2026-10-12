@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FileText } from "lucide-react";
+import { Download, Eye, FileText, RefreshCw } from "lucide-react";
 import { FirmaSigningIframe } from "@/app/components/onboarding/FirmaSigningIframe";
 import {
   E_SIGNATURE_USER_ERRORS,
@@ -22,7 +22,8 @@ type FirmaSessionResponse = {
     iframe_url: string | null;
     firma_status: string;
   };
-  error?: string;
+  download_url?: string | null;
+  error?: string | null;
   code?: string;
 };
 
@@ -59,6 +60,8 @@ export function AuthorizationsFirmaAgreementPanel({
   const [iframeUrl, setIframeUrl] = useState<string | null>(null);
   const [signingRequestId, setSigningRequestId] = useState<string | null>(null);
   const [firmaStatus, setFirmaStatus] = useState("draft");
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [checkingStatus, setCheckingStatus] = useState(false);
   const [showSigningModal, setShowSigningModal] = useState(false);
   const statusRequestInFlight = useRef(false);
 
@@ -114,6 +117,9 @@ export function AuthorizationsFirmaAgreementPanel({
         if (session.iframe_url) {
           setIframeUrl(session.iframe_url);
         }
+        if (data.download_url) {
+          setDownloadUrl(data.download_url);
+        }
       } catch {
         /* no existing session yet */
       }
@@ -150,6 +156,9 @@ export function AuthorizationsFirmaAgreementPanel({
       }
       if (data.session?.signing_request_id) {
         setSigningRequestId(data.session.signing_request_id);
+      }
+      if (data.download_url) {
+        setDownloadUrl(data.download_url);
       }
       if (data.completed || isFirmaSigningComplete(status)) {
         setShowSigningModal(false);
@@ -314,9 +323,55 @@ export function AuthorizationsFirmaAgreementPanel({
 
         <div className="shrink-0">
           {signed ? (
-            <span className="inline-flex items-center whitespace-nowrap rounded-lg bg-[color:var(--brand-primary)] px-3 py-1.5 text-[11px] font-semibold text-white sm:rounded-xl sm:px-5 sm:py-2 sm:text-[12px]">
-              Signed
-            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center whitespace-nowrap rounded-lg bg-[color:var(--brand-primary)] px-3 py-1.5 text-[11px] font-semibold text-white sm:rounded-xl sm:px-4 sm:py-2 sm:text-[12px]">
+                Signed
+              </span>
+              {downloadUrl || signingRequestId ? (
+                <>
+                  <a
+                    href={
+                      downloadUrl ||
+                      `/api/onboarding/firma-sign/download?${new URLSearchParams({
+                        applicantId: applicantId || "",
+                        stepKey: stepKey || "",
+                        signingRequestId: signingRequestId || "",
+                        redirect: "true",
+                      }).toString()}`
+                    }
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[color:var(--brand-primary)] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[color:var(--brand-primary)] shadow-sm transition hover:bg-slate-50 sm:rounded-xl sm:px-3 sm:py-2 sm:text-[12px]"
+                    title="Preview signed agreement"
+                  >
+                    <Eye className="h-3.5 w-3.5" aria-hidden />
+                    Preview
+                  </a>
+                  <a
+                    href={
+                      downloadUrl
+                        ? downloadUrl
+                        : `/api/onboarding/firma-sign/download?${new URLSearchParams({
+                            applicantId: applicantId || "",
+                            stepKey: stepKey || "",
+                            signingRequestId: signingRequestId || "",
+                            redirect: "true",
+                            download: "true",
+                            filename: `${cardTitle}.pdf`,
+                          }).toString()}`
+                    }
+                    target="_blank"
+                    rel="noreferrer"
+                    download={`${cardTitle}.pdf`}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-primary)] px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-sm transition hover:brightness-95 sm:rounded-xl sm:px-3 sm:py-2 sm:text-[12px]"
+                    title="Download signed agreement"
+                  >
+                    <Download className="h-3.5 w-3.5" aria-hidden />
+                    Download
+                  </a>
+                </>
+              ) : null}
+            </div>
           ) : (
             <button
               type="button"
@@ -334,7 +389,7 @@ export function AuthorizationsFirmaAgreementPanel({
         </div>
       </div>
 
-      <div className="mt-3 flex items-center justify-between gap-2">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100/60 pt-2.5">
         {signingRequestId ? (
           <p className="min-w-0 flex-1 truncate text-[10px] text-slate-500 sm:text-xs">
             Signing request: {signingRequestId}
@@ -342,9 +397,27 @@ export function AuthorizationsFirmaAgreementPanel({
         ) : (
           <span className="min-w-0 flex-1" aria-hidden="true" />
         )}
-        <p className="shrink-0 whitespace-nowrap text-[11px] text-slate-700 sm:text-sm">
-          Status: <span className="font-semibold">{mapFirmaStatusLabel(firmaStatus)}</span>
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="shrink-0 whitespace-nowrap text-[11px] text-slate-700 sm:text-sm">
+            Status: <span className="font-semibold">{mapFirmaStatusLabel(firmaStatus)}</span>
+          </p>
+          {!signed && signingRequestId ? (
+            <button
+              type="button"
+              onClick={async () => {
+                setCheckingStatus(true);
+                await refreshStatus();
+                setCheckingStatus(false);
+              }}
+              disabled={checkingStatus}
+              className="inline-flex items-center gap-1 text-[11px] text-[color:var(--brand-primary)] hover:underline disabled:opacity-60"
+              title="Re-check live signing status"
+            >
+              <RefreshCw className={`h-3 w-3 ${checkingStatus ? "animate-spin" : ""}`} />
+              {checkingStatus ? "Checking…" : "Check status"}
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {showMissingEmailMessage ? (
@@ -357,7 +430,7 @@ export function AuthorizationsFirmaAgreementPanel({
 
       {showSigningModal && iframeUrl ? (
         <div
-          className="fixed inset-0 z-[100] flex h-[100dvh] max-h-[100dvh] w-screen max-w-[100vw] flex-col overflow-hidden"
+          className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden p-4 sm:p-6 md:p-8 lg:p-10 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))]"
           style={{
             background:
               "linear-gradient(135deg, var(--brand-gradient-from) 0%, var(--brand-gradient-to) 100%)",
@@ -366,7 +439,7 @@ export function AuthorizationsFirmaAgreementPanel({
           aria-modal="true"
           aria-label="Sign agreement"
         >
-          <div className="min-h-0 flex-1 overflow-hidden pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]">
+          <div className="relative w-full max-w-[1240px] h-[86vh] max-h-[820px] overflow-hidden rounded-2xl shadow-2xl bg-[#1a1d24] border-0">
             <FirmaSigningIframe
               iframeUrl={iframeUrl}
               title="Sign Agreement"

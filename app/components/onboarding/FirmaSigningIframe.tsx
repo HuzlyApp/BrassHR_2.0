@@ -57,36 +57,15 @@ function visibleContainerHeight(container: HTMLElement): number {
 function resolveFirmaEmbedLayout(container: HTMLElement): FirmaEmbedLayout {
   const availableWidth = Math.max(1, container.clientWidth);
   const availableHeight = Math.max(1, visibleContainerHeight(container));
-  const viewportWidth = window.innerWidth;
 
-  // Phones: fill the viewport with Firmas own responsive UI (readable header/footer).
-  if (viewportWidth <= FIRMA_NATIVE_EMBED_MAX_WIDTH) {
-    return {
-      mode: "native",
-      scale: 1,
-      embedWidth: availableWidth,
-      embedHeight: availableHeight,
-      scaledWidth: availableWidth,
-      scaledHeight: availableHeight,
-    };
-  }
-
-  const { width: embedWidth, height: embedHeight } = resolveFirmaEmbedDimensions(
-    viewportWidth,
-    availableWidth,
-    availableHeight
-  );
-  const scale = computeFirmaEmbedScale(availableWidth, availableHeight, embedWidth, embedHeight, {
-    maxScale: viewportWidth < 1024 ? FIRMA_EMBED_MOBILE_MAX_SCALE : undefined,
-  });
-
+  // Native 100% width and height embed: provides full responsive canvas for document readability
   return {
-    mode: "scaled",
-    scale,
-    embedWidth,
-    embedHeight,
-    scaledWidth: Math.ceil(embedWidth * scale),
-    scaledHeight: Math.ceil(embedHeight * scale),
+    mode: "native",
+    scale: 1,
+    embedWidth: availableWidth,
+    embedHeight: availableHeight,
+    scaledWidth: availableWidth,
+    scaledHeight: availableHeight,
   };
 }
 
@@ -102,7 +81,14 @@ export function FirmaSigningIframe({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const completedRef = useRef(false);
   const onCompleteRef = useRef(onComplete);
-  const [layout, setLayout] = useState<FirmaEmbedLayout | null>(null);
+  const [layout, setLayout] = useState<FirmaEmbedLayout>({
+    mode: "native",
+    scale: 1,
+    embedWidth: 1200,
+    embedHeight: 800,
+    scaledWidth: 1200,
+    scaledHeight: 800,
+  });
   onCompleteRef.current = onComplete;
 
   const notifyComplete = () => {
@@ -225,14 +211,14 @@ export function FirmaSigningIframe({
       <div
         ref={containerRef}
         data-firma-embed-shell="true"
-        className={`relative h-full min-h-0 w-full overflow-hidden overscroll-none ${brandingShellBgClass}`}
+        className="relative h-full min-h-0 w-full overflow-hidden overscroll-none rounded-2xl bg-[#1a1d24]"
       >
         <iframe
           ref={iframeRef}
           data-testid={testId}
           src={embedUrl}
           title={title}
-          className="block h-full w-full border-0 bg-transparent"
+          className="block h-full w-full border-0 bg-[#1a1d24]"
           style={{ width: "100%", height: "100%", transform: "none" }}
           allow="camera; microphone; clipboard-write"
         />
