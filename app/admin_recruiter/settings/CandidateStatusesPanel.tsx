@@ -19,11 +19,14 @@ import {
 import { AI_MATCH_STATUS_STAGES } from "@/lib/jobs/application-statuses/stage-assignments";
 import {
   normalizeStageStatusLane,
+  resolveConfiguredStageStatusLanes,
   resolveStageStatusLanes,
+  selectWorkflowScopedLaneRows,
+  applyStageButtonVisibility,
   type SavedStageStatusLane,
   type StageStatusLane,
 } from "@/lib/jobs/application-statuses/stage-status-lanes";
-import { StageStatusLaneEditor } from "./StageStatusLaneEditor";
+import { StageStatusLaneEditor, type LanePlacement, type LaneStatus } from "./StageStatusLaneEditor";
 import { HIRE_STAGE_BY_STEP_KEY } from "@/lib/onboarding/hire-stage-catalog";
 import { PRE_HIRE_FIGMA_STAGES } from "@/lib/onboarding/hire-stage-groups";
 
@@ -59,7 +62,54 @@ type GroupStageAssignment = {
   sortOrder: number;
 };
 
-type SavedLane = SavedStageStatusLane & { stageName: string };
+type SavedLane = SavedStageStatusLane & {
+  stageName: string;
+  workflowId: string | null;
+  noteId: string | null;
+  note: string | null;
+};
+
+type ReasonCodeRow = {
+  stageName: string;
+  code: string;
+  sortOrder: number;
+  workflowId: string | null;
+  note: string | null;
+};
+
+function mapReasonCodePayload(row: Record<string, unknown>): ReasonCodeRow | null {
+  const stageName = typeof row.stageName === "string" ? row.stageName : "";
+  const code = typeof row.code === "string" ? row.code.trim() : "";
+  if (!stageName || !code) return null;
+  const note = typeof row.note === "string" ? row.note.trim() : "";
+  return {
+    stageName,
+    code,
+    sortOrder: Number(row.sortOrder ?? 0),
+    workflowId: typeof row.workflowId === "string" && row.workflowId ? row.workflowId : null,
+    note: note || null,
+  };
+}
+
+type StageButtonPref = {
+  stageName: string;
+  workflowId: string | null;
+  showAlternate: boolean;
+  showClosed: boolean;
+};
+
+type StageNote = {
+  id: string;
+  stageName: string;
+  body: string;
+  workflowId: string | null;
+};
+
+type WorkflowOption = {
+  id: string;
+  name: string;
+  status: string;
+};
 
 const PIPELINE_GROUP_KEYS = new Set<string>(APPLICATION_STATUS_GROUP_KEYS);
 const fieldClass = "h-9 w-full rounded-lg border border-[#CBD5E1] bg-white px-3 text-sm";
@@ -122,7 +172,63 @@ function mapSavedLane(row: Record<string, unknown>): SavedLane | null {
     statusId,
     lane,
     sortOrder: Number(row.sortOrder ?? 0),
+    workflowId: typeof row.workflowId === "string" && row.workflowId ? row.workflowId : null,
+    noteId: typeof row.noteId === "string" && row.noteId ? row.noteId : null,
+    note: typeof row.note === "string" && row.note.trim() ? row.note.trim() : null,
   };
+}
+
+function mapButtonPrefs(rows: unknown): StageButtonPref[] {
+  if (!Array.isArray(rows)) return [];
+  return rows.flatMap((row) => {
+    if (!row || typeof row !== "object") return [];
+    const record = row as Record<string, unknown>;
+    const stageName = typeof record.stageName === "string" ? record.stageName : "";
+    if (!stageName) return [];
+    return [
+      {
+        stageName,
+        workflowId: typeof record.workflowId === "string" && record.workflowId ? record.workflowId : null,
+        showAlternate: record.showAlternate !== false,
+        showClosed: record.showClosed !== false,
+      },
+    ];
+  });
+}
+
+function mapStageNotes(rows: unknown): StageNote[] {
+  if (!Array.isArray(rows)) return [];
+  return rows.flatMap((row) => {
+    if (!row || typeof row !== "object") return [];
+    const record = row as Record<string, unknown>;
+    const id = typeof record.id === "string" ? record.id : "";
+    const stageName = typeof record.stageName === "string" ? record.stageName : "";
+    const body = typeof record.body === "string" ? record.body.trim() : "";
+    if (!id || !stageName || !body) return [];
+    return [
+      {
+        id,
+        stageName,
+        body,
+        workflowId: typeof record.workflowId === "string" && record.workflowId ? record.workflowId : null,
+      },
+    ];
+  });
+}
+
+function decorateLane(
+  statuses: Array<{ id: string; name: string }>,
+  savedByStatus: Map<string, { noteId: string | null; note: string | null }>
+): LaneStatus[] {
+  return statuses.map((status) => {
+    const saved = savedByStatus.get(status.id);
+    return {
+      id: status.id,
+      name: status.name,
+      noteId: saved?.noteId ?? null,
+      note: saved?.note ?? null,
+    };
+  });
 }
 
 function preHireStepsByStage(): Array<{ stage: string; steps: string[] }> {
@@ -318,6 +424,133 @@ function GroupStatusManager({
   );
 }
 
+function ReasonCodeEditor({
+  codes,
+  presets,
+  canManage,
+  saving,
+  onSave,
+  detail,
+}: {
+  codes: string[];
+  presets: string[];
+  canManage: boolean;
+  saving: boolean;
+  onSave: (codes: string[]) => void;
+  detail: string;
+}) {
+  const [items, setItems] = useState(codes);
+  const [query, setQuery] = useState("");
+  const savedKey = codes.join("\n");
+
+  useEffect(() => {
+    setItems(savedKey ? savedKey.split("\n").filter(Boolean) : []);
+  }, [savedKey]);
+
+  const typed = query.trim().replace(/\s+/g, " ");
+  const suggestions = presets.filter((preset) => {
+    if (items.some((item) => item.toLowerCase() === preset.toLowerCase())) return false;
+    if (!typed) return true;
+    return preset.toLowerCase().includes(typed.toLowerCase());
+  });
+  const alreadyListed = items.some((item) => item.toLowerCase() === typed.toLowerCase());
+  const presetMatch = presets.find((preset) => preset.toLowerCase() === typed.toLowerCase());
+
+  function addNote(value: string) {
+    const next = value.trim().replace(/\s+/g, " ");
+    if (!next) return;
+    const existing =
+      presets.find((preset) => preset.toLowerCase() === next.toLowerCase()) ??
+      items.find((item) => item.toLowerCase() === next.toLowerCase());
+    const note = existing ?? next;
+    if (items.some((item) => item.toLowerCase() === note.toLowerCase())) {
+      setQuery("");
+      return;
+    }
+    const nextItems = [...items, note];
+    setItems(nextItems);
+    setQuery("");
+    onSave(nextItems);
+  }
+
+  return (
+    <div className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] px-3 py-2">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-[#012352]">
+        Reason codes
+      </p>
+      <p className="mt-0.5 text-[11px] leading-4 text-[#64748B]">{detail}</p>
+      {items.length === 0 ? (
+        <p className="mt-2 text-xs text-[#94A3B8]">No reason codes on this stage.</p>
+      ) : (
+        <ul className="mt-2 flex flex-wrap gap-1.5">
+          {items.map((item) => (
+            <li key={item} className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-xs text-[#0F172A]">
+              {item}
+              {canManage ? (
+                <button
+                  type="button"
+                  aria-label={`Remove ${item}`}
+                  disabled={saving}
+                  onClick={() => {
+                    const nextItems = items.filter((note) => note !== item);
+                    setItems(nextItems);
+                    onSave(nextItems);
+                  }}
+                  className="text-[#64748B]"
+                >
+                  <X className="h-3 w-3" aria-hidden />
+                </button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+      {canManage ? (
+        <div className="mt-2 space-y-2">
+          <input
+            value={query}
+            disabled={saving}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                addNote(typed);
+              }
+            }}
+            list={`reason-presets-${savedKey.length}`}
+            placeholder="Type a reason code"
+            aria-label="Add a reason code"
+            className="h-9 w-full rounded-lg border border-[#CBD5E1] bg-white px-3 text-sm"
+          />
+          {typed && suggestions.length > 0 ? (
+            <ul className="max-h-32 overflow-auto rounded-lg border border-[#E2E8F0] bg-white">
+              {suggestions.slice(0, 8).map((preset) => (
+                <li key={preset}>
+                  <button
+                    type="button"
+                    onClick={() => addNote(preset)}
+                    className="block w-full px-3 py-1.5 text-left text-sm text-[#0F172A] hover:bg-[#F8FAFC]"
+                  >
+                    {preset}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <button
+            type="button"
+            disabled={saving || !typed || alreadyListed}
+            onClick={() => addNote(typed)}
+            className="inline-flex h-8 items-center rounded-md border border-[#CBD5E1] bg-white px-3 text-xs font-medium text-[#334155] disabled:opacity-50"
+          >
+            {presetMatch ? "Reuse reason code" : "Add reason code"}
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function StageAssignmentCard({
   stage,
   detail,
@@ -335,6 +568,8 @@ function StageAssignmentCard({
   onRemove,
   statusSummary,
   laneEditor,
+  categoriesOnly,
+  categorySummary,
 }: {
   stage: string;
   detail: string;
@@ -352,6 +587,8 @@ function StageAssignmentCard({
   onRemove: (groupId: string) => void;
   statusSummary: (groupId: string, limit?: number) => string;
   laneEditor?: ReactNode;
+  categoriesOnly?: boolean;
+  categorySummary?: string;
 }) {
   return (
     <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-[#F8FAFC]">
@@ -365,14 +602,16 @@ function StageAssignmentCard({
         <span className="min-w-0">
           <span className="block text-sm font-semibold text-[#012352]">{stage}</span>
           <span className="mt-0.5 block text-xs text-[#64748B]">
-            {stageGroups.length > 0
-              ? stageGroups.map((group) => group.name).join(", ")
-              : "No groups assigned yet"}
-            {" · "}+ Closed shared
+            {categoriesOnly
+              ? categorySummary || "Primary, alternate, and closing"
+              : stageGroups.length > 0
+                ? stageGroups.map((group) => group.name).join(", ")
+                : "No groups assigned yet"}
+            {categoriesOnly ? "" : " · + Closed shared"}
           </span>
         </span>
         <span className="inline-flex shrink-0 items-center gap-2 text-xs font-medium text-[#64748B]">
-          {stageGroups.length}
+          {categoriesOnly ? null : stageGroups.length}
           <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} aria-hidden />
         </span>
       </button>
@@ -380,6 +619,9 @@ function StageAssignmentCard({
       {open ? (
         <div className="space-y-3 border-t border-[#E2E8F0] bg-white px-4 py-3">
           {laneEditor}
+
+          {categoriesOnly ? null : (
+            <>
           <p className="text-[11px] leading-5 text-[#94A3B8]">{detail}</p>
 
           {stageGroups.length === 0 ? (
@@ -461,6 +703,11 @@ function StageAssignmentCard({
               Only administrators can assign status groups to stages.
             </p>
           )}
+            </>
+          )}
+          {categoriesOnly ? (
+            <p className="text-[11px] leading-5 text-[#94A3B8]">{detail}</p>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -502,6 +749,11 @@ export default function CandidateStatusesPanel() {
   const [groups, setGroups] = useState<StatusGroup[]>([]);
   const [assignments, setAssignments] = useState<GroupStageAssignment[]>([]);
   const [savedLanes, setSavedLanes] = useState<SavedLane[]>([]);
+  const [reasonCodes, setReasonCodes] = useState<ReasonCodeRow[]>([]);
+  const [buttonPrefs, setButtonPrefs] = useState<StageButtonPref[]>([]);
+  const [stageNotes, setStageNotes] = useState<StageNote[]>([]);
+  const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
+  const [workflowScopeId, setWorkflowScopeId] = useState("");
   const [canManage, setCanManage] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -526,8 +778,8 @@ export default function CandidateStatusesPanel() {
     setLoadError(null);
     try {
       const [statusRes, assignRes] = await Promise.all([
-        fetch("/api/admin/application-statuses"),
-        fetch("/api/admin/application-status-stage-assignments"),
+        fetch("/api/admin/application-statuses", { cache: "no-store" }),
+        fetch("/api/admin/application-status-stage-assignments", { cache: "no-store" }),
       ]);
       const statusPayload = await statusRes.json().catch(() => ({}));
       const assignPayload = await assignRes.json().catch(() => ({}));
@@ -546,6 +798,22 @@ export default function CandidateStatusesPanel() {
         ((assignPayload.lanes ?? []) as Array<Record<string, unknown>>)
           .map(mapSavedLane)
           .filter((row): row is SavedLane => row != null)
+      );
+      setReasonCodes(
+        ((assignPayload.reasonCodes ?? []) as Array<Record<string, unknown>>).flatMap((row) => {
+          const mapped = mapReasonCodePayload(row);
+          return mapped ? [mapped] : [];
+        })
+      );
+      setButtonPrefs(mapButtonPrefs(assignPayload.buttonPrefs));
+      setStageNotes(mapStageNotes(assignPayload.notes));
+      setWorkflows(
+        ((assignPayload.workflows ?? []) as Array<Record<string, unknown>>).flatMap((row) => {
+          const id = typeof row.id === "string" ? row.id : "";
+          const name = typeof row.name === "string" ? row.name : "";
+          if (!id || !name) return [];
+          return [{ id, name, status: typeof row.status === "string" ? row.status : "" }];
+        })
       );
       setCanManage(Boolean(statusPayload.canManage || assignPayload.canManage));
     } catch (error) {
@@ -660,13 +928,23 @@ export default function CandidateStatusesPanel() {
     }
   }
 
-  async function saveStageLanes(stageName: string, lanes: Record<StageStatusLane, string[]>) {
+  async function saveStageLanes(
+    stageName: string,
+    lanes: Record<StageStatusLane, LanePlacement[]>,
+    workflowId: string | null,
+    options?: { quiet?: boolean }
+  ): Promise<boolean> {
     setSaving(true);
     try {
       const response = await fetch("/api/admin/application-status-stage-assignments", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "setLanes", stageName, lanes }),
+        body: JSON.stringify({
+          action: "setLanes",
+          stageName,
+          workflowId,
+          lanes,
+        }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Failed to save status order");
@@ -675,9 +953,99 @@ export default function CandidateStatusesPanel() {
           .map(mapSavedLane)
           .filter((row): row is SavedLane => row != null)
       );
-      flash("success", `Status order saved for ${stageName}`);
+      setButtonPrefs(mapButtonPrefs(payload.buttonPrefs));
+      if (!options?.quiet) flash("success", `Status list saved for ${stageName}`);
+      return true;
     } catch (error) {
       flash("error", error instanceof Error ? error.message : "Failed to save status order");
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function addLaneStatus(
+    stageName: string,
+    workflowId: string | null,
+    lane: StageStatusLane,
+    input: { name: string; statusId: string },
+    current: Record<StageStatusLane, LanePlacement[]>
+  ) {
+    const name = input.name.trim().replace(/\s+/g, " ");
+    let statusId = input.statusId;
+    if (name) {
+      const existing = statuses.find(
+        (status) => status.isActive && status.name.toLowerCase() === name.toLowerCase()
+      );
+      if (existing) {
+        const alreadyPlaced = (Object.values(current) as LanePlacement[][]).some((rows) =>
+          rows.some((row) => row.statusId === existing.id)
+        );
+        if (alreadyPlaced) {
+          flash("error", `${existing.name} is already on this stage.`);
+          return;
+        }
+        statusId = existing.id;
+      } else {
+        const response = await fetch("/api/admin/application-statuses", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          flash("error", payload.error || "Failed to create status");
+          return;
+        }
+        const created = mapStatus((payload.status ?? {}) as Record<string, unknown>);
+        setStatuses((rows) => [...rows.filter((row) => row.id !== created.id), created]);
+        statusId = created.id;
+      }
+    }
+    if (!statusId) {
+      flash("error", "Enter a status name or choose an existing status.");
+      return;
+    }
+    const saved = await saveStageLanes(
+      stageName,
+      {
+        ...current,
+        [lane]: [
+          ...current[lane].filter((row) => row.statusId !== statusId),
+          { statusId, noteId: null, note: null },
+        ],
+      },
+      workflowId,
+      { quiet: true }
+    );
+    if (!saved) return;
+    flash("success", `${name || "Status"} added to ${stageName}.`);
+  }
+
+  async function saveReasonCodes(stageName: string, codes: string[], workflowId: string | null) {
+    setSaving(true);
+    try {
+      const response = await fetch("/api/admin/application-status-stage-assignments", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "setReasonCodes",
+          stageName,
+          workflowId,
+          codes,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Failed to save reason codes");
+      setReasonCodes(
+        ((payload.reasonCodes ?? []) as Array<Record<string, unknown>>).flatMap((row) => {
+          const mapped = mapReasonCodePayload(row);
+          return mapped ? [mapped] : [];
+        })
+      );
+      flash("success", `Reason codes saved for ${stageName}`);
+    } catch (error) {
+      flash("error", error instanceof Error ? error.message : "Failed to save reason codes");
     } finally {
       setSaving(false);
     }
@@ -912,12 +1280,74 @@ export default function CandidateStatusesPanel() {
     }
   }
 
-  function stageCard(stage: string, detail: string, withLanes = false) {
+  function stageCard(stage: string, detail: string, options?: { categories?: boolean; workflowId?: string | null }) {
+    const categories = options?.categories === true;
+    const workflowId = options?.workflowId ?? null;
     const stageGroups = groupsByStage.get(stage) ?? [];
     const assignedIds = new Set(stageGroups.map((group) => group.id));
+    const stageLaneRows = savedLanes.filter((row) => row.stageName === stage);
+    const pickedLanes = selectWorkflowScopedLaneRows(stageLaneRows, workflowId);
+    const activeStatuses = statuses.filter((status) => status.isActive);
+    const rawLanes =
+      pickedLanes.source === "none"
+        ? resolveStageStatusLanes(
+            activeStatuses,
+            stageGroups.map((group) => group.id),
+            []
+          )
+        : resolveConfiguredStageStatusLanes(activeStatuses, pickedLanes.rows);
+    const pickedButtons = selectWorkflowScopedLaneRows(
+      buttonPrefs.filter((row) => row.stageName === stage),
+      workflowId
+    );
+    const lanes = applyStageButtonVisibility(
+      rawLanes,
+      pickedButtons.source === "none" ? null : pickedButtons.rows[0]
+    );
+    const scopedNotes = stageNotes.filter(
+      (row) => row.stageName === stage && (row.workflowId ?? null) === (workflowId ?? null)
+    );
+    const noteBodyById = new Map(scopedNotes.map((row) => [row.id, row.body]));
+    const savedByStatus = new Map(
+      pickedLanes.rows.map((row) => [
+        row.statusId,
+        {
+          noteId: row.noteId,
+          note: row.note ?? (row.noteId ? (noteBodyById.get(row.noteId) ?? null) : null),
+        },
+      ])
+    );
+    const editorLanes = {
+      happy_path: decorateLane(lanes.happy_path, savedByStatus),
+      alternate: decorateLane(lanes.alternate, savedByStatus),
+      closed: decorateLane(lanes.closed, savedByStatus),
+    };
+    const placements: Record<StageStatusLane, LanePlacement[]> = {
+      happy_path: editorLanes.happy_path.map((status) => ({
+        statusId: status.id,
+        noteId: status.noteId,
+        note: status.note,
+      })),
+      alternate: editorLanes.alternate.map((status) => ({
+        statusId: status.id,
+        noteId: status.noteId,
+        note: status.note,
+      })),
+      closed: editorLanes.closed.map((status) => ({
+        statusId: status.id,
+        noteId: status.noteId,
+        note: status.note,
+      })),
+    };
+    const stageReasonRows = reasonCodes.filter((row) => row.stageName === stage);
+    const pickedReasons = selectWorkflowScopedLaneRows(stageReasonRows, workflowId);
+    const scopedReasonCodes = stageReasonRows.filter(
+      (row) => (row.workflowId ?? null) === (workflowId ?? null)
+    );
+    const categorySummary = `Primary ${lanes.happy_path.length} · Alternate ${lanes.alternate.length} · Closing ${lanes.closed.length}`;
     return (
       <StageAssignmentCard
-        key={stage}
+        key={`${workflowId ?? "default"}-${stage}`}
         stage={stage}
         detail={detail}
         stageGroups={stageGroups}
@@ -946,18 +1376,37 @@ export default function CandidateStatusesPanel() {
             limit
           )
         }
+        categoriesOnly={categories}
+        categorySummary={categorySummary}
         laneEditor={
-          withLanes ? (
-            <StageStatusLaneEditor
-              lanes={resolveStageStatusLanes(
-                statuses.filter((status) => status.isActive),
-                stageGroups.map((group) => group.id),
-                savedLanes.filter((row) => row.stageName === stage)
-              )}
-              canManage={canManage}
-              saving={saving}
-              onChange={(next) => void saveStageLanes(stage, next)}
-            />
+          categories ? (
+            <div className="space-y-3">
+              {workflowId && pickedLanes.source !== "workflow" ? (
+                <p className="text-xs text-[#64748B]">
+                  This workflow is using the tenant default. Saving writes a list for this workflow only.
+                </p>
+              ) : null}
+              <StageStatusLaneEditor
+                lanes={editorLanes}
+                catalog={activeStatuses.map((status) => ({ id: status.id, name: status.name }))}
+                canManage={canManage}
+                saving={saving}
+                onChange={(next) => void saveStageLanes(stage, next, workflowId)}
+                onAddStatus={(lane, input) =>
+                  void addLaneStatus(stage, workflowId, lane, input, placements)
+                }
+                laneFooter={(lane) => (
+                  <ReasonCodeEditor
+                    codes={pickedReasons.rows.map((row) => row.code)}
+                    presets={scopedReasonCodes.map((row) => row.code)}
+                    canManage={canManage}
+                    saving={saving}
+                    detail="Reason codes for Alternate and Closing on this stage. A matching code is reused. A new code stays on this stage."
+                    onSave={(codes) => void saveReasonCodes(stage, codes, workflowId)}
+                  />
+                )}
+              />
+            </div>
           ) : undefined
         }
       />
@@ -995,205 +1444,35 @@ export default function CandidateStatusesPanel() {
       ) : (
         <div className="space-y-3">
           <CatalogSection
-            title="Status groups"
-            open={openCatalogs.has("groups")}
-            onToggle={() => toggleCatalog("groups")}
-          >
-            {canManage ? (
-              <div className="rounded-xl border border-dashed border-[#CBD5E1] bg-[#F8FAFC]">
-                <button
-                  type="button"
-                  aria-expanded={addGroupOpen}
-                  onClick={() => setAddGroupOpen((value) => !value)}
-                  className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-                >
-                  <span className="inline-flex items-center gap-2 text-sm font-semibold text-[#012352]">
-                    <Plus className="h-4 w-4" aria-hidden />
-                    Add status group
-                  </span>
-                  <ChevronDown
-                    className={`h-4 w-4 text-[#64748B] transition ${addGroupOpen ? "rotate-180" : ""}`}
-                    aria-hidden
-                  />
-                </button>
-                {addGroupOpen ? (
-                  <div className="space-y-2 border-t border-[#E2E8F0] px-4 py-3">
-                    <input
-                      value={draftGroupName}
-                      onChange={(event) => setDraftGroupName(event.target.value)}
-                      className={fieldClass}
-                      placeholder="Group name"
-                      aria-label="New status group name"
-                    />
-                    <textarea
-                      value={draftGroupNotes}
-                      onChange={(event) => setDraftGroupNotes(event.target.value)}
-                      className="min-h-20 w-full rounded-lg border border-[#CBD5E1] bg-white px-3 py-2 text-sm"
-                      placeholder="Notes for this group (optional)"
-                      aria-label="Notes for the new status group"
-                    />
-                    <div className="space-y-2">
-                      <p className="text-xs font-medium text-[#334155]">Statuses in this group</p>
-                      {draftGroupStatuses.map((row, index) => (
-                        <div key={index} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
-                          <input
-                            value={row.name}
-                            onChange={(event) =>
-                              setDraftGroupStatuses((current) =>
-                                current.map((item, itemIndex) =>
-                                  itemIndex === index ? { ...item, name: event.target.value } : item
-                                )
-                              )
-                            }
-                            className={fieldClass}
-                            placeholder="Status name"
-                            aria-label={`Status ${index + 1} name`}
-                          />
-                          <input
-                            value={row.note}
-                            onChange={(event) =>
-                              setDraftGroupStatuses((current) =>
-                                current.map((item, itemIndex) =>
-                                  itemIndex === index ? { ...item, note: event.target.value } : item
-                                )
-                              )
-                            }
-                            className={fieldClass}
-                            placeholder="Note (optional)"
-                            aria-label={`Status ${index + 1} note`}
-                          />
-                          <button
-                            type="button"
-                            disabled={draftGroupStatuses.length === 1}
-                            onClick={() =>
-                              setDraftGroupStatuses((current) =>
-                                current.filter((_, itemIndex) => itemIndex !== index)
-                              )
-                            }
-                            className="inline-flex h-9 items-center justify-center rounded-md border border-[#CBD5E1] bg-white px-2 text-xs text-[#334155] disabled:opacity-40"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setDraftGroupStatuses((current) => [...current, { name: "", note: "" }])
-                        }
-                        className="text-xs font-medium text-[#012352]"
-                      >
-                        Add another status
-                      </button>
-                    </div>
-                    <button
-                      type="button"
-                      disabled={saving || !draftGroupName.trim()}
-                      onClick={() => void createGroup()}
-                      className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#012352] px-3 text-sm font-medium text-white disabled:opacity-50"
-                    >
-                      <Plus className="h-4 w-4" aria-hidden />
-                      Create group
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-
-            {sections.map((section) => {
-              const shared = section.shared || isSharedClosedGroupKey(section.systemKey);
-              const stagesUsing = assignments
-                .filter((row) => row.groupId === section.id)
-                .map((row) => row.stageName);
-              const groupStatusesList = section.id ? statusesForGroup(statuses, section.id) : [];
-              const activeStatuses = groupStatusesList.filter((status) => status.isActive);
-              const managing = Boolean(section.id && managingGroupIds.has(section.id));
-              const groupOpen = openGroupIds.has(section.key);
-              return (
-                <div
-                  key={section.key}
-                  className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white"
-                >
-                  <button
-                    type="button"
-                    aria-expanded={groupOpen}
-                    onClick={() => toggleGroupCard(section.key)}
-                    className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-                  >
-                    <span className="min-w-0 text-left">
-                      <span className="block text-sm font-semibold text-[#012352]">{section.name}</span>
-                      <span className="mt-0.5 block text-xs text-[#64748B]">
-                        {shared
-                          ? "On every Pre-Hire stage and AI analysis step"
-                          : stagesUsing.length > 0
-                            ? `On stages: ${stagesUsing.join(", ")}`
-                            : "Not assigned to any stage yet"}
-                      </span>
-                    </span>
-                    <span className="inline-flex shrink-0 items-center gap-2 text-xs text-[#64748B]">
-                      {activeStatuses.length}
-                      <ChevronDown
-                        className={`h-4 w-4 transition ${groupOpen ? "rotate-180" : ""}`}
-                        aria-hidden
-                      />
-                    </span>
-                  </button>
-                  {groupOpen ? (
-                    <div className="space-y-3 border-t border-[#E2E8F0]/60 px-4 py-3">
-                      {canManage && section.id ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setManagingGroupIds((current) => {
-                              const next = new Set(current);
-                              if (!section.id) return next;
-                              if (next.has(section.id)) next.delete(section.id);
-                              else next.add(section.id);
-                              return next;
-                            })
-                          }
-                          className="inline-flex h-8 items-center gap-1 rounded-md border border-[#CBD5E1] bg-white px-2 text-xs font-medium text-[#334155]"
-                        >
-                          <Pencil className="h-3 w-3" aria-hidden />
-                          {managing ? "Done" : "Manage"}
-                        </button>
-                      ) : null}
-                      {managing && section.id ? (
-                        <GroupStatusManager
-                          groupId={section.id}
-                          groupName={section.name}
-                          statuses={groupStatusesList}
-                          groups={groups}
-                          saving={saving}
-                          onAdd={addStatus}
-                          onSave={saveStatus}
-                          onDelete={deleteStatus}
-                          onMove={moveToGroup}
-                        />
-                      ) : activeStatuses.length === 0 ? (
-                        <p className="text-xs text-[#94A3B8]">No statuses in this group.</p>
-                      ) : (
-                        <p className="text-xs leading-5 text-[#475569]">
-                          {activeStatuses.map((status) => status.name).join(", ")}
-                        </p>
-                      )}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </CatalogSection>
-
-          <CatalogSection
             title="Pre-Hire workflow status catalog"
             open={openCatalogs.has("prehire")}
             onToggle={() => toggleCatalog("prehire")}
           >
+            <label className="block text-xs font-medium text-[#334155]" htmlFor="status-workflow-scope">
+              Status list scope
+            </label>
+            <select
+              id="status-workflow-scope"
+              value={workflowScopeId}
+              onChange={(event) => setWorkflowScopeId(event.target.value)}
+              className="h-10 w-full rounded-lg border border-[#CBD5E1] bg-white px-3 text-sm"
+            >
+              <option value="">All workflows (tenant default)</option>
+              {workflows.map((workflow) => (
+                <option key={workflow.id} value={workflow.id}>
+                  {workflow.name}
+                  {workflow.status && workflow.status !== "published" ? ` (${workflow.status})` : ""}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs leading-5 text-[#64748B]">
+              Each pre-hire workflow can keep its own primary, alternate, and closing statuses. A stage can omit alternate or closing.
+            </p>
             {workflowStages.map(({ stage, steps }) =>
               stageCard(
                 stage,
                 `Workflow steps: ${steps.length > 0 ? steps.join(", ") : "None mapped"}`,
-                true
+                { categories: true, workflowId: workflowScopeId || null }
               )
             )}
           </CatalogSection>
@@ -1203,11 +1482,14 @@ export default function CandidateStatusesPanel() {
             open={openCatalogs.has("ai")}
             onToggle={() => toggleCatalog("ai")}
           >
+            <p className="text-xs leading-5 text-[#64748B]">
+              Each AI step uses Primary, Alternate, and Closing. Remove the alternate or closing button on a step that does not use it.
+            </p>
             {AI_MATCH_STATUS_STAGES.map((stage) =>
               stageCard(
                 stage,
-                "Statuses from the groups assigned here, plus Follow up and Closed, can be ordered for this step.",
-                true
+                "Add statuses into Primary, Alternate, or Closing for this step.",
+                { categories: true, workflowId: null }
               )
             )}
           </CatalogSection>

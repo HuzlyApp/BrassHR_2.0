@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyStageButtonVisibility,
+  composeStatusChangeNote,
+  resolveConfiguredStageStatusLanes,
   resolveGroupStatusLanes,
   resolveStageStatusLanes,
+  selectWorkflowScopedLaneRows,
   sequenceOrderedStatuses,
 } from "./stage-status-lanes";
 
@@ -86,6 +90,65 @@ describe("sequenceOrderedStatuses", () => {
   });
 });
 
+describe("resolveConfiguredStageStatusLanes", () => {
+  it("keeps an empty alternate or closing category empty", () => {
+    const lanes = resolveConfiguredStageStatusLanes(statuses, [
+      { statusId: "applied", lane: "happy_path", sortOrder: 0 },
+      { statusId: "screen", lane: "happy_path", sortOrder: 1 },
+    ]);
+    expect(lanes.happy_path.map((status) => status.name)).toEqual([
+      "New / Applied",
+      "Screening Complete",
+    ]);
+    expect(lanes.alternate).toEqual([]);
+    expect(lanes.closed).toEqual([]);
+  });
+});
+
+describe("selectWorkflowScopedLaneRows", () => {
+  it("uses the workflow list when that workflow has rows", () => {
+    const picked = selectWorkflowScopedLaneRows(
+      [
+        { statusId: "applied", lane: "happy_path" as const, sortOrder: 0, workflowId: null },
+        { statusId: "screen", lane: "happy_path" as const, sortOrder: 0, workflowId: "flow-1" },
+      ],
+      "flow-1"
+    );
+    expect(picked.source).toBe("workflow");
+    expect(picked.rows.map((row) => row.statusId)).toEqual(["screen"]);
+  });
+
+  it("falls back to the tenant default when the workflow has no list", () => {
+    const picked = selectWorkflowScopedLaneRows(
+      [{ statusId: "applied", lane: "happy_path" as const, sortOrder: 0, workflowId: null }],
+      "flow-2"
+    );
+    expect(picked.source).toBe("default");
+    expect(picked.rows.map((row) => row.statusId)).toEqual(["applied"]);
+  });
+});
+
+describe("composeStatusChangeNote", () => {
+  it("stores a closing reason with the note", () => {
+    expect(
+      composeStatusChangeNote({
+        lane: "closed",
+        reasonCode: "Not a Fit",
+        note: "Schedule conflict",
+      })
+    ).toBe("Reason: Not a Fit\n\nSchedule conflict");
+  });
+
+  it("stores the follow-up detail as the note", () => {
+    expect(
+      composeStatusChangeNote({
+        lane: "alternate",
+        note: "Call back Thursday",
+      })
+    ).toBe("Call back Thursday");
+  });
+});
+
 describe("resolveGroupStatusLanes", () => {
   it("keeps a group's saved category and does not pull in other groups", () => {
     const lanes = resolveGroupStatusLanes(
@@ -100,6 +163,22 @@ describe("resolveGroupStatusLanes", () => {
       "Attempted Contact",
       "Follow-up Needed",
     ]);
+    expect(lanes.closed).toEqual([]);
+  });
+});
+
+describe("applyStageButtonVisibility", () => {
+  it("drops alternate and closing when those buttons were removed", () => {
+    const lanes = applyStageButtonVisibility(
+      {
+        happy_path: [statuses[0]],
+        alternate: [statuses[2]],
+        closed: [statuses[4]],
+      },
+      { showAlternate: false, showClosed: false }
+    );
+    expect(lanes.happy_path.map((status) => status.id)).toEqual(["applied"]);
+    expect(lanes.alternate).toEqual([]);
     expect(lanes.closed).toEqual([]);
   });
 });

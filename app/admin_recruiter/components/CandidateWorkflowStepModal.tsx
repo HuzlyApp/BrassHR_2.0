@@ -715,8 +715,8 @@ export default function CandidateWorkflowStepModal({
                       Stage · <span className="font-semibold text-slate-900">{hireStageName}</span>
                     </p>
                     <p className="mt-1 text-xs text-slate-500">
-                      The filled button is the next recommended status. Follow up and Closed / stop
-                      are the other choices for the groups on this stage.
+                      The filled button is the next primary status. Alternate and Closing are optional
+                      for this stage.
                     </p>
                     <div className="mt-3">
                       <StageStatusSequenceButtons
