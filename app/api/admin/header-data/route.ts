@@ -350,5 +350,63 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ ok: true, correlationId });
   }
 
+  if (body.action === "clear_notifications" || body.action === "clear_all_notifications") {
+    const { error } = await supabase
+      .from("notifications")
+      .delete()
+      .eq("user_id", auth.userId);
+
+    if (error) {
+      console.error("[admin/header-data] clear notifications failed", {
+        correlationId,
+        code: error.code,
+        message: error.message,
+      });
+      return NextResponse.json(
+        { error: "Failed to clear notifications", correlationId },
+        { status: 500 }
+      );
+    }
+
+    await invalidateUserCache("admin_header_data", auth.userId);
+    await invalidateUserCache("notifications", auth.userId);
+    return NextResponse.json({ ok: true, correlationId });
+  }
+
   return NextResponse.json({ error: "Unsupported action", correlationId }, { status: 400 });
+}
+
+export async function DELETE(request: Request) {
+  const correlationId = randomUUID();
+  const auth = await requireStaffApiSession();
+  if (auth instanceof NextResponse) return auth;
+
+  const supabase = getServiceClient();
+  if (!supabase) {
+    return NextResponse.json(
+      { error: "Supabase service role not configured", correlationId },
+      { status: 503 }
+    );
+  }
+
+  const { error } = await supabase
+    .from("notifications")
+    .delete()
+    .eq("user_id", auth.userId);
+
+  if (error) {
+    console.error("[admin/header-data] delete notifications failed", {
+      correlationId,
+      code: error.code,
+      message: error.message,
+    });
+    return NextResponse.json(
+      { error: "Failed to clear notifications", correlationId },
+      { status: 500 }
+    );
+  }
+
+  await invalidateUserCache("admin_header_data", auth.userId);
+  await invalidateUserCache("notifications", auth.userId);
+  return NextResponse.json({ ok: true, correlationId });
 }
