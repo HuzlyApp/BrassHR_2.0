@@ -177,13 +177,23 @@
       "settings": { "triggerAfter": "Client Selected", "isConditional": true, "unlockCondition": "client_selected" }
     },
     {
-      "libraryKey": "offer-acceptance",
-      "label": "Offer Accepted",
-      "description": "Candidate accepts the Nexus offer.",
+      "libraryKey": "employee-agreement",
+      "label": "Nexus W2 Employment Agreement eSign (Phase Gate)",
+      "description": "Candidate e-signs the Nexus W2 employment agreement. Once signed, the candidate becomes a Nexus worker and Post-Hire opens.",
       "phase": "pre_hire",
       "stage": "Offer & Agreement",
       "owner": "applicant",
+      "signatureTemplate": "employment_agreement",
       "settings": { "triggerAfter": "Client Selected", "isConditional": true, "unlockCondition": "client_selected" }
+    },
+    {
+      "libraryKey": "offer-acceptance",
+      "label": "Pay Rate Accepted",
+      "description": "Candidate accepts the agreed pay rate.",
+      "phase": "pre_hire",
+      "stage": "Offer & Agreement",
+      "owner": "applicant",
+      "settings": { "triggerAfter": "Nexus W2 Employment Agreement eSign (Phase Gate)", "isConditional": true, "unlockCondition": "client_selected" }
     },
     {
       "libraryKey": "policy-acknowledgment",
@@ -193,17 +203,7 @@
       "stage": "Offer & Agreement",
       "owner": "applicant",
       "signatureTemplate": "job_description",
-      "settings": { "triggerAfter": "Offer Accepted", "isConditional": true, "unlockCondition": "client_selected" }
-    },
-    {
-      "libraryKey": "employee-agreement",
-      "label": "Nexus W2 Employment Agreement eSign (Phase Gate)",
-      "description": "Candidate e-signs the Nexus W2 employment agreement. Once signed, the candidate becomes a Nexus worker and Post-Hire opens.",
-      "phase": "pre_hire",
-      "stage": "Offer & Agreement",
-      "owner": "applicant",
-      "signatureTemplate": "employment_agreement",
-      "settings": { "triggerAfter": "Job Description Acknowledgment", "isConditional": true, "unlockCondition": "client_selected" }
+      "settings": { "triggerAfter": "Pay Rate Accepted", "isConditional": true, "unlockCondition": "client_selected" }
     },
     {
       "libraryKey": "i9-right-to-work-verification",

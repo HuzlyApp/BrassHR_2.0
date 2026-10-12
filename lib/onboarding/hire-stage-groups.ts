@@ -58,6 +58,7 @@ const PRE_HIRE_LIBRARY_STAGE: Record<string, (typeof PRE_HIRE_FIGMA_STAGES)[numb
   "pay-rate-hire-date": "Offer & Agreement",
   "offer-acceptance": "Offer & Agreement",
   "offer-accepted": "Offer & Agreement",
+  "pay-rate-accepted": "Offer & Agreement",
   "employee-agreement": "Offer & Agreement",
   "agreement-esign": "Offer & Agreement",
   "i9-section-1": "Offer & Agreement",

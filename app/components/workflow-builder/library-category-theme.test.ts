@@ -223,8 +223,8 @@ describe("library-category-theme", () => {
     const offer = preHire.find((category) => category.id === "offer-agreement");
     expect(offer?.steps.map((step) => ({ id: step.id, label: step.label }))).toEqual([
       { id: "pay-rate-hire-date", label: "Pay and Start Date" },
-      { id: "offer-acceptance", label: "Offer Accepted" },
       { id: "employee-agreement", label: "Agreement eSign" },
+      { id: "offer-acceptance", label: "Pay Rate Accepted" },
       { id: "i9-right-to-work-verification", label: "I-9 section 1" },
     ]);
     expect(

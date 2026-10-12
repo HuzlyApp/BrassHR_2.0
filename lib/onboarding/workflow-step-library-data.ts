@@ -286,9 +286,9 @@ export const WORKFLOW_STEP_LIBRARY_DATA: WorkflowStepLibraryCategory[] = [
     steps: [
       {
         id: "offer-acceptance",
-        label: "Offer Acceptance",
+        label: "Pay Rate Accepted",
         iconKey: "offer-acceptance",
-        description: "Track offer acceptance from the applicant.",
+        description: "Confirm and accept the agreed pay rate.",
         stepType: "custom_question",
       },
       {
