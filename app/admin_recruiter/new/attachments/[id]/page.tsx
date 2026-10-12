@@ -24,6 +24,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import PreIdentifiedCertifications from "../../../components/PreIdentifiedCertifications";
 import AiPreScanBanner from "@/app/components/AiPreScanBanner";
 import { scanUploadedDocument } from "@/lib/document-verification-client";
 import type { DocumentVerificationResult } from "@/lib/document-verification";
@@ -627,6 +628,8 @@ export default function NewApplicantAttachmentsFilledPage() {
                         );
                       })}
                   </div>
+
+                  {applicantId ? <PreIdentifiedCertifications workerId={applicantId} /> : null}
                 </div>
               </div>
             </div>

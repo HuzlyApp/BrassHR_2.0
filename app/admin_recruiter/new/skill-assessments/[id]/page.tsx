@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useParams } from "next/navigation";
 import { jsPDF } from "jspdf";
@@ -14,6 +14,7 @@ import BrandedFileTypeIcon from "../../../components/BrandedFileTypeIcon";
 import {
   Briefcase,
   Calendar,
+  Eye,
   LogOut,
   Menu,
   Settings,
@@ -46,6 +47,12 @@ type Assessment = {
 type AssessmentListResponse = {
   worker: WorkerProfile;
   skill_assessments: Assessment[];
+};
+
+type SkillAssessmentPdf = {
+  id: string;
+  fileName: string;
+  hasFile: boolean;
 };
 
 type AssessmentQuestion = Record<string, unknown> & {
@@ -259,8 +266,73 @@ export default function NewApplicantSkillAssessmentsPage() {
   const [busyAllDownload, setBusyAllDownload] = useState(false);
   const [applicant, setApplicant] = useState<WorkerProfile | null>(null);
   const [assessments, setAssessments] = useState<Assessment[]>([]);
+  const [skillPdfs, setSkillPdfs] = useState<SkillAssessmentPdf[]>([]);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [uploadingPdf, setUploadingPdf] = useState(false);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
   const { status: candidateStatus, profilePhotoUrl, email: candidateEmail } =
     useCandidateHeader(applicantId);
+
+  const loadSkillPdfs = useCallback(async () => {
+    if (!applicantId) return;
+    const res = await fetch(
+      `/api/admin/skill-assessment-pdf?workerId=${encodeURIComponent(applicantId)}`,
+      { cache: "no-store" }
+    );
+    const json = (await res.json().catch(() => ({}))) as {
+      files?: SkillAssessmentPdf[];
+      error?: string;
+    };
+    if (!res.ok) throw new Error(json.error || "Could not load skill assessment PDFs.");
+    setSkillPdfs(Array.isArray(json.files) ? json.files : []);
+  }, [applicantId]);
+
+  useEffect(() => {
+    if (!applicantId) return;
+    void loadSkillPdfs().catch((error: unknown) => {
+      setPdfError(error instanceof Error ? error.message : "Could not load skill assessment PDFs.");
+    });
+  }, [applicantId, loadSkillPdfs]);
+
+  async function viewSkillPdf(fileId: string) {
+    if (!applicantId) return;
+    setPdfError(null);
+    const res = await fetch(
+      `/api/admin/worker-account-files?workerId=${encodeURIComponent(applicantId)}&source=portal&id=${encodeURIComponent(fileId)}`
+    );
+    const json = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+    if (!res.ok || !json.url) {
+      setPdfError(json.error || "Could not open PDF.");
+      return;
+    }
+    window.open(json.url, "_blank", "noopener,noreferrer");
+  }
+
+  async function handleSkillPdfSelected(selected: FileList | null) {
+    const chosen = selected ? Array.from(selected) : [];
+    if (pdfInputRef.current) pdfInputRef.current.value = "";
+    if (!applicantId || chosen.length === 0) return;
+    setUploadingPdf(true);
+    setPdfError(null);
+    try {
+      for (const file of chosen) {
+        const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+        if (!isPdf) throw new Error("Upload a PDF file.");
+        const form = new FormData();
+        form.append("workerId", applicantId);
+        form.append("file", file);
+        const res = await fetch("/api/admin/skill-assessment-pdf", { method: "POST", body: form });
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) throw new Error(json.error || `Could not upload ${file.name}.`);
+      }
+      await loadSkillPdfs();
+    } catch (error) {
+      setPdfError(error instanceof Error ? error.message : "Could not upload PDF.");
+      await loadSkillPdfs().catch(() => undefined);
+    } finally {
+      setUploadingPdf(false);
+    }
+  }
 
   useEffect(() => {
     async function fetchAssessmentList() {
@@ -526,6 +598,11 @@ export default function NewApplicantSkillAssessmentsPage() {
                 {resultError}
               </div>
             ) : null}
+            {pdfError ? (
+              <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                {pdfError}
+              </div>
+            ) : null}
 
             {loading ? (
               <CandidateDetailLoader label="Loading skill assessments..." />
@@ -595,6 +672,64 @@ export default function NewApplicantSkillAssessmentsPage() {
                   No skill assessments found for this candidate.
                 </div>
               ) : null}
+
+              <div className="mt-8 rounded-md border border-[#D1D5DB] bg-white">
+                <div className="flex flex-col gap-3 border-b border-[#E5E7EB] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-[16px] font-semibold leading-6 text-[#111827]">Skill assessment PDF</h3>
+                    <p className="mt-1 text-sm text-[#6B7280]">
+                      Upload one or more PDFs and open them from this view.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={uploadingPdf}
+                    onClick={() => pdfInputRef.current?.click()}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[color:var(--brand-primary)] px-4 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    {uploadingPdf ? "Uploading..." : "Upload PDF"}
+                  </button>
+                  <input
+                    ref={pdfInputRef}
+                    type="file"
+                    accept=".pdf,application/pdf"
+                    multiple
+                    className="hidden"
+                    onChange={(event) => {
+                      void handleSkillPdfSelected(event.target.files);
+                    }}
+                  />
+                </div>
+                <div className="space-y-2 px-5 py-4">
+                  {skillPdfs.length === 0 ? (
+                    <p className="text-sm text-[#6B7280]">No PDF uploaded yet.</p>
+                  ) : (
+                    skillPdfs.map((file) => (
+                      <div
+                        key={file.id}
+                        className="flex h-[50px] w-full max-w-[560px] items-center gap-2 rounded-[8px] border border-[color:color-mix(in_srgb,var(--brand-primary)_30%,white)] bg-[#F8FAFC] px-3"
+                      >
+                        <BrandedFileTypeIcon type="pdf" className="h-6 w-6 shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-xs font-semibold text-[color:var(--brand-primary)]">
+                            {file.fileName}
+                          </div>
+                          <div className="text-xs text-[#6B7280]">Uploaded PDF</div>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={!file.hasFile}
+                          onClick={() => void viewSkillPdf(file.id)}
+                          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[color:var(--brand-primary)] px-3 text-xs font-semibold text-[color:var(--brand-primary)] disabled:opacity-40"
+                        >
+                          <Eye className="h-4 w-4" />
+                          View PDF
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
 
               <div className="mt-8 flex justify-center">
                 <button

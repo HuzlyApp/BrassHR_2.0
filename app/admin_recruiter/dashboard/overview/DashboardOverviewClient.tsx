@@ -260,7 +260,7 @@ export default function DashboardOverviewClient() {
             />
           </h1>
           <p className="font-[Inter,sans-serif] text-[12px] font-normal leading-[16px] text-[#6B7280]">
-            Here&apos;s what happening with you schedule and work!
+            Here&apos;s what&apos;s happening with your schedule and work!
           </p>
         </header>
 
