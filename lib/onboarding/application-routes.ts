@@ -25,6 +25,8 @@ export const APPLICATION_ROUTES = {
   referenceReview: "/application/reference-review",
   applicationSummary: "/application/application-summary",
   applicationStatus: "/application/application-status",
+  preHireCompletion: "/application/pre-hire-completion",
+  postHireCompletion: "/application/post-hire-completion",
   jobScreening: "/application/job-screening",
   collectExtraFiles: "/application/collect-extra-files",
   customStep: (stepKey: string) => `/application/custom-step/${encodeURIComponent(stepKey)}`,

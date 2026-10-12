@@ -48,6 +48,7 @@ type Ctx = {
   applicantId: string | null;
   applicationId: string | null;
   workflowPhase: ApplicantLifecyclePhase;
+  allWorkflowSteps?: TenantOnboardingStep[];
   refresh: () => Promise<void>;
   updateStepStatus: (
     stepKey: string,
@@ -110,6 +111,7 @@ function mergeProgressMonotonic(
 
 type ConfigPayload = {
   config?: TenantOnboardingConfig;
+  allWorkflowSteps?: TenantOnboardingStep[];
   error?: string;
   detail?: string;
   code?: string;
@@ -145,6 +147,7 @@ export default function OnboardingConfigProvider({ children }: { children: React
   const { sessionReady, sessionLoading } = useApplicantSession();
 
   const [config, setConfig] = useState<TenantOnboardingConfig | null>(null);
+  const [allWorkflowSteps, setAllWorkflowSteps] = useState<TenantOnboardingStep[]>([]);
   const [progress, setProgress] = useState<WorkerOnboardingProgressPayload | null>(null);
   const [loadingConfig, setLoadingConfig] = useState(true);
   const [loadingProgress, setLoadingProgress] = useState(true);
@@ -272,6 +275,10 @@ export default function OnboardingConfigProvider({ children }: { children: React
           setRecoveredJobToken(recovered);
         }
         setConfig(applyApplicantConfigFilters(configRes.data.config));
+        setAllWorkflowSteps(
+          configRes.data.allWorkflowSteps ??
+            configRes.data.config.steps.filter((s) => s.is_enabled)
+        );
         setWorkflowPhase(configRes.data.workflowPhase ?? "pre_hire");
         setApplicationId(configRes.data.applicationId ?? (applicationIdFromUrl || null));
         setSource(
@@ -436,6 +443,7 @@ export default function OnboardingConfigProvider({ children }: { children: React
       applicantId,
       applicationId,
       workflowPhase,
+      allWorkflowSteps,
       refresh,
       updateStepStatus,
       maxAllowedStepIndex,
@@ -454,6 +462,7 @@ export default function OnboardingConfigProvider({ children }: { children: React
       applicantId,
       applicationId,
       workflowPhase,
+      allWorkflowSteps,
       refresh,
       updateStepStatus,
       maxAllowedStepIndex,

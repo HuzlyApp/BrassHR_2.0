@@ -68,6 +68,6 @@ describe("resolvePostStepContinueRoute", () => {
     const steps = resolveApplicantEnabledSteps(twoStepConfig, false)!;
     const lastStep = steps[steps.length - 1]!;
     const route = resolvePostStepContinueRoute(twoStepConfig, lastStep, "subdomaintest");
-    expect(route).toBe("/application/application-status?tenant=subdomaintest");
+    expect(route).toBe("/application/application-status?completion=pre_hire&tenant=subdomaintest");
   });
 });

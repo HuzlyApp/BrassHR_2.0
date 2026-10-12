@@ -9,6 +9,7 @@ export type PhaseGatedApplicantConfig = {
   workflowPhase: ApplicantLifecyclePhase;
   applicationId: string | null;
   postHireActivatedAt: string | null;
+  allWorkflowSteps?: TenantOnboardingStep[];
 };
 
 export async function phaseGateApplicantConfig(
@@ -28,10 +29,12 @@ export async function phaseGateApplicantConfig(
     jobToken: params.jobToken,
   });
   const workflowPhase: ApplicantLifecyclePhase = record?.phase ?? "pre_hire";
+  const { filterApplicantVisibleSteps } = await import("@/lib/onboarding/filter-applicant-steps");
   return {
     config: applyApplicantConfigFilters(params.config, { activePhase: workflowPhase }),
     workflowPhase,
     applicationId: record?.applicationId ?? null,
     postHireActivatedAt: record?.postHireActivatedAt ?? null,
+    allWorkflowSteps: filterApplicantVisibleSteps(params.config.steps),
   };
 }
