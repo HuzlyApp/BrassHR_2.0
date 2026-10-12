@@ -182,7 +182,11 @@ export async function POST(req: NextRequest) {
       !applicantMayActOnStep({
         activePhase,
         stepPhase: readStepLifecyclePhase(stepRow),
-        isHired: isPlacementAcceptedStatus(phaseRecord?.status),
+        isHired:
+          isPlacementAcceptedStatus(phaseRecord?.status) ||
+          Boolean(phaseRecord?.postHireActivatedAt) ||
+          activePhase === "post_hire" ||
+          phaseRecord?.phase === "post_hire",
         postHireSuspended: Boolean(phaseRecord?.postHireSuspendedAt),
       })
     ) {

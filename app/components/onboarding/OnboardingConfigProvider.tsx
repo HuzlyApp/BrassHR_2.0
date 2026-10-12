@@ -349,7 +349,9 @@ export default function OnboardingConfigProvider({ children }: { children: React
       const slug = resolveClientOnboardingTenantSlug(search);
       const matchedStep =
         config?.steps.find((s) => s.step_key === stepKey) ??
-        config?.steps.find((s) => s.step_key.replace(/_\d+$/, "") === stepKey.replace(/_\d+$/, ""));
+        config?.steps.find((s) => s.step_key.replace(/_\d+$/, "") === stepKey.replace(/_\d+$/, "")) ??
+        allWorkflowSteps.find((s) => s.step_key === stepKey) ??
+        allWorkflowSteps.find((s) => s.step_key.replace(/_\d+$/, "") === stepKey.replace(/_\d+$/, ""));
       const jobToken = resolvedJobToken;
       const res = await fetch("/api/onboarding/progress/step", {
         method: "POST",
@@ -383,6 +385,10 @@ export default function OnboardingConfigProvider({ children }: { children: React
         config?.steps.find((s) => s.step_key === stepKey) ??
         config?.steps.find(
           (s) => s.step_key.replace(/_\d+$/, "") === stepKey.replace(/_\d+$/, "")
+        ) ??
+        allWorkflowSteps.find((s) => s.step_key === stepKey) ??
+        allWorkflowSteps.find(
+          (s) => s.step_key.replace(/_\d+$/, "") === stepKey.replace(/_\d+$/, "")
         );
       if (step) {
         setProgress((prev) => {
@@ -407,7 +413,7 @@ export default function OnboardingConfigProvider({ children }: { children: React
         setProgressHydrated(true);
       }
     },
-    [isDraftPreview, config?.steps, resolvedJobToken, applicationIdFromUrl, applicationId]
+    [isDraftPreview, config?.steps, allWorkflowSteps, resolvedJobToken, applicationIdFromUrl, applicationId]
   );
 
   const maxAllowedStepIndex = useMemo(

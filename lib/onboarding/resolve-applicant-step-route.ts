@@ -17,7 +17,6 @@ export const WORKFLOW_STEP_APPLICANT_ROUTE: Record<string, string> = {
   "credential-license-verification": APPLICATION_ROUTES.professionalLicense,
   "certification-upload": APPLICATION_ROUTES.professionalLicense,
   "welcome-packet-esign": APPLICATION_ROUTES.agreementSignature,
-  "i9-right-to-work-verification": APPLICATION_ROUTES.authorizationsDocuments,
   "tax-forms": APPLICATION_ROUTES.authorizationsDocuments,
   "employee-agreement": APPLICATION_ROUTES.agreementSignature,
   "policy-acknowledgment": APPLICATION_ROUTES.agreementSignature,
@@ -27,9 +26,8 @@ export const WORKFLOW_STEP_APPLICANT_ROUTE: Record<string, string> = {
 };
 
 /**
- * Post-Hire library steps typed `profile_information` that have their own screen. Without this,
- * whichever one gets the bare `profile_information` key routes to the resume flow and is
- * auto-completed as a placeholder.
+ * Post-Hire and custom library steps that have their own screen. Without this,
+ * whichever one gets a bare key routes to standard flows and might be mishandled.
  */
 const CUSTOM_SCREEN_LIBRARY_STEPS = new Set([
   "direct-deposit-setup",
@@ -37,6 +35,8 @@ const CUSTOM_SCREEN_LIBRARY_STEPS = new Set([
   "401k-enrollment",
   "pay-rate-hire-date",
   "payroll-profile-creation",
+  "i9-right-to-work-verification",
+  "i9-section-1",
 ]);
 
 const CANONICAL_STEP_KEY_ROUTES: Record<string, string> = {

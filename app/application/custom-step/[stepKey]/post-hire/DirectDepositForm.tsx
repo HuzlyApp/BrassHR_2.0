@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useOnboardingConfigOptional } from "@/app/components/onboarding/OnboardingConfigProvider";
 // Bank account fields commented out per request - uncomment when re-enabling bank details collection
 /*
 import {
@@ -40,18 +41,29 @@ export default function DirectDepositForm({
   defaultHolderName: string;
   authorizationText: string;
   isPreview: boolean;
-  submit: (fields: PostHireSubmissionField[]) => Promise<void>;
+  submit: (fields: PostHireSubmissionField[], extra?: Record<string, unknown>) => Promise<void>;
   actions: ActionRowProps;
 }) {
-  /*
-  const [holder, setHolder] = useState(defaultHolderName);
-  const [bankName, setBankName] = useState("");
-  const [accountType, setAccountType] = useState("");
-  const [routing, setRouting] = useState("");
-  const [account, setAccount] = useState("");
-  const [accountConfirm, setAccountConfirm] = useState("");
-  */
-  const [authorized, setAuthorized] = useState(false);
+  const onboarding = useOnboardingConfigOptional();
+  const progressRow = onboarding?.progress?.steps.find(
+    (row) => row.step_key === _stepKey || row.onboarding_step_id === _stepKey
+  );
+  const rowData = (progressRow?.data && typeof progressRow.data === "object" ? progressRow.data : {}) as Record<string, unknown>;
+  const isAlreadyConfirmed = Boolean(
+    rowData.checkbox_confirmed === true ||
+    rowData.authorized === true ||
+    rowData.direct_deposit_confirmed === true ||
+    progressRow?.status === "completed"
+  );
+
+  const [authorized, setAuthorized] = useState(isAlreadyConfirmed);
+
+  useEffect(() => {
+    if (isAlreadyConfirmed && !authorized) {
+      setAuthorized(true);
+    }
+  }, [isAlreadyConfirmed, authorized]);
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -122,9 +134,20 @@ export default function DirectDepositForm({
         { label: "Deposit authorization", value: "Authorized" },
       ]);
       */
-      await submit([
-        { label: "Deposit authorization", value: "Authorized" },
-      ]);
+      await submit(
+        [
+          { label: "Deposit authorization", value: "Authorized" },
+          { label: "Confirmation", value: authorizationText },
+        ],
+        {
+          checkbox_confirmed: true,
+          checkbox_label: authorizationText,
+          authorized: true,
+          direct_deposit_confirmed: true,
+          response: authorizationText,
+          confirmed_at: new Date().toISOString(),
+        }
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not complete this step");
     } finally {

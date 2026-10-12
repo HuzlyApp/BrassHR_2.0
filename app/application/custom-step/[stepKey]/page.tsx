@@ -89,16 +89,44 @@ export default function CustomOnboardingStepPage() {
       step.metadata.workflow_step_id === "custom-step" ||
       step.metadata.workflow_step_id === "custom-form");
 
+  const onboarding = useOnboardingConfigOptional();
+
+  function isI9Section1Step(targetStep: typeof step): boolean {
+    if (!targetStep) return false;
+    const id = typeof targetStep.metadata?.workflow_step_id === "string" ? targetStep.metadata.workflow_step_id.toLowerCase() : "";
+    const key = (targetStep.step_key || "").toLowerCase();
+    const title = (targetStep.title || "").toLowerCase();
+    return (
+      key === "i9-right-to-work-verification" ||
+      key === "i9-section-1" ||
+      id === "i9-right-to-work-verification" ||
+      id === "i9-section-1" ||
+      key.includes("i9") ||
+      key.includes("i-9") ||
+      title.includes("i-9") ||
+      title.includes("i 9")
+    );
+  }
+
   const dynamicCheckboxLabel = useMemo(() => {
     if (!step) return "";
-    if (
-      step.step_key === "i9-right-to-work-verification" ||
-      step.metadata?.workflow_step_id === "i9-right-to-work-verification"
-    ) {
+    const id = typeof step.metadata?.workflow_step_id === "string" ? step.metadata.workflow_step_id.toLowerCase() : "";
+    const key = (step.step_key || "").toLowerCase();
+    const title = (step.title || "").trim();
+    const lowerTitle = title.toLowerCase();
+
+    if (isI9Section1Step(step)) {
       return "I confirm that I have completed Section 1 of Form I-9 and that the information provided is true and accurate to the best of my knowledge.";
     }
-    const id = typeof step.metadata?.workflow_step_id === "string" ? step.metadata.workflow_step_id : "";
-    const key = step.step_key.toLowerCase();
+    if (key.includes("benefit") || id.includes("benefit") || lowerTitle.includes("benefit")) {
+      return "I confirm that I have completed Benefits Enrollment / Selection.";
+    }
+    if (key.includes("401k") || id.includes("401k") || lowerTitle.includes("401k") || key.includes("retirement") || lowerTitle.includes("retirement")) {
+      return "I confirm that I have completed 401K / Retirement Enrollment.";
+    }
+    if (key.includes("direct-deposit") || id.includes("direct-deposit") || lowerTitle.includes("direct deposit")) {
+      return "I confirm that I have completed Direct Deposit Setup.";
+    }
     if (id === "compliance-training" || key.includes("compliance")) {
       return "I have completed the compliance training and understand my obligations.";
     }
@@ -115,17 +143,28 @@ export default function CustomOnboardingStepPage() {
     if (typeof rawSettings?.acknowledgmentText === "string" && rawSettings.acknowledgmentText.trim()) {
       return rawSettings.acknowledgmentText.trim();
     }
-    const title = step.title?.trim() || "this step";
-    return `I confirm that I have completed ${title}.`;
+    return `I confirm that I have completed ${title || "this step"}.`;
   }, [step]);
 
   const isCheckboxStep = useMemo(() => {
     if (!step) return false;
-    const id = typeof step.metadata?.workflow_step_id === "string" ? step.metadata.workflow_step_id : "";
-    const key = step.step_key.toLowerCase();
+    const id = typeof step.metadata?.workflow_step_id === "string" ? step.metadata.workflow_step_id.toLowerCase() : "";
+    const key = (step.step_key || "").toLowerCase();
     const title = (step.title || "").toLowerCase();
     return (
-      step.step_key === "i9-right-to-work-verification" ||
+      isI9Section1Step(step) ||
+      key.includes("benefit") ||
+      id.includes("benefit") ||
+      title.includes("benefit") ||
+      key.includes("401k") ||
+      id.includes("401k") ||
+      title.includes("401k") ||
+      key.includes("retirement") ||
+      id.includes("retirement") ||
+      title.includes("retirement") ||
+      key.includes("direct-deposit") ||
+      id.includes("direct-deposit") ||
+      title.includes("direct deposit") ||
       id === "compliance-training" ||
       id === "training-modules-quiz" ||
       id === "orientation-video" ||
@@ -143,8 +182,39 @@ export default function CustomOnboardingStepPage() {
     );
   }, [step, isGenericCustom, showCustomForm]);
 
+  const progressRow = useMemo(() => {
+    if (!step) return null;
+    const rows = onboarding?.progress?.steps ?? [];
+    return (
+      rows.find((r) => r.onboarding_step_id === step.id) ??
+      rows.find((r) => r.step_key === step.step_key) ??
+      null
+    );
+  }, [step, onboarding?.progress?.steps]);
+
+  useEffect(() => {
+    if (!progressRow || answer) return;
+    const data = (progressRow.data && typeof progressRow.data === "object" ? progressRow.data : {}) as Record<string, unknown>;
+    const isCompleted = progressRow.status === "completed";
+    const hasCheckboxConfirmed =
+      data.checkbox_confirmed === true ||
+      data.benefits_enrollment_confirmed === true ||
+      data.retirement_enrollment_confirmed === true ||
+      data.k401_enrollment_confirmed === true ||
+      data.i9_section_1_confirmed === true ||
+      data.direct_deposit_confirmed === true ||
+      data.authorized === true ||
+      data.enrollment_decision === "agreed";
+
+    if (isCheckboxStep && (hasCheckboxConfirmed || isCompleted)) {
+      setAnswer(dynamicCheckboxLabel);
+    } else if (typeof data.response === "string" && data.response.trim()) {
+      setAnswer(data.response.trim());
+    }
+  }, [progressRow, isCheckboxStep, dynamicCheckboxLabel, answer]);
+
   const shouldRedirectToDedicatedScreen = useMemo(() => {
-    if (!step || showCustomForm || isEnrollmentDecisionStep(step) || postHireScreenKindForStep(step)) {
+    if (!step || showCustomForm || isEnrollmentDecisionStep(step) || postHireScreenKindForStep(step) || isI9Section1Step(step)) {
       return false;
     }
     if (step.step_type !== "custom_question") return true;
@@ -183,6 +253,21 @@ export default function CustomOnboardingStepPage() {
     }
     setSaving(true);
     try {
+      const isBenefits =
+        step.step_key.includes("benefit") ||
+        step.metadata?.workflow_step_id === "benefits-enrollment" ||
+        (step.title || "").toLowerCase().includes("benefit");
+      const is401k =
+        step.step_key.includes("401k") ||
+        step.step_key.includes("retirement") ||
+        step.metadata?.workflow_step_id === "401k-enrollment" ||
+        (step.title || "").toLowerCase().includes("401k");
+      const isI9 = isI9Section1Step(step);
+      const isDirectDeposit =
+        step.step_key.includes("direct-deposit") ||
+        step.metadata?.workflow_step_id === "direct-deposit-setup" ||
+        (step.title || "").toLowerCase().includes("direct deposit");
+
       await persistStepProgress(
         nav.updateStepStatus,
         step.step_key,
@@ -191,6 +276,64 @@ export default function CustomOnboardingStepPage() {
         {
           response: decision.response,
           step_type: step.step_type,
+          ...(isCheckboxStep
+            ? {
+                checkbox_confirmed: true,
+                checkbox_label: dynamicCheckboxLabel,
+                confirmed_at: new Date().toISOString(),
+              }
+            : {}),
+          ...(isBenefits
+            ? {
+                benefits_enrollment_confirmed: true,
+                benefits_enrollment_decision: "agreed",
+                enrollment_decision: "agreed",
+                post_hire_submission: {
+                  kind: "acknowledgment",
+                  fields: [
+                    { label: step.title || "Benefits Enrollment", value: "Confirmed" },
+                    { label: "Confirmation", value: dynamicCheckboxLabel },
+                  ],
+                  submitted_at: new Date().toISOString(),
+                },
+              }
+            : {}),
+          ...(is401k
+            ? {
+                retirement_enrollment_confirmed: true,
+                k401_enrollment_confirmed: true,
+                retirement_enrollment_decision: "agreed",
+                enrollment_decision: "agreed",
+                post_hire_submission: {
+                  kind: "acknowledgment",
+                  fields: [
+                    { label: step.title || "401K / Retirement Enrollment", value: "Confirmed" },
+                    { label: "Confirmation", value: dynamicCheckboxLabel },
+                  ],
+                  submitted_at: new Date().toISOString(),
+                },
+              }
+            : {}),
+          ...(isI9
+            ? {
+                i9_section_1_confirmed: true,
+                form_i9_section_1_completed: true,
+              }
+            : {}),
+          ...(isDirectDeposit
+            ? {
+                direct_deposit_confirmed: true,
+                authorized: true,
+                post_hire_submission: {
+                  kind: "direct_deposit",
+                  fields: [
+                    { label: "Deposit authorization", value: "Authorized" },
+                    { label: "Confirmation", value: dynamicCheckboxLabel },
+                  ],
+                  submitted_at: new Date().toISOString(),
+                },
+              }
+            : {}),
         }
       );
       nav.goNext();

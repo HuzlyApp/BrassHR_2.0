@@ -59,12 +59,19 @@ export function statusForEnrollmentDecision(
 export function enrollmentDecisionData(
   decision: EnrollmentDecision,
   question: string,
-  answeredAt: string
+  answeredAt: string,
+  extra?: Record<string, unknown>
 ): Record<string, unknown> {
+  const isAgreed = decision === "agreed";
   return {
     enrollment_decision: decision,
     enrollment_question: question,
     enrollment_answered_at: answeredAt,
+    checkbox_confirmed: isAgreed,
+    checkbox_label: question,
+    response: isAgreed ? question : "Not ready",
+    confirmed_at: isAgreed ? answeredAt : null,
+    ...(extra ?? {}),
   };
 }
 

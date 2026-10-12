@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseUrl } from "@/lib/supabase-env";
 import { formatApiError } from "@/lib/api/format-api-error";
 import { resolveOnboardingWorker } from "@/lib/onboarding/resolve-onboarding-worker";
@@ -21,7 +21,7 @@ import type { TenantOnboardingConfig } from "@/lib/onboarding/types";
 export const runtime = "nodejs";
 
 async function loadFullConfigForContext(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClient,
   slug: string,
   jobToken: string | null
 ): Promise<TenantOnboardingConfig | null> {

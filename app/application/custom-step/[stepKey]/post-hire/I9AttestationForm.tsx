@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useOnboardingConfigOptional } from "@/app/components/onboarding/OnboardingConfigProvider";
 import type { PostHireSubmissionField } from "@/lib/onboarding/post-hire-step-screens";
 import { ActionRow, CheckboxRow, Section, type ActionRowProps } from "./fields";
 
@@ -14,10 +15,31 @@ export default function I9AttestationForm({
 }: {
   prefill: I9Prefill;
   attestationText: string;
-  submit: (fields: PostHireSubmissionField[]) => Promise<void>;
+  submit: (fields: PostHireSubmissionField[], extra?: Record<string, unknown>) => Promise<void>;
   actions: ActionRowProps;
 }) {
-  const [agreed, setAgreed] = useState(false);
+  const onboarding = useOnboardingConfigOptional();
+  const progressRow = onboarding?.progress?.steps.find(
+    (row) =>
+      row.step_key === "i9-section-1" ||
+      row.step_key === "i9-right-to-work-verification" ||
+      row.step_key?.toLowerCase().includes("i9")
+  );
+  const rowData = (progressRow?.data && typeof progressRow.data === "object" ? progressRow.data : {}) as Record<string, unknown>;
+  const isAlreadyConfirmed = Boolean(
+    rowData.checkbox_confirmed === true ||
+    rowData.i9_section_1_confirmed === true ||
+    progressRow?.status === "completed"
+  );
+
+  const [agreed, setAgreed] = useState(isAlreadyConfirmed);
+
+  useEffect(() => {
+    if (isAlreadyConfirmed && !agreed) {
+      setAgreed(true);
+    }
+  }, [isAlreadyConfirmed, agreed]);
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -36,7 +58,14 @@ export default function I9AttestationForm({
 
     setSaving(true);
     try {
-      await submit(fields);
+      await submit(fields, {
+        checkbox_confirmed: true,
+        checkbox_label: attestationText,
+        i9_section_1_confirmed: true,
+        form_i9_section_1_completed: true,
+        response: attestationText,
+        confirmed_at: new Date().toISOString(),
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save your I-9 information");
     } finally {

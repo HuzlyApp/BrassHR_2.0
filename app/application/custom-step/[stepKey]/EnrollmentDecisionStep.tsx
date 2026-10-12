@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useOnboardingConfigOptional } from "@/app/components/onboarding/OnboardingConfigProvider";
 import { persistStepProgress } from "@/lib/onboarding/use-mark-step-in-progress-if-pending";
 import {
@@ -16,6 +16,7 @@ import {
   APPLICANT_BTN_BACK,
   APPLICANT_BTN_PRIMARY,
 } from "@/app/application/applicant-onboarding-responsive";
+import { CheckboxRow, Section } from "./post-hire/fields";
 
 type UpdateStepStatus = (
   stepKey: string,
@@ -49,22 +50,103 @@ export default function EnrollmentDecisionStep({
   const [error, setError] = useState("");
 
   const question = enrollmentQuestionForStep(step);
-  const progressRow = onboarding?.progress?.steps.find((row) => row.onboarding_step_id === step.id);
+  const progressRow = onboarding?.progress?.steps.find(
+    (row) => row.onboarding_step_id === step.id || row.step_key === step.step_key
+  );
   const saved = progressRow ? readEnrollmentDecision(progressRow.data) : null;
-  const answeredOn = formatDate(saved?.answeredAt ?? null);
+  const rowData = (progressRow?.data && typeof progressRow.data === "object" ? progressRow.data : {}) as Record<string, unknown>;
 
-  async function submit(decision: EnrollmentDecision) {
+  const checkboxLabel = useMemo(() => {
+    const rawSettings = step.metadata?.workflow_settings as Record<string, unknown> | undefined;
+    if (typeof rawSettings?.acknowledgmentText === "string" && rawSettings.acknowledgmentText.trim()) {
+      return rawSettings.acknowledgmentText.trim();
+    }
+    const title = step.title?.trim();
+    if (title) return `I confirm that I have completed ${title}.`;
+    return question;
+  }, [step, question]);
+
+  const isInitiallyConfirmed = Boolean(
+    saved?.decision === "agreed" ||
+    rowData.checkbox_confirmed === true ||
+    rowData.benefits_enrollment_confirmed === true ||
+    rowData.retirement_enrollment_confirmed === true ||
+    rowData.k401_enrollment_confirmed === true ||
+    progressRow?.status === "completed"
+  );
+
+  const [confirmed, setConfirmed] = useState(isInitiallyConfirmed);
+
+  useEffect(() => {
+    if (isInitiallyConfirmed && !confirmed) {
+      setConfirmed(true);
+    }
+  }, [isInitiallyConfirmed, confirmed]);
+
+  const answeredOn = formatDate(saved?.answeredAt ?? (rowData.confirmed_at as string | null) ?? null);
+
+  async function handleSaveAgreed() {
     setError("");
-    setSaving(decision);
+    if (!confirmed) {
+      setError("Please check the confirmation box to continue.");
+      return;
+    }
+    setSaving("agreed");
+    try {
+      const isBenefits =
+        step.step_key.includes("benefit") ||
+        step.metadata?.workflow_step_id === "benefits-enrollment" ||
+        (step.title || "").toLowerCase().includes("benefit");
+      const is401k =
+        step.step_key.includes("401k") ||
+        step.step_key.includes("retirement") ||
+        step.metadata?.workflow_step_id === "401k-enrollment" ||
+        (step.title || "").toLowerCase().includes("401k");
+
+      const extraData: Record<string, unknown> = {
+        checkbox_confirmed: true,
+        checkbox_label: checkboxLabel,
+        response: checkboxLabel,
+        step_type: step.step_type,
+        ...(isBenefits ? { benefits_enrollment_confirmed: true, benefits_enrollment_decision: "agreed" } : {}),
+        ...(is401k ? { retirement_enrollment_confirmed: true, k401_enrollment_confirmed: true, retirement_enrollment_decision: "agreed" } : {}),
+        post_hire_submission: {
+          kind: "acknowledgment",
+          fields: [
+            { label: step.title || "Enrollment", value: "Confirmed" },
+            { label: "Confirmation", value: checkboxLabel },
+          ],
+          submitted_at: new Date().toISOString(),
+        },
+      };
+
+      await persistStepProgress(
+        updateStepStatus,
+        step.step_key,
+        "completed",
+        completingRef,
+        enrollmentDecisionData("agreed", question, new Date().toISOString(), extraData)
+      );
+      onContinue();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save your response");
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  async function handleNotReady() {
+    setError("");
+    setSaving("not_ready");
     try {
       await persistStepProgress(
         updateStepStatus,
         step.step_key,
-        statusForEnrollmentDecision(decision, required),
+        statusForEnrollmentDecision("not_ready", required),
         completingRef,
-        enrollmentDecisionData(decision, question, new Date().toISOString())
+        enrollmentDecisionData("not_ready", question, new Date().toISOString())
       );
-      if (decision === "agreed" || !required) onContinue();
+      if (!required) onContinue();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save your response");
     } finally {
@@ -74,21 +156,21 @@ export default function EnrollmentDecisionStep({
 
   return (
     <>
-      <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-        <p className="text-sm font-medium text-slate-900">{question}</p>
-        {!required ? <p className="mt-1 text-xs text-slate-500">This step is optional.</p> : null}
-      </div>
+      <Section>
+        <CheckboxRow
+          id={`enrollment-confirm-${step.id || step.step_key}`}
+          checked={confirmed}
+          onChange={(checked) => setConfirmed(checked)}
+        >
+          <span className="font-medium text-slate-800">{checkboxLabel}</span>
+          {required ? <span className="text-red-600"> *</span> : null}
+        </CheckboxRow>
+        <p className="mt-2 text-xs text-slate-500">{question}</p>
+      </Section>
 
-      {saved?.decision === "agreed" ? (
+      {confirmed && answeredOn ? (
         <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-          You agreed{answeredOn ? ` on ${answeredOn}` : ""}. You can continue to the next step.
-        </p>
-      ) : saved?.decision === "not_ready" ? (
-        <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          You answered Not ready{answeredOn ? ` on ${answeredOn}` : ""}.
-          {required
-            ? " This step is required, so choose Agree when you're ready to continue."
-            : " You can come back and agree at any time."}
+          You confirmed this step{answeredOn ? ` on ${answeredOn}` : ""}.
         </p>
       ) : null}
 
@@ -99,21 +181,23 @@ export default function EnrollmentDecisionStep({
           Back
         </button>
         <div className="flex gap-2">
+          {!required ? (
+            <button
+              type="button"
+              disabled={saving != null}
+              onClick={() => void handleNotReady()}
+              className={`${APPLICANT_BTN_BACK} disabled:cursor-not-allowed disabled:opacity-50`}
+            >
+              {saving === "not_ready" ? "Saving…" : "Skip for now"}
+            </button>
+          ) : null}
           <button
             type="button"
             disabled={saving != null}
-            onClick={() => void submit("not_ready")}
-            className={`${APPLICANT_BTN_BACK} disabled:cursor-not-allowed disabled:opacity-50`}
-          >
-            {saving === "not_ready" ? "Saving…" : "Not Ready"}
-          </button>
-          <button
-            type="button"
-            disabled={saving != null}
-            onClick={() => void submit("agreed")}
+            onClick={() => void handleSaveAgreed()}
             className={`${APPLICANT_BTN_PRIMARY} disabled:cursor-not-allowed disabled:opacity-50`}
           >
-            {saving === "agreed" ? "Saving…" : "Agree"}
+            {saving === "agreed" ? "Saving…" : "Save & continue"}
           </button>
         </div>
       </div>
