@@ -17,17 +17,24 @@ export default function AcknowledgmentForm({
   mode,
   acknowledgmentText,
   documentUrl,
+  initialAgreed = false,
+  initialSignatureName = "",
   submit,
   actions,
 }: {
   mode: "acknowledgment" | "training";
   acknowledgmentText: string;
   documentUrl: string | null;
-  submit: (fields: PostHireSubmissionField[]) => Promise<void>;
+  initialAgreed?: boolean;
+  initialSignatureName?: string;
+  submit: (fields: PostHireSubmissionField[], extra?: Record<string, unknown>) => Promise<void>;
   actions: ActionRowProps;
 }) {
-  const [signature, setSignature] = useState<SignatureValue>({ agreed: false, name: "" });
-  const [completed, setCompleted] = useState(false);
+  const [signature, setSignature] = useState<SignatureValue>({
+    agreed: initialAgreed,
+    name: initialSignatureName,
+  });
+  const [completed, setCompleted] = useState(initialAgreed);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -58,7 +65,15 @@ export default function AcknowledgmentForm({
           ];
     setSaving(true);
     try {
-      await submit(fields);
+      await submit(fields, {
+        checkbox_confirmed: true,
+        checkbox_label: acknowledgmentText,
+        response: acknowledgmentText,
+        confirmed_at: new Date().toISOString(),
+        ...(mode === "training"
+          ? { training_completed: true }
+          : { policy_acknowledged: true, signature_name: signature.name.trim() }),
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save your response");
     } finally {

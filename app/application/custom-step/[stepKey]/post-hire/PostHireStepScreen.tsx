@@ -222,6 +222,10 @@ export default function PostHireStepScreen({
           mode={kind === "training" ? "training" : "acknowledgment"}
           acknowledgmentText={content.acknowledgmentText}
           documentUrl={content.documentUrl}
+          initialAgreed={done || submission != null}
+          initialSignatureName={
+            submission?.fields.find((f) => f.label === "Signature")?.value || fullName
+          }
           submit={submit}
           actions={actions}
         />
