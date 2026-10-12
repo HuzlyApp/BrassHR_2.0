@@ -485,17 +485,17 @@ export const FIGMA_PRE_HIRE_GROUPS: FigmaLibraryGroupDef[] = [
         defaultPhase: "pre_hire",
       },
       {
-        id: "offer-acceptance",
-        label: "Offer Accepted",
-        description: "Track offer acceptance from the candidate.",
-        iconKey: "offer-accepted",
-        defaultPhase: "pre_hire",
-      },
-      {
         id: "employee-agreement",
         label: "Agreement eSign",
         description: "Collect employee agreement signatures.",
         iconKey: "agreement-esign",
+        defaultPhase: "pre_hire",
+      },
+      {
+        id: "offer-acceptance",
+        label: "Pay Rate Accepted",
+        description: "Track pay rate acceptance from the candidate.",
+        iconKey: "offer-accepted",
         defaultPhase: "pre_hire",
       },
       {

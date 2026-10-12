@@ -238,13 +238,13 @@ function OfferAcceptanceBody({ model, previewState }: { model: StepPreviewModel;
   return (
     <>
       <PreviewPageHeader
-        title={model.step.title || "Offer Acceptance"}
-        description={model.step.description || "Review your offer details and choose to accept or decline."}
+        title={model.step.title || "Pay Rate Accepted"}
+        description={model.step.description || "Review your pay rate details and choose to accept or decline."}
       />
       {previewState === "completed" ? (
-        <PreviewStatusBanner tone="success">Offer accepted. Onboarding can continue.</PreviewStatusBanner>
+        <PreviewStatusBanner tone="success">Pay rate accepted. Onboarding can continue.</PreviewStatusBanner>
       ) : previewState === "rejected" ? (
-        <PreviewStatusBanner tone="danger">Offer declined. Recruiter will be notified.</PreviewStatusBanner>
+        <PreviewStatusBanner tone="danger">Pay rate declined. Recruiter will be notified.</PreviewStatusBanner>
       ) : previewState === "error" ? (
         <PreviewStatusBanner tone="warning">Choose Accept or Decline to continue.</PreviewStatusBanner>
       ) : null}

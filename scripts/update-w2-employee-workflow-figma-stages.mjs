@@ -329,9 +329,9 @@ const PRE_HIRE_STEPS = [
     }),
   },
   {
-    stepId: "offer-acceptance",
-    label: "Offer Accepted",
-    description: "Capture W2 offer acceptance details and expiration.",
+    stepId: "employee-agreement",
+    label: "Agreement eSign",
+    description: "Load tenant W2 agreement and require e-sign.",
     required: true,
     day: 0,
     settings: settings({
@@ -342,9 +342,9 @@ const PRE_HIRE_STEPS = [
     }),
   },
   {
-    stepId: "employee-agreement",
-    label: "Agreement eSign",
-    description: "Load tenant W2 agreement and require e-sign.",
+    stepId: "offer-acceptance",
+    label: "Pay Rate Accepted",
+    description: "Capture W2 pay rate acceptance details and expiration.",
     required: true,
     day: 0,
     settings: settings({

@@ -34,6 +34,7 @@ export const HIRE_STAGE_BY_STEP_KEY: Record<string, string> = {
 
   "pay-rate-hire-date": "Offer & Agreement",
   "offer-acceptance": "Offer & Agreement",
+  "pay-rate-accepted": "Offer & Agreement",
   "employee-agreement": "Offer & Agreement",
   "i9-right-to-work-verification": "Offer & Agreement",
 
