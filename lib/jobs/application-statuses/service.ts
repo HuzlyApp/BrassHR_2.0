@@ -1286,10 +1286,8 @@ export async function replaceApplicationStatusStageLanes(
   const rows = STAGE_STATUS_LANES.flatMap((lane) =>
     input.lanes[lane].map((placement, sortOrder) => {
       const prior = previous.get(placement.statusId);
-      const note =
-        placement.note === undefined
-          ? prior?.note ?? null
-          : placement.note.trim() || null;
+      const noteSource = placement.note === undefined ? prior?.note ?? null : placement.note;
+      const note = noteSource?.trim() || null;
       if (note && note.length > 2000) {
         throw new ApplicationStatusError("Notes must be 2000 characters or fewer.", "VALIDATION");
       }
