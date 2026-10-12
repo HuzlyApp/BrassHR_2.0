@@ -107,6 +107,81 @@ function orderDefaults<T extends StageLaneStatus>(statuses: T[]): Record<StageSt
 }
 
 /**
+ * Statuses explicitly placed in Primary, Alternate, or Closing.
+ * A category with no saved row stays empty.
+ */
+export function resolveConfiguredStageStatusLanes<T extends { id: string }>(
+  statuses: readonly T[],
+  saved: readonly SavedStageStatusLane[]
+): Record<StageStatusLane, T[]> {
+  const byId = new Map(statuses.map((status) => [status.id, status]));
+  const lanes = EMPTY_LANES<T>();
+  const placed = new Set<string>();
+  const orderedSaved = [...saved].sort(
+    (a, b) => a.sortOrder - b.sortOrder || a.statusId.localeCompare(b.statusId)
+  );
+  for (const row of orderedSaved) {
+    const lane = normalizeStageStatusLane(row.lane);
+    if (!lane) continue;
+    const status = byId.get(row.statusId);
+    if (!status || placed.has(status.id)) continue;
+    lanes[lane].push(status);
+    placed.add(status.id);
+  }
+  return lanes;
+}
+
+export type WorkflowScopedLaneRow = SavedStageStatusLane & {
+  stageName?: string;
+  workflowId?: string | null;
+};
+
+/** Workflow rows win. Otherwise the tenant default (no workflow). */
+export function selectWorkflowScopedLaneRows<T extends { workflowId?: string | null }>(
+  rows: readonly T[],
+  workflowId: string | null | undefined
+): { rows: T[]; source: "workflow" | "default" | "none" } {
+  if (workflowId) {
+    const own = rows.filter((row) => row.workflowId === workflowId);
+    if (own.length > 0) return { rows: own, source: "workflow" };
+  }
+  const defaults = rows.filter((row) => !row.workflowId);
+  if (defaults.length > 0) return { rows: defaults, source: "default" };
+  return { rows: [], source: "none" };
+}
+
+export type StageButtonVisibility = {
+  showAlternate: boolean;
+  showClosed: boolean;
+};
+
+/** Hide Alternate or Closing when that button was removed for the stage. */
+export function applyStageButtonVisibility<T>(
+  lanes: Record<StageStatusLane, T[]>,
+  visibility: StageButtonVisibility | null | undefined
+): Record<StageStatusLane, T[]> {
+  if (!visibility) return lanes;
+  return {
+    happy_path: lanes.happy_path,
+    alternate: visibility.showAlternate ? lanes.alternate : [],
+    closed: visibility.showClosed ? lanes.closed : [],
+  };
+}
+
+/** Note stored with a status change. Closing and alternate can include a reason code. */
+export function composeStatusChangeNote(input: {
+  lane: StageStatusLane;
+  reasonCode?: string | null;
+  note?: string | null;
+}): string | null {
+  const note = input.note?.trim() || "";
+  const reason = input.reasonCode?.trim() || "";
+  if (input.lane === "happy_path") return note || null;
+  const parts = [reason ? `Reason: ${reason}` : "", note].filter(Boolean);
+  return parts.join("\n\n") || null;
+}
+
+/**
  * Statuses for one Pre-Hire stage or AI analysis step, split into the three
  * button categories: recommended, alternate (exception order), and closed / withdrawn.
  * Saved rows win. Statuses added later append in the default category.

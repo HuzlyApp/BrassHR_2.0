@@ -20,6 +20,12 @@ export {
   unassignGroupFromPreHireStage,
   listApplicationStatusStageLanes,
   replaceApplicationStatusStageLanes,
+  listApplicationStatusStageReasonCodes,
+  replaceApplicationStatusStageReasonCodes,
+  appendApplicationStatusStageReasonCode,
+  listApplicationStatusStageNotes,
+  findOrCreateApplicationStatusStageNote,
+  listApplicationStatusStageButtons,
   replaceGroupButtonLanes,
 } from "./service";
 export {
@@ -85,8 +91,17 @@ export {
   isDefaultFollowUpStatusName,
   isStageStatusLane,
   normalizeStageStatusLane,
+  applyStageButtonVisibility,
+  resolveConfiguredStageStatusLanes,
   resolveGroupStatusLanes,
   resolveStageStatusLanes,
+  selectWorkflowScopedLaneRows,
   sequenceOrderedStatuses,
+  composeStatusChangeNote,
 } from "./stage-status-lanes";
-export type { SavedStageStatusLane, StageLaneStatus, StageStatusLane } from "./stage-status-lanes";
+export type {
+  SavedStageStatusLane,
+  StageButtonVisibility,
+  StageLaneStatus,
+  StageStatusLane,
+} from "./stage-status-lanes";
