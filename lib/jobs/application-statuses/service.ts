@@ -15,6 +15,12 @@ import {
   type StatusStageName,
 } from "./stage-assignments";
 import {
+  DEFAULT_STAGE_REASON_CODES,
+  codesForScopedAppend,
+  normalizeReasonCode,
+  parseReasonCodeList,
+} from "./stage-reason-codes";
+import {
   STAGE_STATUS_LANES,
   normalizeStageStatusLane,
   type StageStatusLane,
@@ -1076,6 +1082,9 @@ export type ApplicationStatusStageLaneRecord = {
   statusId: string;
   lane: StageStatusLane;
   sortOrder: number;
+  workflowId: string | null;
+  noteId: string | null;
+  note: string | null;
 };
 
 type StageLaneRow = {
@@ -1085,6 +1094,9 @@ type StageLaneRow = {
   status_id: string;
   lane: string;
   sort_order: number;
+  workflow_id?: string | null;
+  note_id?: string | null;
+  note?: string | null;
 };
 
 function mapStageLane(row: StageLaneRow): ApplicationStatusStageLaneRecord | null {
@@ -1097,68 +1109,528 @@ function mapStageLane(row: StageLaneRow): ApplicationStatusStageLaneRecord | nul
     statusId: row.status_id,
     lane,
     sortOrder: row.sort_order,
+    workflowId: row.workflow_id ?? null,
+    noteId: row.note_id ?? null,
+    note: typeof row.note === "string" && row.note.trim() ? row.note.trim() : null,
   };
 }
+
+const STAGE_LANE_COLUMNS =
+  "id, tenant_id, stage_name, status_id, lane, sort_order, workflow_id, note_id, note";
 
 export async function listApplicationStatusStageLanes(
   supabase: SupabaseClient,
   tenantId: string
 ): Promise<ApplicationStatusStageLaneRecord[]> {
-  const { data, error } = await supabase
+  const scoped = await supabase
     .from("application_status_stage_lanes")
-    .select("id, tenant_id, stage_name, status_id, lane, sort_order")
+    .select(STAGE_LANE_COLUMNS)
     .eq("tenant_id", tenantId)
     .order("stage_name", { ascending: true })
     .order("sort_order", { ascending: true });
-  if (error) {
-    const message = String((error as { message?: string }).message ?? error);
+  const query = scoped.error && /workflow_id|note_id|\bnote\b|schema cache|Could not find/i.test(String(scoped.error.message ?? ""))
+    ? await supabase
+        .from("application_status_stage_lanes")
+        .select("id, tenant_id, stage_name, status_id, lane, sort_order, workflow_id, note_id")
+        .eq("tenant_id", tenantId)
+        .order("stage_name", { ascending: true })
+        .order("sort_order", { ascending: true })
+    : scoped;
+  if (query.error) {
+    const message = String(query.error.message ?? query.error);
     if (/application_status_stage_lanes|schema cache|Could not find/i.test(message)) return [];
-    throw error;
+    throw query.error;
   }
-  return ((data ?? []) as StageLaneRow[])
+  return ((query.data ?? []) as StageLaneRow[])
     .map(mapStageLane)
     .filter((row): row is ApplicationStatusStageLaneRecord => row != null);
 }
+
+async function assertWorkflowInTenant(
+  supabase: SupabaseClient,
+  tenantId: string,
+  workflowId: string | null
+): Promise<void> {
+  if (!workflowId) return;
+  const { data, error } = await supabase
+    .from("onboarding_flows")
+    .select("id")
+    .eq("id", workflowId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data?.id) {
+    throw new ApplicationStatusError("Workflow not found for this tenant.", "NOT_FOUND", 404);
+  }
+}
+
+export type ApplicationStatusStageButtonRecord = {
+  id: string;
+  tenantId: string;
+  stageName: StatusStageName;
+  workflowId: string | null;
+  showAlternate: boolean;
+  showClosed: boolean;
+};
+
+type StageButtonRow = {
+  id: string;
+  tenant_id: string;
+  stage_name: string;
+  workflow_id?: string | null;
+  show_alternate: boolean;
+  show_closed: boolean;
+};
+
+function mapStageButton(row: StageButtonRow): ApplicationStatusStageButtonRecord | null {
+  if (!isAssignableStatusStageName(row.stage_name)) return null;
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    stageName: row.stage_name,
+    workflowId: row.workflow_id ?? null,
+    showAlternate: row.show_alternate !== false,
+    showClosed: row.show_closed !== false,
+  };
+}
+
+function isMissingStageButtonTable(error: unknown): boolean {
+  const message = String((error as { message?: string }).message ?? error);
+  return /application_status_stage_buttons|schema cache|Could not find/i.test(message);
+}
+
+export async function listApplicationStatusStageButtons(
+  supabase: SupabaseClient,
+  tenantId: string
+): Promise<ApplicationStatusStageButtonRecord[]> {
+  const { data, error } = await supabase
+    .from("application_status_stage_buttons")
+    .select("id, tenant_id, stage_name, workflow_id, show_alternate, show_closed")
+    .eq("tenant_id", tenantId);
+  if (error) {
+    if (isMissingStageButtonTable(error)) return [];
+    throw error;
+  }
+  return ((data ?? []) as StageButtonRow[])
+    .map(mapStageButton)
+    .filter((row): row is ApplicationStatusStageButtonRecord => row != null);
+}
+
+async function replaceApplicationStatusStageButtons(
+  supabase: SupabaseClient,
+  input: {
+    tenantId: string;
+    stageName: string;
+    workflowId: string | null;
+    showAlternate: boolean;
+    showClosed: boolean;
+  }
+): Promise<void> {
+  let deleteQuery = supabase
+    .from("application_status_stage_buttons")
+    .delete()
+    .eq("tenant_id", input.tenantId)
+    .eq("stage_name", input.stageName);
+  deleteQuery = input.workflowId
+    ? deleteQuery.eq("workflow_id", input.workflowId)
+    : deleteQuery.is("workflow_id", null);
+  const { error: deleteError } = await deleteQuery;
+  if (deleteError) {
+    if (isMissingStageButtonTable(deleteError)) return;
+    throw deleteError;
+  }
+  const { error: insertError } = await supabase.from("application_status_stage_buttons").insert({
+    tenant_id: input.tenantId,
+    stage_name: input.stageName,
+    workflow_id: input.workflowId,
+    show_alternate: input.showAlternate,
+    show_closed: input.showClosed,
+  });
+  if (insertError) {
+    if (isMissingStageButtonTable(insertError)) return;
+    throw insertError;
+  }
+}
+
+export type StageLanePlacement = {
+  statusId: string;
+  /** Undefined keeps the note already stored for this status. */
+  noteId?: string | null;
+  /** Free-text note for this status on this stage. Undefined keeps the saved text. */
+  note?: string | null;
+};
 
 export async function replaceApplicationStatusStageLanes(
   supabase: SupabaseClient,
   input: {
     tenantId: string;
     stageName: string;
-    lanes: Record<StageStatusLane, string[]>;
+    lanes: Record<StageStatusLane, StageLanePlacement[]>;
+    workflowId?: string | null;
   }
 ): Promise<ApplicationStatusStageLaneRecord[]> {
   if (!isAssignableStatusStageName(input.stageName)) {
     throw new ApplicationStatusError(`Unknown stage: ${input.stageName}`, "VALIDATION");
   }
+  const workflowId = input.workflowId?.trim() || null;
+  await assertWorkflowInTenant(supabase, input.tenantId, workflowId);
+  const current = await listApplicationStatusStageLanes(supabase, input.tenantId);
+  const previous = new Map(
+    current
+      .filter(
+        (row) =>
+          row.stageName === input.stageName && (row.workflowId ?? null) === workflowId
+      )
+      .map((row) => [row.statusId, row])
+  );
   const rows = STAGE_STATUS_LANES.flatMap((lane) =>
-    input.lanes[lane].map((statusId, sortOrder) => ({
-      tenant_id: input.tenantId,
-      stage_name: input.stageName,
-      status_id: statusId,
-      lane,
-      sort_order: sortOrder,
-    }))
+    input.lanes[lane].map((placement, sortOrder) => {
+      const prior = previous.get(placement.statusId);
+      const note =
+        placement.note === undefined
+          ? prior?.note ?? null
+          : placement.note.trim() || null;
+      if (note && note.length > 2000) {
+        throw new ApplicationStatusError("Notes must be 2000 characters or fewer.", "VALIDATION");
+      }
+      return {
+        tenant_id: input.tenantId,
+        stage_name: input.stageName,
+        status_id: placement.statusId,
+        lane,
+        sort_order: sortOrder,
+        workflow_id: workflowId,
+        note_id:
+          placement.noteId === undefined ? prior?.noteId ?? null : placement.noteId,
+        note,
+      };
+    })
   );
   const seen = new Set<string>();
   for (const row of rows) {
     if (seen.has(row.status_id)) {
-      throw new ApplicationStatusError("A status can only be in one order on a stage.", "VALIDATION");
+      throw new ApplicationStatusError("A status can only be in one category on a stage.", "VALIDATION");
     }
     seen.add(row.status_id);
   }
+  const noteIds = [...new Set(rows.map((row) => row.note_id).filter((id): id is string => Boolean(id)))];
+  if (noteIds.length > 0) {
+    const notes = await listApplicationStatusStageNotes(supabase, input.tenantId);
+    for (const noteId of noteIds) {
+      const note = notes.find((row) => row.id === noteId);
+      if (!note || note.stageName !== input.stageName || (note.workflowId ?? null) !== workflowId) {
+        throw new ApplicationStatusError("That note belongs to a different stage or workflow.", "VALIDATION");
+      }
+    }
+  }
 
-  const { error: deleteError } = await supabase
+  let deleteQuery = supabase
     .from("application_status_stage_lanes")
     .delete()
     .eq("tenant_id", input.tenantId)
     .eq("stage_name", input.stageName);
+  deleteQuery = workflowId ? deleteQuery.eq("workflow_id", workflowId) : deleteQuery.is("workflow_id", null);
+  const { error: deleteError } = await deleteQuery;
   if (deleteError) throw deleteError;
   if (rows.length > 0) {
     const { error: insertError } = await supabase.from("application_status_stage_lanes").insert(rows);
+    if (insertError && /note_id|\bnote\b|schema cache|Could not find/i.test(String(insertError.message ?? ""))) {
+      const withoutNotes = rows.map(({ note_id: _noteId, note: _note, ...row }) => row);
+      const retry = await supabase.from("application_status_stage_lanes").insert(withoutNotes);
+      if (retry.error) throw retry.error;
+    } else if (insertError) {
+      throw insertError;
+    }
+  }
+  await replaceApplicationStatusStageButtons(supabase, {
+    tenantId: input.tenantId,
+    stageName: input.stageName,
+    workflowId,
+    showAlternate: input.lanes.alternate.length > 0,
+    showClosed: input.lanes.closed.length > 0,
+  });
+  return listApplicationStatusStageLanes(supabase, input.tenantId);
+}
+
+export type ApplicationStatusStageReasonCodeRecord = {
+  id: string;
+  tenantId: string;
+  stageName: StatusStageName;
+  code: string;
+  sortOrder: number;
+  workflowId: string | null;
+  note: string | null;
+};
+
+type ReasonCodeRow = {
+  id: string;
+  tenant_id: string;
+  stage_name: string;
+  code: string;
+  sort_order: number;
+  workflow_id?: string | null;
+  note?: string | null;
+};
+
+function mapReasonCode(row: ReasonCodeRow): ApplicationStatusStageReasonCodeRecord | null {
+  if (!isAssignableStatusStageName(row.stage_name)) return null;
+  const code = row.code.trim();
+  if (!code) return null;
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    stageName: row.stage_name,
+    code,
+    sortOrder: row.sort_order,
+    workflowId: row.workflow_id ?? null,
+    note: row.note?.trim() || null,
+  };
+}
+
+export async function listApplicationStatusStageReasonCodes(
+  supabase: SupabaseClient,
+  tenantId: string
+): Promise<ApplicationStatusStageReasonCodeRecord[]> {
+  const existing = await supabase
+    .from("application_status_stage_reason_codes")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .is("workflow_id", null)
+    .limit(1);
+  if (existing.error) {
+    const message = String(existing.error.message ?? existing.error);
+    if (/application_status_stage_reason_codes|schema cache|Could not find/i.test(message)) return [];
+    throw existing.error;
+  }
+  if ((existing.data ?? []).length === 0) {
+    const seed = Object.entries(DEFAULT_STAGE_REASON_CODES).flatMap(([stageName, codes]) =>
+      codes.map((code, sortOrder) => ({
+        tenant_id: tenantId,
+        stage_name: stageName,
+        code,
+        sort_order: sortOrder,
+        workflow_id: null,
+      }))
+    );
+    if (seed.length > 0) {
+      const { error: seedError } = await supabase
+        .from("application_status_stage_reason_codes")
+        .insert(seed);
+      if (seedError && seedError.code !== "23505") throw seedError;
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("application_status_stage_reason_codes")
+    .select("id, tenant_id, stage_name, code, sort_order, workflow_id, note")
+    .eq("tenant_id", tenantId)
+    .order("stage_name", { ascending: true })
+    .order("sort_order", { ascending: true });
+  if (error) throw error;
+  return ((data ?? []) as ReasonCodeRow[])
+    .map(mapReasonCode)
+    .filter((row): row is ApplicationStatusStageReasonCodeRecord => row != null);
+}
+
+export async function replaceApplicationStatusStageReasonCodes(
+  supabase: SupabaseClient,
+  input: {
+    tenantId: string;
+    stageName: string;
+    codes: string[];
+    workflowId?: string | null;
+  }
+): Promise<ApplicationStatusStageReasonCodeRecord[]> {
+  if (!isAssignableStatusStageName(input.stageName)) {
+    throw new ApplicationStatusError(`Unknown stage: ${input.stageName}`, "VALIDATION");
+  }
+  const workflowId = input.workflowId?.trim() || null;
+  await assertWorkflowInTenant(supabase, input.tenantId, workflowId);
+  const codes = parseReasonCodeList(input.codes);
+  if (codes.length > 30) {
+    throw new ApplicationStatusError("A stage can have at most 30 reason codes.", "VALIDATION");
+  }
+  for (const code of codes) {
+    if (code.length > 80) {
+      throw new ApplicationStatusError("Reason codes must be 80 characters or fewer.", "VALIDATION");
+    }
+  }
+
+  const prior = await listApplicationStatusStageReasonCodes(supabase, input.tenantId);
+  const noteByCode = new Map(
+    prior
+      .filter((row) => row.stageName === input.stageName && (row.workflowId ?? null) === workflowId)
+      .map((row) => [row.code.trim().toLowerCase(), row.note])
+  );
+
+  let deleteQuery = supabase
+    .from("application_status_stage_reason_codes")
+    .delete()
+    .eq("tenant_id", input.tenantId)
+    .eq("stage_name", input.stageName);
+  deleteQuery = workflowId ? deleteQuery.eq("workflow_id", workflowId) : deleteQuery.is("workflow_id", null);
+  const { error: deleteError } = await deleteQuery;
+  if (deleteError) throw deleteError;
+  if (codes.length > 0) {
+    const { error: insertError } = await supabase.from("application_status_stage_reason_codes").insert(
+      codes.map((code, sortOrder) => ({
+        tenant_id: input.tenantId,
+        stage_name: input.stageName,
+        code,
+        sort_order: sortOrder,
+        workflow_id: workflowId,
+        note: noteByCode.get(code.trim().toLowerCase()) ?? null,
+      }))
+    );
     if (insertError) throw insertError;
   }
-  return listApplicationStatusStageLanes(supabase, input.tenantId);
+  return listApplicationStatusStageReasonCodes(supabase, input.tenantId);
+}
+
+export async function appendApplicationStatusStageReasonCode(
+  supabase: SupabaseClient,
+  input: {
+    tenantId: string;
+    stageName: string;
+    code: string;
+    workflowId?: string | null;
+  }
+): Promise<{ reasonCodes: ApplicationStatusStageReasonCodeRecord[]; created: boolean }> {
+  const workflowId = input.workflowId?.trim() || null;
+  const code = normalizeReasonCode(input.code);
+  if (!code) {
+    throw new ApplicationStatusError("Enter a reason code.", "VALIDATION");
+  }
+  const existing = await listApplicationStatusStageReasonCodes(supabase, input.tenantId);
+  const stageRows = existing.filter((row) => row.stageName === input.stageName);
+  const targetRows = stageRows.filter((row) => (row.workflowId ?? null) === workflowId);
+  const alreadyThere = targetRows.some((row) => row.code.toLowerCase() === code.toLowerCase());
+  if (alreadyThere) {
+    return { reasonCodes: existing, created: false };
+  }
+  const codes = codesForScopedAppend(stageRows, workflowId, code);
+  const reasonCodes = await replaceApplicationStatusStageReasonCodes(supabase, {
+    tenantId: input.tenantId,
+    stageName: input.stageName,
+    workflowId,
+    codes,
+  });
+  return { reasonCodes, created: true };
+}
+
+export type ApplicationStatusStageNoteRecord = {
+  id: string;
+  tenantId: string;
+  stageName: StatusStageName;
+  body: string;
+  sortOrder: number;
+  workflowId: string | null;
+};
+
+type StageNoteRow = {
+  id: string;
+  tenant_id: string;
+  stage_name: string;
+  body: string;
+  sort_order: number;
+  workflow_id?: string | null;
+};
+
+function mapStageNote(row: StageNoteRow): ApplicationStatusStageNoteRecord | null {
+  if (!isAssignableStatusStageName(row.stage_name)) return null;
+  const body = normalizeReasonCode(row.body);
+  if (!body) return null;
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    stageName: row.stage_name,
+    body,
+    sortOrder: row.sort_order,
+    workflowId: row.workflow_id ?? null,
+  };
+}
+
+function isMissingStageNoteTable(error: unknown): boolean {
+  const message = String((error as { message?: string }).message ?? error);
+  return /application_status_stage_notes|schema cache|Could not find/i.test(message);
+}
+
+export async function listApplicationStatusStageNotes(
+  supabase: SupabaseClient,
+  tenantId: string
+): Promise<ApplicationStatusStageNoteRecord[]> {
+  const { data, error } = await supabase
+    .from("application_status_stage_notes")
+    .select("id, tenant_id, stage_name, body, sort_order, workflow_id")
+    .eq("tenant_id", tenantId)
+    .order("stage_name", { ascending: true })
+    .order("sort_order", { ascending: true });
+  if (error) {
+    if (isMissingStageNoteTable(error)) return [];
+    throw error;
+  }
+  return ((data ?? []) as StageNoteRow[])
+    .map(mapStageNote)
+    .filter((row): row is ApplicationStatusStageNoteRecord => row != null);
+}
+
+export async function findOrCreateApplicationStatusStageNote(
+  supabase: SupabaseClient,
+  input: {
+    tenantId: string;
+    stageName: string;
+    body: string;
+    workflowId?: string | null;
+  }
+): Promise<{ note: ApplicationStatusStageNoteRecord; created: boolean }> {
+  if (!isAssignableStatusStageName(input.stageName)) {
+    throw new ApplicationStatusError(`Unknown stage: ${input.stageName}`, "VALIDATION");
+  }
+  const workflowId = input.workflowId?.trim() || null;
+  await assertWorkflowInTenant(supabase, input.tenantId, workflowId);
+  const body = normalizeReasonCode(input.body);
+  if (!body) {
+    throw new ApplicationStatusError("Enter a note.", "VALIDATION");
+  }
+  if (body.length > 500) {
+    throw new ApplicationStatusError("Notes must be 500 characters or fewer.", "VALIDATION");
+  }
+  const existing = (await listApplicationStatusStageNotes(supabase, input.tenantId)).filter(
+    (row) => row.stageName === input.stageName && (row.workflowId ?? null) === workflowId
+  );
+  const match = existing.find((row) => row.body.toLowerCase() === body.toLowerCase());
+  if (match) return { note: match, created: false };
+  if (existing.length >= 100) {
+    throw new ApplicationStatusError("This stage already has 100 notes.", "VALIDATION");
+  }
+  const { data, error } = await supabase
+    .from("application_status_stage_notes")
+    .insert({
+      tenant_id: input.tenantId,
+      stage_name: input.stageName,
+      body,
+      sort_order: existing.length,
+      workflow_id: workflowId,
+    })
+    .select("id, tenant_id, stage_name, body, sort_order, workflow_id")
+    .single();
+  if (error) {
+    if (error.code === "23505") {
+      const again = (await listApplicationStatusStageNotes(supabase, input.tenantId)).find(
+        (row) =>
+          row.stageName === input.stageName &&
+          (row.workflowId ?? null) === workflowId &&
+          row.body.toLowerCase() === body.toLowerCase()
+      );
+      if (again) return { note: again, created: false };
+    }
+    throw error;
+  }
+  const note = mapStageNote(data as StageNoteRow);
+  if (!note) {
+    throw new ApplicationStatusError("Could not save that note.", "VALIDATION");
+  }
+  return { note, created: true };
 }
 
 /** Save the three button categories for one status group. */
