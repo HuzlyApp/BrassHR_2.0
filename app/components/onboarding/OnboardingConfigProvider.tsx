@@ -12,6 +12,7 @@ import {
 } from "react";
 import type {
   TenantOnboardingConfig,
+  TenantOnboardingStep,
   WorkerOnboardingProgressPayload,
   OnboardingStepStatus,
 } from "@/lib/onboarding/types";

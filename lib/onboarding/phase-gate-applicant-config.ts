@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { applyApplicantConfigFilters } from "@/lib/onboarding/filter-applicant-steps";
 import { resolveApplicationWorkflowPhase } from "@/lib/onboarding/resolve-application-workflow-phase";
-import type { TenantOnboardingConfig } from "@/lib/onboarding/types";
+import type { TenantOnboardingConfig, TenantOnboardingStep } from "@/lib/onboarding/types";
 import type { ApplicantLifecyclePhase } from "@/lib/onboarding/workflow-phase";
 
 export type PhaseGatedApplicantConfig = {
