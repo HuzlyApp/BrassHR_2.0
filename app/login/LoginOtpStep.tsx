@@ -5,15 +5,17 @@ import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEve
 import { loginInputErrorClass } from "@/app/login/LoginFormError";
 import type { LoginAuthErrorPayload } from "@/lib/auth/login-api-errors";
 import {
+  formatLoginOtpCooldownMessage,
   LOGIN_OTP_MAX_RESENDS,
+  LOGIN_OTP_RESEND_COOLDOWN_SECONDS,
   LOGIN_OTP_RESEND_LIMIT_MESSAGE,
   LOGIN_OTP_TTL_SECONDS,
+  parseLoginOtpCooldownSeconds,
 } from "@/lib/auth/login-otp-constants";
 import { LOGIN_OTP_LENGTH } from "@/lib/auth/supabase-magic-link-otp-template";
 
 const interStyle = { fontFamily: "Inter, Arial, sans-serif" };
 const OTP_LENGTH = LOGIN_OTP_LENGTH;
-const SEND_AGAIN_SECONDS = LOGIN_OTP_TTL_SECONDS;
 
 const inputFocusClass =
   "focus:border-[color:var(--brand-primary)] focus:ring-2 focus:ring-[color:color-mix(in_srgb,var(--brand-primary)_20%,transparent)]";
@@ -33,6 +35,8 @@ type LoginOtpStepProps = {
   /** Successful "Send again" count from the server (0 = initial code only). */
   resendCount?: number;
   maxResends?: number;
+  expiresInSeconds?: number;
+  resendCooldownSeconds?: number;
   onClearError?: () => void;
   onVerify: (code: string) => void | Promise<void>;
   /** Calls API to send a new code (app-managed OTP via Resend). */
@@ -60,13 +64,16 @@ export default function LoginOtpStep({
   authError = null,
   resendCount = 0,
   maxResends = LOGIN_OTP_MAX_RESENDS,
+  expiresInSeconds = LOGIN_OTP_TTL_SECONDS,
+  resendCooldownSeconds = LOGIN_OTP_RESEND_COOLDOWN_SECONDS,
   onClearError,
   onVerify,
   onSendAgain,
 }: LoginOtpStepProps) {
   const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const [digits, setDigits] = useState<string[]>(() => Array.from({ length: OTP_LENGTH }, () => ""));
-  const [secondsLeft, setSecondsLeft] = useState(SEND_AGAIN_SECONDS);
+  const [otpSecondsLeft, setOtpSecondsLeft] = useState(expiresInSeconds);
+  const [resendSecondsLeft, setResendSecondsLeft] = useState(resendCooldownSeconds);
   const [sendingAgain, setSendingAgain] = useState(false);
   const [timerExpired, setTimerExpired] = useState(false);
   const [resendLimitReached, setResendLimitReached] = useState(false);
@@ -82,18 +89,28 @@ export default function LoginOtpStep({
   }, [resendCount, maxResends]);
 
   useEffect(() => {
-    if (authError?.code === "RATE_LIMIT") {
-      setResendLimitReached(true);
+    if (!authError) return;
+    if (authError.code === "RATE_LIMIT") {
+      if (authError.error.toLowerCase().includes("wait for the timer")) {
+        const sec =
+          authError.retryAfterSec ??
+          parseLoginOtpCooldownSeconds(authError.error) ??
+          resendCooldownSeconds;
+        setResendSecondsLeft(sec);
+      } else {
+        setResendLimitReached(true);
+      }
     }
-  }, [authError]);
+  }, [authError, resendCooldownSeconds]);
 
+  // 5-minute OTP lifetime countdown
   useEffect(() => {
-    if (secondsLeft <= 0) {
+    if (otpSecondsLeft <= 0) {
       setTimerExpired(true);
       return;
     }
     const timer = window.setInterval(() => {
-      setSecondsLeft((current) => {
+      setOtpSecondsLeft((current) => {
         if (current <= 1) {
           setTimerExpired(true);
           return 0;
@@ -102,15 +119,32 @@ export default function LoginOtpStep({
       });
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [secondsLeft]);
+  }, [otpSecondsLeft]);
+
+  // 30-second resend cooldown countdown
+  useEffect(() => {
+    if (resendSecondsLeft <= 0) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      setResendSecondsLeft((current) => {
+        if (current <= 1) return 0;
+        return current - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [resendSecondsLeft]);
 
   const code = useMemo(() => digits.join(""), [digits]);
   const isComplete = code.length === OTP_LENGTH && digits.every((digit) => digit.length === 1);
   const otpHasError = authError != null;
   const otpExpired = timerExpired || authError?.code === "OTP_EXPIRED";
-  const showResendLimit = resendLimitReached || authError?.code === "RATE_LIMIT";
+  const isCooldownError =
+    authError?.code === "RATE_LIMIT" &&
+    Boolean(authError.error?.toLowerCase().includes("wait for the timer"));
+  const showResendLimit = resendLimitReached || (authError?.code === "RATE_LIMIT" && !isCooldownError);
   const canSendAgain =
-    secondsLeft <= 0 &&
+    resendSecondsLeft <= 0 &&
     !sendingAgain &&
     !submitting &&
     !verified &&
@@ -154,10 +188,11 @@ export default function LoginOtpStep({
       await onSendAgain();
       setDigits(Array.from({ length: OTP_LENGTH }, () => ""));
       setTimerExpired(false);
-      setSecondsLeft(SEND_AGAIN_SECONDS);
+      setOtpSecondsLeft(expiresInSeconds);
+      setResendSecondsLeft(resendCooldownSeconds);
       inputRefs.current[0]?.focus();
     } catch {
-      /* Parent sets authError; keep timer at zero so user can retry if allowed. */
+      /* Parent sets authError; if cooldown, resendSecondsLeft is set by authError effect */
     } finally {
       setSendingAgain(false);
     }
@@ -213,7 +248,11 @@ export default function LoginOtpStep({
           >
             <span
               className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-white"
-              style={{ backgroundColor: otpExpired ? OTP_STATUS_ICON.expiredBg : OTP_STATUS_ICON.errorBg }}
+              style={{
+                backgroundColor: otpExpired
+                  ? OTP_STATUS_ICON.expiredBg
+                  : OTP_STATUS_ICON.errorBg,
+              }}
               aria-hidden
             >
               {otpExpired ? (
@@ -229,6 +268,11 @@ export default function LoginOtpStep({
                   {authError?.code === "OTP_EXPIRED"
                     ? (authError.error ?? "Request a new code and try again.")
                     : "Request a new code and try again."}
+                </>
+              ) : isCooldownError ? (
+                <>
+                  <span className="font-semibold text-[#991b1b]">Please wait.</span>{" "}
+                  {authError?.error ?? formatLoginOtpCooldownMessage(resendSecondsLeft)}
                 </>
               ) : (
                 <>
@@ -291,20 +335,30 @@ export default function LoginOtpStep({
           ))}
         </div>
 
-        <div className="flex items-center gap-[10px] text-[14px] leading-[20px]" style={interStyle}>
+        <div className="flex flex-wrap items-center justify-between gap-y-2 text-[14px] leading-[20px]" style={interStyle}>
           <span className="text-[#374151]">
-            Get Code in{" "}
-            <span className="font-semibold text-black">{formatTimer(secondsLeft)}</span>
+            Code expires in{" "}
+            <span className="font-semibold text-black">{formatTimer(otpSecondsLeft)}</span>
           </span>
-          <button
-            type="button"
-            onClick={() => void handleSendAgain()}
-            disabled={!canSendAgain}
-            className="font-normal hover:underline disabled:cursor-not-allowed disabled:text-[#94a3b8] disabled:no-underline"
-            style={{ color: canSendAgain ? "var(--brand-secondary)" : "#94a3b8" }}
-          >
-            {sendingAgain ? "Sending..." : "Send again"}
-          </button>
+          <div className="flex items-center gap-[8px]">
+            {/* Resend countdown label commented out for OTP screen; button enable/disable is preserved
+            {resendSecondsLeft > 0 ? (
+              <span className="text-[#4b5563]">
+                Get Code in{" "}
+                <span className="font-semibold text-black">{resendSecondsLeft}s</span>
+              </span>
+            ) : null}
+            */}
+            <button
+              type="button"
+              onClick={() => void handleSendAgain()}
+              disabled={!canSendAgain}
+              className="font-normal hover:underline disabled:cursor-not-allowed disabled:text-[#94a3b8] disabled:no-underline"
+              style={{ color: canSendAgain ? "var(--brand-secondary)" : "#94a3b8" }}
+            >
+              {sendingAgain ? "Sending..." : "Send again"}
+            </button>
+          </div>
         </div>
       </div>
 

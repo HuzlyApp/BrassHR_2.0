@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { isStaffRole } from "@/lib/auth/app-role";
 import {
   classifyAuthMessage,
@@ -149,8 +149,9 @@ export async function POST(req: NextRequest) {
       if (sent.code === "RATE_LIMIT") {
         return loginAuthErrorResponse(sent.message, "RATE_LIMIT", 429, null, {
           headers: {
-            "Retry-After": String(sent.retryAfterSec ?? 60),
+            "Retry-After": String(sent.retryAfterSec ?? 30),
           },
+          retryAfterSec: sent.retryAfterSec,
         });
       }
       const classified = classifyAuthMessage(sent.message);
@@ -158,7 +159,10 @@ export async function POST(req: NextRequest) {
         classified.error,
         classified.code === "UNKNOWN" ? "OTP_SEND_FAILED" : classified.code,
         classified.code === "RATE_LIMIT" ? 429 : 400,
-        classified.field
+        classified.field,
+        {
+          ...(typeof sent.retryAfterSec === "number" ? { retryAfterSec: sent.retryAfterSec } : {}),
+        }
       );
     }
 

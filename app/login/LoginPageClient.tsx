@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Check } from "lucide-react";
-import { Suspense, useEffect, useLayoutEffect, useMemo, useState, type FormEvent } from "react";
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 // import { FaApple } from "react-icons/fa";
 // import { FaXTwitter } from "react-icons/fa6";
@@ -24,7 +24,13 @@ import {
   parseLoginApiError,
   type LoginAuthErrorPayload,
 } from "@/lib/auth/login-api-errors";
-import { LOGIN_OTP_MAX_RESENDS } from "@/lib/auth/login-otp-constants";
+import {
+  formatLoginOtpCooldownMessage,
+  LOGIN_OTP_MAX_RESENDS,
+  LOGIN_OTP_RESEND_COOLDOWN_SECONDS,
+  LOGIN_OTP_TTL_SECONDS,
+  parseLoginOtpCooldownSeconds,
+} from "@/lib/auth/login-otp-constants";
 import { resolveGodAdminClient } from "@/lib/auth/resolve-god-admin-client";
 import { isNexusPlatformUser, isPlatformEnforcementEnabled } from "@/lib/auth/platform-shared";
 import { isRecruiterSignInRole } from "@/lib/auth/recruiter-sign-in";
@@ -144,6 +150,9 @@ function LoginPageContent() {
   const [otpVerified, setOtpVerified] = useState(false);
   const [otpResendCount, setOtpResendCount] = useState(0);
   const [otpMaxResends, setOtpMaxResends] = useState(LOGIN_OTP_MAX_RESENDS);
+  const [otpExpiresInSeconds, setOtpExpiresInSeconds] = useState(LOGIN_OTP_TTL_SECONDS);
+  const [otpResendCooldownSeconds, setOtpResendCooldownSeconds] = useState(LOGIN_OTP_RESEND_COOLDOWN_SECONDS);
+  const cooldownExpiresAtRef = useRef<number | null>(null);
   const [pendingLogin, setPendingLogin] = useState<PendingLogin | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -357,7 +366,53 @@ function LoginPageContent() {
     }
   }, [searchParams]);
 
-  const clearAuthError = () => setAuthError(null);
+  const clearAuthError = () => {
+    cooldownExpiresAtRef.current = null;
+    setAuthError(null);
+  };
+
+  useEffect(() => {
+    if (!authError || authError.code !== "RATE_LIMIT") {
+      cooldownExpiresAtRef.current = null;
+      return;
+    }
+    const isCooldown = authError.error.toLowerCase().includes("wait for the timer");
+    if (!isCooldown) {
+      cooldownExpiresAtRef.current = null;
+      return;
+    }
+
+    if (!cooldownExpiresAtRef.current) {
+      const initialSeconds =
+        typeof authError.retryAfterSec === "number" && authError.retryAfterSec > 0
+          ? authError.retryAfterSec
+          : parseLoginOtpCooldownSeconds(authError.error) ?? LOGIN_OTP_RESEND_COOLDOWN_SECONDS;
+      cooldownExpiresAtRef.current = Date.now() + initialSeconds * 1000;
+    }
+
+    const interval = window.setInterval(() => {
+      if (!cooldownExpiresAtRef.current) return;
+      const msLeft = cooldownExpiresAtRef.current - Date.now();
+      const sLeft = Math.ceil(msLeft / 1000);
+      if (sLeft <= 0) {
+        cooldownExpiresAtRef.current = null;
+        window.clearInterval(interval);
+        setAuthError(null);
+        return;
+      }
+      const nextMsg = formatLoginOtpCooldownMessage(sLeft);
+      setAuthError((prev) => {
+        if (!prev) return null;
+        if (prev.error === nextMsg && prev.retryAfterSec === sLeft) return prev;
+        return { ...prev, error: nextMsg, retryAfterSec: sLeft };
+      });
+    }, 500);
+
+    return () => window.clearInterval(interval);
+  }, [
+    authError?.code,
+    authError?.error.toLowerCase().includes("wait for the timer") ? "cooldown" : "none",
+  ]);
 
   const emailHasError =
     authError?.field === "email" ||
@@ -534,18 +589,28 @@ function LoginPageContent() {
       requiresOtp?: boolean;
       resendCount?: number;
       maxResends?: number;
+      expiresInSeconds?: number;
+      resendAvailableInSeconds?: number;
     };
   };
 
   const applyOtpSendMeta = (gate: {
     resendCount?: number;
     maxResends?: number;
+    expiresInSeconds?: number;
+    resendAvailableInSeconds?: number;
   }) => {
     if (typeof gate.resendCount === "number") {
       setOtpResendCount(gate.resendCount);
     }
     if (typeof gate.maxResends === "number") {
       setOtpMaxResends(gate.maxResends);
+    }
+    if (typeof gate.expiresInSeconds === "number") {
+      setOtpExpiresInSeconds(gate.expiresInSeconds);
+    }
+    if (typeof gate.resendAvailableInSeconds === "number") {
+      setOtpResendCooldownSeconds(gate.resendAvailableInSeconds);
     }
   };
 
@@ -747,6 +812,8 @@ function LoginPageContent() {
           otpAuthError={authError}
           otpResendCount={otpResendCount}
           otpMaxResends={otpMaxResends}
+          otpExpiresInSeconds={otpExpiresInSeconds}
+          otpResendCooldownSeconds={otpResendCooldownSeconds}
           onOtpClearError={clearAuthError}
           onOtpVerify={handleOtpVerify}
           onOtpSendAgain={handleOtpSendAgain}
@@ -776,6 +843,8 @@ function LoginPageContent() {
             authError={authError}
             resendCount={otpResendCount}
             maxResends={otpMaxResends}
+            expiresInSeconds={otpExpiresInSeconds}
+            resendCooldownSeconds={otpResendCooldownSeconds}
             onClearError={clearAuthError}
             onVerify={handleOtpVerify}
             onSendAgain={handleOtpSendAgain}
