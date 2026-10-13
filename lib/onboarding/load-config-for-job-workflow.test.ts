@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  attachWorkflowDocuments,
   configFromJobWorkflowDraft,
   matchPublishedStepForJobDraft,
 } from "@/lib/onboarding/load-config-for-job-workflow";
@@ -166,5 +167,55 @@ describe("configFromJobWorkflowDraft", () => {
     expect(config.steps[1]?.title).toBe("RN License");
     expect(config.requiredDocuments).toHaveLength(1);
     expect(config.skillAssessments).toHaveLength(0);
+  });
+});
+
+describe("attachWorkflowDocuments", () => {
+  it("shows the nursing document list on the license step and hides an inactive forklift row", () => {
+    const config = attachWorkflowDocuments(published, [
+      {
+        id: "doc-nursing",
+        code: "NURSING_LICENSE",
+        name: "Nursing license",
+        is_required: true,
+        has_expiration: true,
+        collect_issuing_organization: true,
+        collect_scope: true,
+        collect_validity: true,
+        sort_order: 10,
+        is_active: true,
+      },
+      {
+        id: "doc-ssn",
+        code: "SSN_CARD",
+        name: "SSN card",
+        is_required: true,
+        has_expiration: false,
+        collect_issuing_organization: false,
+        collect_scope: false,
+        collect_validity: false,
+        sort_order: 50,
+        is_active: true,
+      },
+      {
+        id: "doc-forklift",
+        code: "FORKLIFT",
+        name: "Forklift Operator Certification",
+        is_required: true,
+        has_expiration: true,
+        collect_issuing_organization: true,
+        collect_scope: false,
+        collect_validity: false,
+        sort_order: 70,
+        is_active: false,
+      },
+    ]);
+
+    expect(config.requiredDocuments.map((doc) => doc.title)).toEqual([
+      "Nursing license",
+      "SSN card",
+    ]);
+    expect(config.requiredDocuments[0]?.source).toBe("workflow");
+    expect(config.requiredDocuments[1]?.has_expiration).toBe(false);
   });
 });

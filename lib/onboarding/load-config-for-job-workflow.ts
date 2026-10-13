@@ -18,7 +18,12 @@ import {
   validatePublishedJobForApplication,
 } from "@/lib/jobs/validate-job-application";
 import type { OnboardingStepDraft } from "@/lib/onboarding/default-onboarding-steps";
-import type { TenantOnboardingConfig, TenantOnboardingStep } from "@/lib/onboarding/types";
+import type {
+  TenantOnboardingConfig,
+  TenantOnboardingStep,
+  TenantRequiredDocument,
+} from "@/lib/onboarding/types";
+import type { WorkflowDocumentRow } from "@/lib/professions/service";
 import { attachPublishedSkillAssessmentToConfig } from "@/lib/skill-assessment/load-settings";
 
 function workflowNodeId(meta: Record<string, unknown> | undefined): string | null {
@@ -119,6 +124,44 @@ export function configFromJobWorkflowDraft(
   };
 }
 
+export function attachWorkflowDocuments(
+  config: TenantOnboardingConfig,
+  documents: WorkflowDocumentRow[]
+): TenantOnboardingConfig {
+  const active = documents.filter((doc) => doc.is_active);
+  if (!active.length) return config;
+
+  const step =
+    config.steps.find((item) => item.step_type === "professional_license") ??
+    config.steps.find((item) => item.step_type === "document_upload");
+  if (!step) return config;
+
+  const mapped: TenantRequiredDocument[] = active.map((doc) => ({
+    id: doc.id,
+    onboarding_step_id: step.id,
+    title: doc.name,
+    description: null,
+    is_required: doc.is_required,
+    sort_order: doc.sort_order,
+    accepted_file_types: ["pdf", "png", "jpg", "jpeg", "webp"],
+    max_file_size_mb: 10,
+    source: "workflow",
+    code: doc.code,
+    has_expiration: doc.has_expiration,
+    collect_issuing_organization: doc.collect_issuing_organization,
+    collect_scope: doc.collect_scope,
+    collect_validity: doc.collect_validity,
+  }));
+
+  return {
+    ...config,
+    requiredDocuments: [
+      ...config.requiredDocuments.filter((doc) => doc.onboarding_step_id !== step.id),
+      ...mapped,
+    ],
+  };
+}
+
 export type JobWorkflowConfigResult = {
   config: TenantOnboardingConfig;
   tenantId: string;
@@ -173,7 +216,15 @@ async function loadApplicantConfigFromFlow(
     );
   }
 
-  const config = await attachPublishedSkillAssessmentToConfig(supabase, tenantId, fromFlow);
+  const withSkills = await attachPublishedSkillAssessmentToConfig(supabase, tenantId, fromFlow);
+  let config = withSkills;
+  try {
+    const { listFlowDocuments } = await import("@/lib/professions/service");
+    const documents = await listFlowDocuments(supabase, tenantId, flow.id);
+    config = attachWorkflowDocuments(withSkills, documents);
+  } catch {
+    config = withSkills;
+  }
 
   return {
     config,

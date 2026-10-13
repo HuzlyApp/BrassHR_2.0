@@ -85,6 +85,8 @@ export type CreateFlowInput = {
   templateId?: string | null;
   createAsBlank?: boolean;
   status?: OnboardingFlowStatus;
+  employmentType?: string | null;
+  professionId?: string | null;
 };
 
 export function useOnboardingFlows(opts?: {

@@ -1,8 +1,7 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ChevronDown, Upload } from "lucide-react";
-import { LICENSE_TYPES, LICENSE_TYPE_LABELS } from "@/lib/applicant-portal/documents";
 import { useApplicantPortal } from "./ApplicantPortalProvider";
 import { WorkerFilePicker } from "./WorkerFilePicker";
 import { WORKER_BTN_OUTLINE, WORKER_BTN_PRIMARY } from "./worker-portal-buttons";
@@ -13,26 +12,27 @@ import {
   WORKER_SCHEDULE_CARD_CLASS,
 } from "./worker-schedule-typography";
 
-type LicenseItem = {
+type CredentialItem = {
   id: string;
-  licenseType: string;
-  licenseTypeLabel: string;
-  licenseNumber: string | null;
-  expiresAt: string | null;
-  expiresAtLabel: string | null;
+  required_document_id: string;
+  license_name: string;
+  issuing_organization: string | null;
+  scope: string | null;
+  validity: string | null;
+  issued_date: string | null;
+  expiry_date: string | null;
+  document_url: string | null;
+  original_file_name: string | null;
   status: string;
-  statusLabel: string;
-  urgency: "expired" | "expiring_soon" | "ok" | "unknown";
-  reviewNotes: string | null;
-  originalFileName: string | null;
-  hasFile: boolean;
 };
 
-type LicenseSummary = {
-  total: number;
-  expiredCount: number;
-  expiringSoonCount: number;
-  pendingReviewCount: number;
+type UploadTarget = {
+  id: string;
+  name: string;
+  has_expiration: boolean;
+  collect_issuing_organization: boolean;
+  collect_scope: boolean;
+  collect_validity: boolean;
 };
 
 function StatusBadge({ label, tone }: { label: string; tone: "red" | "amber" | "green" | "gray" }) {
@@ -45,9 +45,9 @@ function StatusBadge({ label, tone }: { label: string; tone: "red" | "amber" | "
   return <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium ${styles}`}>{label}</span>;
 }
 
-function statusTone(status: string, urgency: LicenseItem["urgency"]) {
-  if (urgency === "expired" || status === "expired" || status === "rejected") return "red" as const;
-  if (urgency === "expiring_soon" || status === "needs_revision") return "amber" as const;
+function statusTone(status: string) {
+  if (status === "expired" || status === "rejected") return "red" as const;
+  if (status === "needs_revision") return "amber" as const;
   if (status === "approved") return "green" as const;
   return "gray" as const;
 }
@@ -55,42 +55,48 @@ function statusTone(status: string, urgency: LicenseItem["urgency"]) {
 export function ApplicantLicensesTab({ embedded = false }: { embedded?: boolean }) {
   const { sessionReady, authHeaders } = useApplicantPortal();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [licenses, setLicenses] = useState<LicenseItem[]>([]);
-  const [summary, setSummary] = useState<LicenseSummary | null>(null);
+  const [credentials, setCredentials] = useState<CredentialItem[]>([]);
+  const [documents, setDocuments] = useState<UploadTarget[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [licenseType, setLicenseType] = useState<string>("nursing_license");
-  const [certificationName, setCertificationName] = useState("");
-  const [expiresAt, setExpiresAt] = useState("");
-  const [licenseNumber, setLicenseNumber] = useState("");
+  const [requiredDocumentId, setRequiredDocumentId] = useState("");
+  const [issuingOrganization, setIssuingOrganization] = useState("");
+  const [scope, setScope] = useState("");
+  const [validity, setValidity] = useState("");
+  const [issuedDate, setIssuedDate] = useState("");
+  const [expiryDate, setExpiryDate] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
-  async function loadLicenses() {
+  const selectedDocument = useMemo(
+    () => documents.find((doc) => doc.id === requiredDocumentId) ?? null,
+    [documents, requiredDocumentId]
+  );
+
+  async function loadCredentials() {
     const headers = await authHeaders();
     if (!headers) return;
-    const res = await fetch("/api/applicant-portal/licenses", { headers, cache: "no-store" });
+    const res = await fetch("/api/applicant-portal/credentials", { headers, cache: "no-store" });
     const payload = (await res.json().catch(() => ({}))) as {
-      licenses?: LicenseItem[];
-      summary?: LicenseSummary;
+      credentials?: CredentialItem[];
+      documents?: UploadTarget[];
       error?: string;
     };
-    if (!res.ok) throw new Error(payload.error || "Could not load licenses.");
-    setLicenses(payload.licenses ?? []);
-    setSummary(payload.summary ?? null);
+    if (!res.ok) throw new Error(payload.error || "Could not load certifications.");
+    setCredentials(payload.credentials ?? []);
+    setDocuments(payload.documents ?? []);
+    setRequiredDocumentId((current) => current || payload.documents?.[0]?.id || "");
   }
 
   useEffect(() => {
     if (!sessionReady) return;
-
     let alive = true;
     setLoading(true);
-
     void (async () => {
       try {
-        await loadLicenses();
+        await loadCredentials();
       } catch (err) {
-        if (alive) setError(err instanceof Error ? err.message : "Could not load licenses.");
+        if (alive) setError(err instanceof Error ? err.message : "Could not load certifications.");
       } finally {
         if (alive) setLoading(false);
       }
@@ -103,7 +109,7 @@ export function ApplicantLicensesTab({ embedded = false }: { embedded?: boolean 
   async function openFile(id: string) {
     const headers = await authHeaders();
     if (!headers) return;
-    const res = await fetch(`/api/applicant-portal/files?source=license&id=${encodeURIComponent(id)}`, {
+    const res = await fetch(`/api/applicant-portal/files?source=credential&id=${encodeURIComponent(id)}`, {
       headers,
       cache: "no-store",
     });
@@ -117,12 +123,16 @@ export function ApplicantLicensesTab({ embedded = false }: { embedded?: boolean 
 
   async function handleUpload(event: FormEvent) {
     event.preventDefault();
-    if (licenseType === "other_certification" && !certificationName.trim()) {
-      setError("Enter the certification name.");
+    if (!requiredDocumentId) {
+      setError("Choose the document this file replaces.");
+      return;
+    }
+    if (selectedDocument?.has_expiration && (!issuedDate || !expiryDate)) {
+      setError("Issued date and expiry date are required.");
       return;
     }
     if (!selectedFile) {
-      setError("Choose a license file to upload.");
+      setError("Choose a file to upload.");
       return;
     }
     setUploading(true);
@@ -131,57 +141,51 @@ export function ApplicantLicensesTab({ embedded = false }: { embedded?: boolean 
       const headers = await authHeaders();
       if (!headers) throw new Error("You need to sign in again.");
       const form = new FormData();
-      form.append("licenseType", licenseType);
-      if (licenseType === "other_certification") {
-        form.append("certificationName", certificationName.trim());
-      }
-      form.append("expiresAt", expiresAt);
-      if (licenseNumber.trim()) form.append("licenseNumber", licenseNumber.trim());
+      form.append("requiredDocumentId", requiredDocumentId);
+      form.append("issuingOrganization", issuingOrganization);
+      form.append("scope", scope);
+      form.append("validity", validity);
+      form.append("issuedDate", issuedDate);
+      form.append("expiryDate", expiryDate);
       form.append("file", selectedFile);
-      const res = await fetch("/api/applicant-portal/licenses", { method: "POST", headers, body: form });
+      const res = await fetch("/api/applicant-portal/credentials", { method: "POST", headers, body: form });
       const payload = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(payload.error || "Could not upload license.");
+      if (!res.ok) throw new Error(payload.error || "Could not upload certification.");
       setSelectedFile(null);
-      setCertificationName("");
-      setExpiresAt("");
-      setLicenseNumber("");
+      setIssuingOrganization("");
+      setScope("");
+      setValidity("");
+      setIssuedDate("");
+      setExpiryDate("");
       if (fileInputRef.current) fileInputRef.current.value = "";
-      await loadLicenses();
+      await loadCredentials();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not upload license.");
+      setError(err instanceof Error ? err.message : "Could not upload certification.");
     } finally {
       setUploading(false);
     }
   }
 
+  const expiredCount = credentials.filter((item) => item.status === "expired").length;
+
   return (
     <div className={embedded ? "space-y-6" : `${WORKER_PORTAL_PAGE_PAD_CLASS} space-y-6`}>
-      {summary && (summary.expiredCount > 0 || summary.expiringSoonCount > 0) ? (
+      {expiredCount > 0 ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <div className="flex items-start gap-2">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <p>
-              {summary.expiredCount > 0
-                ? `${summary.expiredCount} license(s) expired. `
-                : ""}
-              {summary.expiringSoonCount > 0
-                ? `${summary.expiringSoonCount} license(s) expiring within 30 days.`
-                : ""}
-            </p>
+            <p>{expiredCount} certification(s) expired.</p>
           </div>
         </div>
       ) : null}
 
       <div className={`${WORKER_SCHEDULE_CARD_CLASS} overflow-hidden`}>
         <div className="border-b border-[#E5E7EB] px-4 py-3">
-          <h2
-            className={WORKER_DOCUMENTS_PAGE_SECTION_TITLE_CLASS}
-            style={WORKER_DOCUMENTS_PAGE_SECTION_TITLE_STYLE}
-          >
-            Upload renewed license
+          <h2 className={WORKER_DOCUMENTS_PAGE_SECTION_TITLE_CLASS} style={WORKER_DOCUMENTS_PAGE_SECTION_TITLE_STYLE}>
+            Upload certification
           </h2>
           <p className="mt-1 text-sm text-[#64748B]">
-            Submitted renewals go to your recruiter for review.
+            A new file replaces the current one for that document.
           </p>
         </div>
         <form onSubmit={handleUpload} className="space-y-4 p-4">
@@ -190,79 +194,59 @@ export function ApplicantLicensesTab({ embedded = false }: { embedded?: boolean 
           ) : null}
           <div className="grid gap-4 md:grid-cols-2">
             <div>
-              <label className="mb-1.5 block text-[13px] font-medium text-[#374151]">
-                License or certification
-              </label>
+              <label className="mb-1.5 block text-[13px] font-medium text-[#374151]">Document</label>
               <div className="relative">
                 <select
-                  value={licenseType}
-                  onChange={(event) => {
-                    const next = event.target.value;
-                    setLicenseType(next);
-                    if (next !== "other_certification") setCertificationName("");
-                  }}
+                  value={requiredDocumentId}
+                  onChange={(event) => setRequiredDocumentId(event.target.value)}
                   className="h-10 w-full cursor-pointer appearance-none rounded-lg border border-[#D1D5DB] bg-white py-2 pl-3 pr-10 text-sm text-[#334155] outline-none focus:border-[color:var(--brand-primary)]"
                 >
-                  {LICENSE_TYPES.map((type) => (
-                    <option key={type} value={type}>
-                      {LICENSE_TYPE_LABELS[type]}
+                  {documents.length === 0 ? <option value="">No documents for your jobs</option> : null}
+                  {documents.map((doc) => (
+                    <option key={doc.id} value={doc.id}>
+                      {doc.name}
                     </option>
                   ))}
                 </select>
-                <ChevronDown
-                  className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#64748B]"
-                  aria-hidden
-                />
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#64748B]" aria-hidden />
               </div>
             </div>
-            {licenseType === "other_certification" ? (
-              <div className="md:col-span-2">
-                <label className="mb-1.5 block text-[13px] font-medium text-[#374151]">
-                  Certification name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  value={certificationName}
-                  onChange={(event) => setCertificationName(event.target.value)}
-                  required
-                  maxLength={120}
-                  placeholder="Name of the certification this position requires"
-                  className="h-10 w-full rounded-lg border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[color:var(--brand-primary)]"
-                />
+            {selectedDocument?.collect_issuing_organization ? (
+              <div>
+                <label className="mb-1.5 block text-[13px] font-medium text-[#374151]">Issuing organization</label>
+                <input value={issuingOrganization} onChange={(event) => setIssuingOrganization(event.target.value)} className="h-10 w-full rounded-lg border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[color:var(--brand-primary)]" />
               </div>
             ) : null}
+            {selectedDocument?.collect_scope ? (
+              <div>
+                <label className="mb-1.5 block text-[13px] font-medium text-[#374151]">Scope</label>
+                <input value={scope} onChange={(event) => setScope(event.target.value)} className="h-10 w-full rounded-lg border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[color:var(--brand-primary)]" />
+              </div>
+            ) : null}
+            {selectedDocument?.collect_validity ? (
+              <div>
+                <label className="mb-1.5 block text-[13px] font-medium text-[#374151]">Validity</label>
+                <input value={validity} onChange={(event) => setValidity(event.target.value)} placeholder="3 Years" className="h-10 w-full rounded-lg border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[color:var(--brand-primary)]" />
+              </div>
+            ) : null}
+            {selectedDocument?.has_expiration ? (
+              <>
+                <div>
+                  <label className="mb-1.5 block text-[13px] font-medium text-[#374151]">Issued date</label>
+                  <input type="date" value={issuedDate} onChange={(event) => setIssuedDate(event.target.value)} className="h-10 w-full rounded-lg border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[color:var(--brand-primary)]" />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-[13px] font-medium text-[#374151]">Expiry date</label>
+                  <input type="date" value={expiryDate} onChange={(event) => setExpiryDate(event.target.value)} className="h-10 w-full rounded-lg border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[color:var(--brand-primary)]" />
+                </div>
+              </>
+            ) : null}
             <div>
-              <label className="mb-1.5 block text-[13px] font-medium text-[#374151]">
-                Expiration date <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="date"
-                value={expiresAt}
-                onChange={(event) => setExpiresAt(event.target.value)}
-                required
-                className="h-10 w-full rounded-lg border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[color:var(--brand-primary)]"
-              />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-[13px] font-medium text-[#374151]">License number</label>
-              <input
-                value={licenseNumber}
-                onChange={(event) => setLicenseNumber(event.target.value)}
-                className="h-10 w-full rounded-lg border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[color:var(--brand-primary)]"
-              />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-[13px] font-medium text-[#374151]">
-                License file <span className="text-red-500">*</span>
-              </label>
-              <WorkerFilePicker
-                inputRef={fileInputRef}
-                file={selectedFile}
-                onChange={setSelectedFile}
-                disabled={uploading}
-              />
+              <label className="mb-1.5 block text-[13px] font-medium text-[#374151]">File</label>
+              <WorkerFilePicker inputRef={fileInputRef} file={selectedFile} onChange={setSelectedFile} disabled={uploading} />
             </div>
           </div>
-          <button type="submit" disabled={uploading} className={WORKER_BTN_PRIMARY}>
+          <button type="submit" disabled={uploading || documents.length === 0} className={WORKER_BTN_PRIMARY}>
             <Upload className="h-4 w-4" />
             {uploading ? "Uploading..." : "Submit for review"}
           </button>
@@ -271,45 +255,37 @@ export function ApplicantLicensesTab({ embedded = false }: { embedded?: boolean 
 
       <div className={`${WORKER_SCHEDULE_CARD_CLASS} overflow-hidden`}>
         <div className="border-b border-[#E5E7EB] px-4 py-3">
-          <h2
-            className={WORKER_DOCUMENTS_PAGE_SECTION_TITLE_CLASS}
-            style={WORKER_DOCUMENTS_PAGE_SECTION_TITLE_STYLE}
-          >
-            Your licenses
+          <h2 className={WORKER_DOCUMENTS_PAGE_SECTION_TITLE_CLASS} style={WORKER_DOCUMENTS_PAGE_SECTION_TITLE_STYLE}>
+            Your certifications
           </h2>
         </div>
         <div className="divide-y divide-[#E5E7EB]">
-          {licenses.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-[#64748B]">No license records yet.</p>
+          {loading ? (
+            <p className="px-4 py-6 text-sm text-[#64748B]">Loading certifications...</p>
+          ) : credentials.length === 0 ? (
+            <p className="px-4 py-6 text-sm text-[#64748B]">No certification records yet.</p>
           ) : (
-            licenses.map((license) => (
-              <div
-                key={license.id}
-                className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4"
-              >
+            credentials.map((credential) => (
+              <div key={credential.id} className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-[#0F172A]">
-                    {license.licenseTypeLabel}
+                  <p className="truncate text-sm font-semibold text-[#0F172A]">{credential.license_name}</p>
+                  <p className="mt-1 break-words text-xs leading-5 text-[#64748B]">
+                    {[
+                      credential.issuing_organization,
+                      credential.scope,
+                      credential.validity,
+                      credential.issued_date ? `Issued ${credential.issued_date}` : null,
+                      credential.expiry_date ? `Expires ${credential.expiry_date}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || "No details yet"}
                   </p>
-                  <p className="mt-1 break-all text-xs leading-5 text-[#64748B] sm:break-words">
-                    Expires: {license.expiresAtLabel ?? "Not set"}
-                    {license.licenseNumber ? ` · #${license.licenseNumber}` : ""}
-                  </p>
-                  {license.reviewNotes ? (
-                    <p className="mt-2 break-words text-xs text-[#B45309]">
-                      Reviewer note: {license.reviewNotes}
-                    </p>
-                  ) : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
-                  <StatusBadge label={license.statusLabel} tone={statusTone(license.status, license.urgency)} />
-                  {license.hasFile ? (
-                    <button
-                      type="button"
-                      onClick={() => void openFile(license.id)}
-                      className={`${WORKER_BTN_OUTLINE} w-auto`}
-                    >
-                      View file
+                  <StatusBadge label={credential.status.replaceAll("_", " ")} tone={statusTone(credential.status)} />
+                  {credential.document_url || credential.original_file_name ? (
+                    <button type="button" onClick={() => void openFile(credential.id)} className={`${WORKER_BTN_OUTLINE} w-auto`}>
+                      Go to url
                     </button>
                   ) : null}
                 </div>

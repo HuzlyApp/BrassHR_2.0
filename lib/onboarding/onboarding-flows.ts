@@ -12,6 +12,7 @@ import { normalizeFlowNameKey } from "@/lib/onboarding/validate-flow-name";
 import { resolveOnboardingLibraryForFlows } from "@/lib/onboarding/onboarding-libraries";
 import type { WorkflowTemplateRow } from "@/lib/onboarding/workflow-templates";
 import { createDefaultWorkflowState } from "@/lib/onboarding/default-workflow";
+import { requireProfessionForEmploymentFlow } from "@/lib/professions/service";
 
 export type OnboardingFlowStatus = "draft" | "published" | "unpublished";
 
@@ -525,10 +526,16 @@ export async function createOnboardingFlow(
     createAsBlank?: boolean;
     status?: OnboardingFlowStatus;
     createdBy: string;
+    employmentType?: string | null;
+    professionId?: string | null;
   }
 ): Promise<OnboardingFlowDetail> {
   const duplicate = await findDuplicateOnboardingFlowName(supabase, tenantId, input.name);
   if (duplicate) throw new Error(duplicate);
+  requireProfessionForEmploymentFlow({
+    employmentType: input.employmentType,
+    professionId: input.professionId,
+  });
 
   let libraryId = input.libraryId ?? null;
   if (!libraryId) {
@@ -574,6 +581,8 @@ export async function createOnboardingFlow(
       created_as_blank: createAsBlank,
       builder_draft: builderDraft,
       sort_order: sortOrder,
+      employment_type: input.employmentType?.trim() || null,
+      profession_id: input.professionId?.trim() || null,
       created_by: input.createdBy,
       updated_by: input.createdBy,
     })

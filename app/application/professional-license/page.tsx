@@ -5,6 +5,7 @@ import { applicationPath } from "@/lib/tenant/with-tenant";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { TenantRequiredDocument } from "@/lib/onboarding/types";
+import { validateCredentialDates } from "@/lib/professions/catalog";
 import AutosaveStatus from "@/app/components/AutosaveStatus";
 import {
   APPLICANT_ACTION_ROW,
@@ -93,6 +94,9 @@ export default function Step2License() {
   const stepNav = useOnboardingStepNav();
   const [files, setFiles] = useState<Record<UploadType, UploadSlot | null>>(emptySlots);
   const [dynamicFiles, setDynamicFiles] = useState<Record<string, UploadSlot | null>>({});
+  const [credentialFields, setCredentialFields] = useState<
+    Record<string, { issuedDate: string; expiryDate: string; issuingOrganization: string; scope: string; validity: string }>
+  >({});
   const [error, setError] = useState<string | null>(null);
   const [fileAutosave, setFileAutosave] = useState<"idle" | "saved">("idle");
   const [saving, setSaving] = useState(false);
@@ -266,6 +270,19 @@ export default function Step2License() {
       return;
     }
 
+    const fields = credentialFields[doc.id];
+    if (doc.source === "workflow") {
+      const dateError = validateCredentialDates({
+        hasExpiration: doc.has_expiration === true,
+        issuedDate: fields?.issuedDate ?? null,
+        expiryDate: fields?.expiryDate ?? null,
+      });
+      if (dateError) {
+        setError(dateError);
+        return;
+      }
+    }
+
     setError(null);
     setDynamicFiles((prev) => ({
       ...prev,
@@ -288,6 +305,13 @@ export default function Step2License() {
       fd.append("requiredDocumentId", doc.id);
       if (tenantSlug) {
         fd.append("tenantSlug", tenantSlug);
+      }
+      if (doc.source === "workflow" && fields) {
+        fd.append("issuedDate", fields.issuedDate);
+        fd.append("expiryDate", fields.expiryDate);
+        fd.append("issuingOrganization", fields.issuingOrganization);
+        fd.append("scope", fields.scope);
+        fd.append("validity", fields.validity);
       }
 
       const res = await fetch("/api/onboarding/documents/upload", { method: "POST", body: fd });
@@ -388,6 +412,107 @@ export default function Step2License() {
             <p className="text-[10px] font-normal leading-4 text-slate-500">{hint}</p>
           ) : null}
         </div>
+        {doc.source === "workflow" ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {doc.collect_issuing_organization ? (
+              <input
+                value={credentialFields[doc.id]?.issuingOrganization ?? ""}
+                onChange={(event) =>
+                  setCredentialFields((prev) => ({
+                    ...prev,
+                    [doc.id]: {
+                      issuedDate: prev[doc.id]?.issuedDate ?? "",
+                      expiryDate: prev[doc.id]?.expiryDate ?? "",
+                      issuingOrganization: event.target.value,
+                      scope: prev[doc.id]?.scope ?? "",
+                      validity: prev[doc.id]?.validity ?? "",
+                    },
+                  }))
+                }
+                placeholder="Issuing organization"
+                className="h-10 rounded-lg border border-slate-300 px-3 text-sm"
+              />
+            ) : null}
+            {doc.collect_scope ? (
+              <input
+                value={credentialFields[doc.id]?.scope ?? ""}
+                onChange={(event) =>
+                  setCredentialFields((prev) => ({
+                    ...prev,
+                    [doc.id]: {
+                      issuedDate: prev[doc.id]?.issuedDate ?? "",
+                      expiryDate: prev[doc.id]?.expiryDate ?? "",
+                      issuingOrganization: prev[doc.id]?.issuingOrganization ?? "",
+                      scope: event.target.value,
+                      validity: prev[doc.id]?.validity ?? "",
+                    },
+                  }))
+                }
+                placeholder="Scope"
+                className="h-10 rounded-lg border border-slate-300 px-3 text-sm"
+              />
+            ) : null}
+            {doc.collect_validity ? (
+              <input
+                value={credentialFields[doc.id]?.validity ?? ""}
+                onChange={(event) =>
+                  setCredentialFields((prev) => ({
+                    ...prev,
+                    [doc.id]: {
+                      issuedDate: prev[doc.id]?.issuedDate ?? "",
+                      expiryDate: prev[doc.id]?.expiryDate ?? "",
+                      issuingOrganization: prev[doc.id]?.issuingOrganization ?? "",
+                      scope: prev[doc.id]?.scope ?? "",
+                      validity: event.target.value,
+                    },
+                  }))
+                }
+                placeholder="Validity, such as 3 Years"
+                className="h-10 rounded-lg border border-slate-300 px-3 text-sm"
+              />
+            ) : null}
+            {doc.has_expiration ? (
+              <>
+                <input
+                  type="date"
+                  value={credentialFields[doc.id]?.issuedDate ?? ""}
+                  onChange={(event) =>
+                    setCredentialFields((prev) => ({
+                      ...prev,
+                      [doc.id]: {
+                        issuedDate: event.target.value,
+                        expiryDate: prev[doc.id]?.expiryDate ?? "",
+                        issuingOrganization: prev[doc.id]?.issuingOrganization ?? "",
+                        scope: prev[doc.id]?.scope ?? "",
+                        validity: prev[doc.id]?.validity ?? "",
+                      },
+                    }))
+                  }
+                  aria-label={`${doc.title} issued date`}
+                  className="h-10 rounded-lg border border-slate-300 px-3 text-sm"
+                />
+                <input
+                  type="date"
+                  value={credentialFields[doc.id]?.expiryDate ?? ""}
+                  onChange={(event) =>
+                    setCredentialFields((prev) => ({
+                      ...prev,
+                      [doc.id]: {
+                        issuedDate: prev[doc.id]?.issuedDate ?? "",
+                        expiryDate: event.target.value,
+                        issuingOrganization: prev[doc.id]?.issuingOrganization ?? "",
+                        scope: prev[doc.id]?.scope ?? "",
+                        validity: prev[doc.id]?.validity ?? "",
+                      },
+                    }))
+                  }
+                  aria-label={`${doc.title} expiry date`}
+                  className="h-10 rounded-lg border border-slate-300 px-3 text-sm"
+                />
+              </>
+            ) : null}
+          </div>
+        ) : null}
         {file ? (
           <div className="flex items-center justify-between rounded-lg border border-[color:var(--brand-primary)]/40 bg-[color:var(--brand-primary)]/10 px-4 py-3">
             <div className="min-w-0 flex-1">
