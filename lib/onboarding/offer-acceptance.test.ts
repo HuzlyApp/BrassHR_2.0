@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   formatOfferCompensation,
+  isOfferAcceptanceStep,
   isOfferAcceptanceStepType,
   offerDetailsFromJob,
   readOfferDecision,
@@ -14,7 +15,13 @@ describe("offer acceptance", () => {
   it("recognises the offer library step", () => {
     expect(isOfferAcceptanceStepType("offer-acceptance")).toBe(true);
     expect(isOfferAcceptanceStepType("offer_accepted")).toBe(true);
+    expect(isOfferAcceptanceStepType("pay-rate-accepted")).toBe(true);
     expect(isOfferAcceptanceStepType("employee-agreement")).toBe(false);
+
+    expect(isOfferAcceptanceStep({ stepKey: "custom_question_16", title: "Pay Rate Accepted" })).toBe(true);
+    expect(isOfferAcceptanceStep({ stepKey: "custom_question_16", metadata: { workflow_step_id: "offer-acceptance" } })).toBe(true);
+    expect(isOfferAcceptanceStep({ snapshotStepId: "w2-figma-20", stepType: "offer-acceptance", title: "Pay Rate Accepted" })).toBe(true);
+    expect(isOfferAcceptanceStep({ stepKey: "authorizations_2", title: "Agreement eSign" })).toBe(false);
   });
 
   it("formats a pay range with its unit", () => {

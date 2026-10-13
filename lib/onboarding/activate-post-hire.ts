@@ -116,8 +116,7 @@ async function markActivationEmailSent(
     .from("job_applications")
     .update({ post_hire_activation_email_sent_at: new Date().toISOString() })
     .eq("id", params.applicationId)
-    .eq("tenant_id", params.tenantId)
-    .is("post_hire_activation_email_sent_at", null);
+    .eq("tenant_id", params.tenantId);
   if (error && !/post_hire_activation_email_sent_at|does not exist/i.test(String(error.message))) {
     throw error;
   }
@@ -135,6 +134,7 @@ export async function activatePostHire(
     actorUserId?: string | null;
     origin?: string | null;
     sendEmail?: boolean;
+    forceEmail?: boolean;
   }
 ): Promise<ActivatePostHireResult> {
   const existing = await loadApplicationWorkflowPhase(supabase, {
@@ -221,9 +221,10 @@ export async function activatePostHire(
 
   const shouldEmail = input.sendEmail !== false && Boolean(input.origin) && phase !== "pre_hire";
   const emailAlreadySent = Boolean(after?.postHireActivationEmailSentAt ?? existing.postHireActivationEmailSentAt);
+  const canSend = shouldEmail && (!emailAlreadySent || Boolean(input.forceEmail));
 
   let email: ActivatePostHireResult["email"] = null;
-  if (shouldEmail && !emailAlreadySent && after?.workerId) {
+  if (canSend && after?.workerId) {
     const jobTitle = await loadJobTitle(supabase, {
       tenantId: input.tenantId,
       applicationId: input.applicationId,
@@ -242,7 +243,7 @@ export async function activatePostHire(
         applicationId: input.applicationId,
       });
     }
-  } else if (emailAlreadySent) {
+  } else if (emailAlreadySent && !input.forceEmail) {
     email = { sent: false, skipped: true, reason: "ALREADY_SENT" };
   }
 
