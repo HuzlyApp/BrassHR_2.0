@@ -28,8 +28,12 @@ import {
   TEXT_SECONDARY,
 } from "../constants";
 import ConfigureMappingModal from "@/app/components/workflow-mappings/ConfigureMappingModal";
+import { staffFetchInit } from "@/lib/staff-auth-headers";
 
-type OnboardingFlow = OnboardingFlowListItem;
+type OnboardingFlow = OnboardingFlowListItem & {
+  employmentType?: string | null;
+  professionId?: string | null;
+};
 
 type FilterTab = "published" | "unpublished";
 type FlowSaveStatus = "published" | "draft";
@@ -403,6 +407,10 @@ function CreateNewFlowModal({
   const [createAsBlank, setCreateAsBlank] = useState(false);
   const [folder, setFolder] = useState(defaultFolderId ?? "");
   const [saveStatus, setSaveStatus] = useState<FlowSaveStatus>("published");
+  const [employmentType, setEmploymentType] = useState("");
+  const [professionId, setProfessionId] = useState("");
+  const [professions, setProfessions] = useState<SelectOption[]>([]);
+  const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -425,13 +433,42 @@ function CreateNewFlowModal({
     setCreateAsBlank(false);
     setFolder(defaultFolderId ?? "");
     setSaveStatus("published");
+    setEmploymentType("");
+    setProfessionId("");
+    setFormError(null);
   }, [open, defaultFolderId]);
+
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    void (async () => {
+      const res = await fetch("/api/admin/professions", {
+        ...(await staffFetchInit()),
+        cache: "no-store",
+      });
+      const payload = (await res.json().catch(() => ({}))) as {
+        professions?: Array<{ id: string; name: string }>;
+      };
+      if (!alive || !res.ok) return;
+      setProfessions(
+        (payload.professions ?? []).map((row) => ({ id: row.id, label: row.name }))
+      );
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [open]);
 
   const handleCreate = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
       const name = flowName.trim();
       if (!name) return;
+      if (employmentType && !professionId) {
+        setFormError("A flow with an employment type needs a profession.");
+        return;
+      }
+      setFormError(null);
       const status = saveStatus === "published" ? "published" : "unpublished";
       await onCreated({
         id: "",
@@ -442,9 +479,11 @@ function CreateNewFlowModal({
         createdAsBlank: createAsBlank,
         createdAt: "",
         updatedAt: "",
+        employmentType: employmentType || null,
+        professionId: professionId || null,
       });
     },
-    [flowName, onCreated, saveStatus, folder, createAsBlank, template]
+    [flowName, onCreated, saveStatus, folder, createAsBlank, template, employmentType, professionId]
   );
 
   if (!open) return null;
@@ -510,6 +549,46 @@ function CreateNewFlowModal({
               className={fieldClassName}
               style={fieldStyle}
             />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="min-w-0">
+              <label htmlFor="flow-employment" className="mb-1.5 block text-sm font-medium leading-5" style={{ color: TEXT_PRIMARY }}>
+                Employment type
+              </label>
+              <select
+                id="flow-employment"
+                value={employmentType}
+                onChange={(event) => setEmploymentType(event.target.value)}
+                className={fieldClassName}
+                style={fieldStyle}
+              >
+                <option value="">Select employment type</option>
+                <option value="W2">W2</option>
+                <option value="1099">1099</option>
+                <option value="RNR">RNR</option>
+              </select>
+            </div>
+            <div className="min-w-0">
+              <label htmlFor="flow-profession" className="mb-1.5 block text-sm font-medium leading-5" style={{ color: TEXT_PRIMARY }}>
+                Profession
+              </label>
+              <select
+                id="flow-profession"
+                value={professionId}
+                onChange={(event) => setProfessionId(event.target.value)}
+                className={fieldClassName}
+                style={fieldStyle}
+                required={employmentType === "W2"}
+              >
+                <option value="">Select profession</option>
+                {professions.map((profession) => (
+                  <option key={profession.id} value={profession.id}>
+                    {profession.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="min-w-0">
@@ -654,9 +733,9 @@ function CreateNewFlowModal({
             </label>
           </fieldset>
 
-          {error ? (
+          {formError || error ? (
             <p className="text-sm text-red-600" role="alert">
-              {error}
+              {formError || error}
             </p>
           ) : null}
 
@@ -807,6 +886,8 @@ function OnboardingFlowsPageContent({
           templateId: draft.templateId,
           createAsBlank: draft.createdAsBlank,
           status: draft.status,
+          employmentType: draft.employmentType ?? null,
+          professionId: draft.professionId ?? null,
         });
         setCreateModalOpen(false);
         if (created.status === "published") {

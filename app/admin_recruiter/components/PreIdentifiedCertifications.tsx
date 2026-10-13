@@ -12,26 +12,40 @@ type CertificationFile = {
   licenseTypeLabel: string;
   originalFileName: string | null;
   hasFile: boolean;
+  issuingOrganization: string | null;
+  scope: string | null;
+  validity: string | null;
+  issuedDate: string | null;
+  expiryDate: string | null;
+  documentUrl: string | null;
+  requiredDocumentId: string;
 };
 
 type PendingUpload = {
-  licenseType: "bls_certification" | "acls_certification" | "other_certification";
-  certificationName?: string;
+  requiredDocumentId: string;
+  issuedDate: string;
+  expiryDate: string;
 };
 
 const PRESET_SLOTS: Array<{
-  licenseType: "bls_certification" | "acls_certification";
+  code: "BLS" | "ACLS";
   title: string;
 }> = [
-  { licenseType: "bls_certification", title: "BLS" },
-  { licenseType: "acls_certification", title: "ACLS" },
+  { code: "BLS", title: "BLS" },
+  { code: "ACLS", title: "ACLS" },
 ];
+
+type CredentialDocument = {
+  id: string;
+  code: string;
+  name: string;
+};
 
 function groupOtherCertifications(files: CertificationFile[]) {
   const groups = new Map<string, { name: string; files: CertificationFile[] }>();
   for (const file of files) {
-    if (file.licenseType !== "other_certification") continue;
-    const name = file.certificationName?.trim() || "Other Certification";
+    if (file.licenseType === "BLS" || file.licenseType === "ACLS") continue;
+    const name = file.licenseTypeLabel?.trim() || "Certification";
     const key = name.toLowerCase();
     const existing = groups.get(key);
     if (existing) existing.files.push(file);
@@ -45,27 +59,52 @@ export default function PreIdentifiedCertifications({ workerId }: { workerId: st
   const pendingRef = useRef<PendingUpload | null>(null);
   const pendingKeyRef = useRef<string | null>(null);
   const [files, setFiles] = useState<CertificationFile[]>([]);
+  const [documents, setDocuments] = useState<CredentialDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [otherName, setOtherName] = useState("");
 
   const load = useCallback(async () => {
     const res = await fetch(
-      `/api/admin/worker-account-licenses?workerId=${encodeURIComponent(workerId)}`,
+      `/api/admin/worker-credentials?workerId=${encodeURIComponent(workerId)}`,
       { cache: "no-store" }
     );
     const payload = (await res.json().catch(() => ({}))) as {
-      licenses?: CertificationFile[];
+      credentials?: Array<{
+        id: string;
+        required_document_id: string;
+        license_name: string;
+        issuing_organization: string | null;
+        scope: string | null;
+        validity: string | null;
+        issued_date: string | null;
+        expiry_date: string | null;
+        document_url: string | null;
+        original_file_name: string | null;
+      }>;
+      documents?: CredentialDocument[];
       error?: string;
     };
     if (!res.ok) throw new Error(payload.error || "Could not load certifications.");
+    const docs = payload.documents ?? [];
+    setDocuments(docs);
+    const codeById = new Map(docs.map((doc) => [doc.id, doc.code]));
     setFiles(
-      (payload.licenses ?? []).filter((license) =>
-        ["bls_certification", "acls_certification", "other_certification"].includes(
-          license.licenseType
-        )
-      )
+      (payload.credentials ?? []).map((row) => ({
+        id: row.id,
+        licenseType: codeById.get(row.required_document_id) || row.license_name,
+        certificationName: row.license_name,
+        licenseTypeLabel: row.license_name,
+        originalFileName: row.original_file_name,
+        hasFile: Boolean(row.document_url || row.original_file_name),
+        issuingOrganization: row.issuing_organization,
+        scope: row.scope,
+        validity: row.validity,
+        issuedDate: row.issued_date,
+        expiryDate: row.expiry_date,
+        documentUrl: row.document_url,
+        requiredDocumentId: row.required_document_id,
+      }))
     );
   }, [workerId]);
 
@@ -94,7 +133,7 @@ export default function PreIdentifiedCertifications({ workerId }: { workerId: st
 
   async function fileUrl(id: string) {
     const res = await fetch(
-      `/api/admin/worker-account-files?workerId=${encodeURIComponent(workerId)}&source=license&id=${encodeURIComponent(id)}`
+      `/api/admin/worker-account-files?workerId=${encodeURIComponent(workerId)}&source=credential&id=${encodeURIComponent(id)}`
     );
     const payload = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
     if (!res.ok || !payload.url) {
@@ -126,8 +165,8 @@ export default function PreIdentifiedCertifications({ workerId }: { workerId: st
   }
 
   function openPicker(target: PendingUpload, uploadKey: string) {
-    if (target.licenseType === "other_certification" && !target.certificationName?.trim()) {
-      setError("Enter the certification name.");
+    if (!target.requiredDocumentId) {
+      setError("This document is not on the worker's workflow yet.");
       return;
     }
     setError(null);
@@ -139,7 +178,7 @@ export default function PreIdentifiedCertifications({ workerId }: { workerId: st
   async function handleFilesSelected(selected: FileList | null) {
     const target = pendingRef.current;
     const uploadKey = pendingKeyRef.current;
-    const chosen = selected ? Array.from(selected) : [];
+    const chosen = selected ? Array.from(selected).slice(0, 1) : [];
     pendingRef.current = null;
     pendingKeyRef.current = null;
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -148,19 +187,16 @@ export default function PreIdentifiedCertifications({ workerId }: { workerId: st
     setUploadingKey(uploadKey);
     setError(null);
     try {
-      for (const file of chosen) {
-        const form = new FormData();
-        form.append("workerId", workerId);
-        form.append("licenseType", target.licenseType);
-        form.append("file", file);
-        if (target.certificationName) form.append("certificationName", target.certificationName);
-        const res = await fetch("/api/admin/worker-account-licenses", { method: "POST", body: form });
-        const payload = (await res.json().catch(() => ({}))) as { error?: string };
-        if (!res.ok) throw new Error(payload.error || `Could not upload ${file.name}.`);
-      }
-      if (target.licenseType === "other_certification" && target.certificationName === otherName.trim()) {
-        setOtherName("");
-      }
+      const file = chosen[0];
+      const form = new FormData();
+      form.append("workerId", workerId);
+      form.append("requiredDocumentId", target.requiredDocumentId);
+      form.append("issuedDate", target.issuedDate);
+      form.append("expiryDate", target.expiryDate);
+      form.append("file", file);
+      const res = await fetch("/api/admin/worker-credentials", { method: "POST", body: form });
+      const payload = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(payload.error || `Could not upload ${file.name}.`);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not upload certification.");
@@ -181,7 +217,7 @@ export default function PreIdentifiedCertifications({ workerId }: { workerId: st
           Pre-Identified Certifications
         </h3>
         <p className="mt-1 text-sm text-[#6B7280]">
-          BLS, ACLS, and any other certification this position requires. Each one can hold more than one document.
+          One current file per document. A new upload replaces it.
         </p>
       </div>
 
@@ -206,29 +242,37 @@ export default function PreIdentifiedCertifications({ workerId }: { workerId: st
         <p className="text-sm text-[#6B7280]">Loading certifications...</p>
       ) : (
         <div className="space-y-3">
-          {PRESET_SLOTS.map((slot, index) => (
+          {PRESET_SLOTS.map((slot, index) => {
+            const document = documents.find((item) => item.code === slot.code);
+            return (
             <CertificationCard
-              key={slot.licenseType}
+              key={slot.code}
               index={index + 1}
               title={slot.title}
-              files={filesFor(slot.licenseType)}
-              uploading={uploadingKey === slot.licenseType}
-              onUpload={() => openPicker({ licenseType: slot.licenseType }, slot.licenseType)}
+              files={filesFor(slot.code)}
+              uploading={uploadingKey === slot.code}
+              onUpload={(dates) =>
+                openPicker(
+                  { requiredDocumentId: document?.id ?? "", ...dates },
+                  slot.code
+                )
+              }
               onView={(id) => void openFile(id)}
               onDownload={(id, name) => void downloadFile(id, name)}
             />
-          ))}
+            );
+          })}
 
           {otherGroups.map((group, index) => (
             <CertificationCard
               key={group.name}
               index={PRESET_SLOTS.length + index + 1}
-              title={`Other Certification: ${group.name}`}
+              title={group.name}
               files={group.files}
               uploading={uploadingKey === `other:${group.name.toLowerCase()}`}
-              onUpload={() =>
+              onUpload={(dates) =>
                 openPicker(
-                  { licenseType: "other_certification", certificationName: group.name },
+                  { requiredDocumentId: group.files[0]?.requiredDocumentId ?? "", ...dates },
                   `other:${group.name.toLowerCase()}`
                 )
               }
@@ -236,36 +280,6 @@ export default function PreIdentifiedCertifications({ workerId }: { workerId: st
               onDownload={(id, name) => void downloadFile(id, name)}
             />
           ))}
-
-          <div className="w-full rounded-md border border-[#D1D5DB]">
-            <div className="flex min-h-[44px] items-center justify-between gap-3 px-5 pt-3 pb-2">
-              <div className="min-w-0 text-[16px] font-semibold leading-6 text-[#111827]">
-                {PRESET_SLOTS.length + otherGroups.length + 1}. Other Certification
-              </div>
-            </div>
-            <div className="flex flex-col gap-3 px-5 py-3 md:flex-row md:items-center">
-              <input
-                value={otherName}
-                onChange={(event) => setOtherName(event.target.value)}
-                maxLength={120}
-                placeholder="Certification name required by this position"
-                className="h-10 w-full rounded-md border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[color:var(--brand-primary)] md:max-w-md"
-              />
-              <button
-                type="button"
-                disabled={uploadingKey === "other:new"}
-                onClick={() =>
-                  openPicker(
-                    { licenseType: "other_certification", certificationName: otherName.trim() },
-                    "other:new"
-                  )
-                }
-                className="inline-flex h-8 items-center justify-center rounded-md bg-[color:var(--brand-primary)] px-5 text-xs font-semibold text-white hover:brightness-95 disabled:opacity-50"
-              >
-                {uploadingKey === "other:new" ? "Uploading..." : "Upload documents"}
-              </button>
-            </div>
-          </div>
         </div>
       )}
     </section>
@@ -285,10 +299,12 @@ function CertificationCard({
   title: string;
   files: CertificationFile[];
   uploading: boolean;
-  onUpload: () => void;
+  onUpload: (dates: { issuedDate: string; expiryDate: string }) => void;
   onView: (id: string) => void;
   onDownload: (id: string, name: string) => void;
 }) {
+  const [issuedDate, setIssuedDate] = useState("");
+  const [expiryDate, setExpiryDate] = useState("");
   return (
     <div className="w-full rounded-md border border-[#D1D5DB]">
       <div className="flex min-h-[44px] items-center justify-between gap-3 px-5 pt-3 pb-2">
@@ -298,14 +314,18 @@ function CertificationCard({
         <button
           type="button"
           disabled={uploading}
-          onClick={onUpload}
+          onClick={() => onUpload({ issuedDate, expiryDate })}
           className="inline-flex h-8 shrink-0 items-center justify-center rounded-md bg-[color:var(--brand-primary)] px-5 text-xs font-semibold text-white hover:brightness-95 disabled:opacity-50"
         >
-          {uploading ? "Uploading..." : files.length > 0 ? "Add documents" : "Upload"}
+          {uploading ? "Uploading..." : files.length > 0 ? "Replace" : "Upload"}
         </button>
       </div>
 
       <div className="space-y-2 px-5 py-3">
+        <div className="flex flex-wrap gap-2">
+          <input type="date" value={issuedDate} onChange={(event) => setIssuedDate(event.target.value)} aria-label={`${title} issued date`} className="h-8 rounded-md border border-[#D1D5DB] px-2 text-xs" />
+          <input type="date" value={expiryDate} onChange={(event) => setExpiryDate(event.target.value)} aria-label={`${title} expiry date`} className="h-8 rounded-md border border-[#D1D5DB] px-2 text-xs" />
+        </div>
         {files.length === 0 ? (
           <div className="flex h-[50px] w-full max-w-[520px] items-center rounded-[8px] border border-dashed border-[color:color-mix(in_srgb,var(--brand-primary)_30%,white)] bg-[#F8FAFC] px-3 text-xs text-[#6B7280]">
             No Document
@@ -324,7 +344,11 @@ function CertificationCard({
                   <div className="truncate text-xs font-semibold leading-4 text-[color:var(--brand-primary)]">
                     {name}
                   </div>
-                  <div className="text-xs text-[#6B7280]">Uploaded file</div>
+                  <div className="text-xs text-[#6B7280]">
+                    {[file.issuingOrganization, file.scope, file.validity, file.issuedDate, file.expiryDate]
+                      .filter(Boolean)
+                      .join(" · ") || "Uploaded file"}
+                  </div>
                 </div>
                 <button
                   type="button"

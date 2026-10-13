@@ -23,6 +23,66 @@ function sanitizeFileName(name: string): string {
   return name.replace(/[/\\?%*:|"<>]/g, "_").slice(0, 200);
 }
 
+async function saveWorkflowCredentialUpload(input: {
+  supabase: ReturnType<typeof createClient>;
+  tenantId: string;
+  workerId: string;
+  requiredDocumentId: string;
+  file: File;
+  issuedDate: string;
+  expiryDate: string;
+  issuingOrganization: string;
+  scope: string;
+  validity: string;
+}): Promise<NextResponse | null> {
+  const { data: workflowDoc, error } = await input.supabase
+    .from("workflow_required_documents")
+    .select("id")
+    .eq("id", input.requiredDocumentId)
+    .eq("tenant_id", input.tenantId)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (error || !workflowDoc) return null;
+
+  const buffer = Buffer.from(await input.file.arrayBuffer());
+  const objectPath = `${input.tenantId}/${input.workerId}/${input.requiredDocumentId}/${randomUUID()}-${sanitizeFileName(input.file.name)}`;
+  const { error: uploadError } = await input.supabase.storage
+    .from(WORKER_REQUIRED_FILES_BUCKET)
+    .upload(objectPath, buffer, {
+      contentType: input.file.type || "application/octet-stream",
+      upsert: true,
+    });
+  if (uploadError) {
+    return NextResponse.json({ error: uploadError.message }, { status: 500 });
+  }
+
+  try {
+    const { saveWorkerCredential } = await import("@/lib/professions/service");
+    await saveWorkerCredential(input.supabase, {
+      tenantId: input.tenantId,
+      workerId: input.workerId,
+      requiredDocumentId: input.requiredDocumentId,
+      issuedDate: input.issuedDate,
+      expiryDate: input.expiryDate,
+      issuingOrganization: input.issuingOrganization,
+      scope: input.scope,
+      validity: input.validity,
+      documentUrl: objectPath,
+      storagePath: objectPath,
+      originalFileName: input.file.name,
+      fileType: input.file.type || null,
+      fileSize: input.file.size,
+      status: "uploaded",
+      allowReviewStatus: false,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Could not save credential";
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
+
+  return NextResponse.json({ ok: true, path: objectPath, bucket: WORKER_REQUIRED_FILES_BUCKET });
+}
+
 export async function POST(req: NextRequest) {
   try {
     const limited = await enforceRateLimit(req, {
@@ -68,6 +128,20 @@ export async function POST(req: NextRequest) {
 
     if (docErr) throw docErr;
     if (!reqDoc) {
+      const workflowSaved = await saveWorkflowCredentialUpload({
+        supabase,
+        tenantId: ctx.tenantId,
+        workerId: ctx.workerId,
+        requiredDocumentId,
+        file,
+        issuedDate: String(formData.get("issuedDate") ?? ""),
+        expiryDate: String(formData.get("expiryDate") ?? ""),
+        issuingOrganization: String(formData.get("issuingOrganization") ?? ""),
+        scope: String(formData.get("scope") ?? ""),
+        validity: String(formData.get("validity") ?? ""),
+      });
+      if (workflowSaved) return workflowSaved;
+
       console.warn("[onboarding/documents/upload] requirement missing", {
         requiredDocumentId,
         tenantId: ctx.tenantId,

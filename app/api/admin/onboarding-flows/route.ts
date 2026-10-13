@@ -71,6 +71,8 @@ type CreateBody = {
   templateId?: string | null;
   createAsBlank?: boolean;
   status?: OnboardingFlowStatus;
+  employmentType?: string | null;
+  professionId?: string | null;
 };
 
 export async function POST(req: NextRequest) {
@@ -112,6 +114,8 @@ export async function POST(req: NextRequest) {
       createAsBlank: body.createAsBlank === true,
       status: body.status,
       createdBy: auth.userId,
+      employmentType: body.employmentType ?? null,
+      professionId: body.professionId ?? null,
     });
 
     return NextResponse.json({ flow });
@@ -122,7 +126,11 @@ export async function POST(req: NextRequest) {
         : typeof err === "object" && err && "message" in err
           ? String((err as { message: unknown }).message)
           : "Failed to create flow";
-    const status = msg.includes("already exists") ? 409 : 500;
+    const status = msg.includes("already exists")
+      ? 409
+      : msg.toLowerCase().includes("profession")
+        ? 400
+        : 500;
     console.error("[onboarding-flows POST]", err);
     return NextResponse.json({ error: msg }, { status });
   }
