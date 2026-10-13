@@ -8,6 +8,8 @@ export type WorkerJobApplicationResume = {
   fileName: string;
   fileSizeLabel: string;
   fileType: string | null;
+  /** Application this résumé row is bound to; may differ from the list item when it is a fallback. */
+  jobApplicationId: string | null;
 };
 
 export type WorkerJobApplicationListItem = {
@@ -175,6 +177,7 @@ export async function listWorkerJobApplications(
   let latestResume: WorkerJobApplicationResume | null = null;
 
   for (const resume of (resumeRows ?? []) as unknown as ResumeRow[]) {
+    const linkedApplicationId = String(resume.job_application_id ?? "").trim();
     const item: WorkerJobApplicationResume = {
       id: String(resume.id),
       fileName: buildWorkerResumeFileName({
@@ -187,9 +190,9 @@ export async function listWorkerJobApplications(
       }),
       fileSizeLabel: formatFileSize(resume.file_size_bytes),
       fileType: resume.file_type ?? null,
+      jobApplicationId: linkedApplicationId || null,
     };
     if (!latestResume) latestResume = item;
-    const linkedApplicationId = String(resume.job_application_id ?? "").trim();
     if (linkedApplicationId && !latestResumeByApplication.has(linkedApplicationId)) {
       latestResumeByApplication.set(linkedApplicationId, item);
     }

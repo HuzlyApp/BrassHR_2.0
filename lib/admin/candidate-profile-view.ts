@@ -11,6 +11,7 @@ export type CandidateProfileResume = {
   fileName: string;
   fileSizeLabel: string;
   fileType: string | null;
+  jobApplicationId?: string | null;
 };
 
 export type CandidateProfileApplication = {
