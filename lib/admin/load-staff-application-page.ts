@@ -3,7 +3,17 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getStateCodeFromName } from "@/lib/us-state-names";
 import { isUuid } from "@/lib/validation/uuid";
-import { JOB_APPLICATION_APPLICANT_EMBED } from "@/lib/jobs/application-applicant-display";
+import {
+  JOB_APPLICATION_APPLICANT_EMBED,
+  resolveApplicationApplicantEmail,
+  resolveApplicationApplicantName,
+  resolveApplicationWorkerId,
+  type ApplicationApplicantSource,
+} from "@/lib/jobs/application-applicant-display";
+import {
+  loadTenantConvertedWorkerIdentities,
+  isConvertedWorkerOrApplication,
+} from "@/lib/admin/converted-worker-identities";
 import { JOB_CANDIDATE_LIST_HIDDEN_STATUS_IN_FILTER } from "@/lib/jobs/application-status";
 import {
   filterWorkerIdsMatchingSkills,
@@ -273,30 +283,66 @@ export async function loadStaffApplicationPage(
   const ids = Array.isArray(pageJson.ids) ? pageJson.ids : [];
   const buckets = Array.isArray(pageJson.buckets) ? pageJson.buckets : [];
 
+  const identities = await loadTenantConvertedWorkerIdentities(supabase, tenantId);
+
   if (idsOnly) {
+    const filteredIds = ids.filter(
+      (row) => !identities.sourceApplicationIds.has(String(row.id ?? ""))
+    );
+    const diff = ids.length - filteredIds.length;
     return {
       paged: true,
       idsOnly: true,
-      ids,
-      total: Number(pageJson.total ?? 0),
+      ids: filteredIds,
+      total: Math.max(0, Number(pageJson.total ?? 0) - diff),
       scopeUnanalyzedCount: Number(pageJson.scopeUnanalyzedCount ?? 0),
     };
   }
 
+  const hydrated = await hydrateApplications(
+    supabase,
+    tenantId,
+    ids.map((row) => String(row.id ?? "")).filter(Boolean)
+  );
+
+  const activeHydrated = hydrated.filter((app) => {
+    const workerId = resolveApplicationWorkerId(app as ApplicationApplicantSource);
+    const email = resolveApplicationApplicantEmail(app as ApplicationApplicantSource);
+    const name = resolveApplicationApplicantName(app as ApplicationApplicantSource);
+    const statusObj = Array.isArray(app.application_statuses)
+      ? app.application_statuses[0]
+      : app.application_statuses;
+    const systemKey = (statusObj as { system_key?: string } | null)?.system_key ?? null;
+
+    const isConverted = isConvertedWorkerOrApplication(
+      {
+        id: String(app.id ?? ""),
+        applicationId: String(app.id ?? ""),
+        workerId,
+        email,
+        name,
+        status: String(app.status ?? ""),
+        systemKey,
+        workflowPhase: String(app.workflow_phase ?? ""),
+      },
+      identities
+    );
+    return !isConverted;
+  });
+
   const applications = await decorateApplications(
     supabase,
     tenantId,
-    await hydrateApplications(
-      supabase,
-      tenantId,
-      ids.map((row) => String(row.id ?? "")).filter(Boolean)
-    )
+    activeHydrated
   );
+
+  const diff = hydrated.length - activeHydrated.length;
+  const adjustedTotal = Math.max(0, Number(pageJson.total ?? 0) - diff);
 
   return {
     paged: true,
     applications,
-    total: Number(pageJson.total ?? 0),
+    total: adjustedTotal,
     unanalyzedCount: Number(pageJson.unanalyzedCount ?? 0),
     scopeUnanalyzedCount: Number(pageJson.scopeUnanalyzedCount ?? 0),
     multiJobApplicantCount: Number(pageJson.multiJobApplicantCount ?? 0),

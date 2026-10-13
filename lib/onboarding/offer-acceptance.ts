@@ -11,6 +11,51 @@ export function isOfferAcceptanceStepType(stepType: string | null | undefined): 
   );
 }
 
+export function isOfferAcceptanceStep(
+  step:
+    | {
+        snapshotStepId?: string | null;
+        stepKey?: string | null;
+        stepType?: string | null;
+        title?: string | null;
+        metadata?: Record<string, unknown> | null;
+      }
+    | null
+    | undefined
+): boolean {
+  if (!step) return false;
+  if (isOfferAcceptanceStepType(step.stepType)) return true;
+  if (isOfferAcceptanceStepType(step.stepKey)) return true;
+  if (isOfferAcceptanceStepType(step.snapshotStepId)) return true;
+
+  const metaWorkflowId = step.metadata?.workflow_step_id;
+  if (typeof metaWorkflowId === "string" && isOfferAcceptanceStepType(metaWorkflowId)) return true;
+  const metaStepId = step.metadata?.stepId;
+  if (typeof metaStepId === "string" && isOfferAcceptanceStepType(metaStepId)) return true;
+
+  const title = String(step.title ?? "").trim().toLowerCase();
+  if (
+    title.includes("pay rate accepted") ||
+    title.includes("pay rate accept") ||
+    title.includes("offer acceptance") ||
+    title.includes("offer accepted")
+  ) {
+    return true;
+  }
+
+  const key = String(step.stepKey ?? "").trim().toLowerCase().replace(/_/g, "-");
+  if (key.includes("pay-rate-accept") || key.includes("offer-accept")) {
+    return true;
+  }
+
+  const snapshotId = String(step.snapshotStepId ?? "").trim().toLowerCase().replace(/_/g, "-");
+  if (snapshotId.includes("pay-rate-accept") || snapshotId.includes("offer-accept")) {
+    return true;
+  }
+
+  return false;
+}
+
 export type OfferDetails = {
   position: string | null;
   jobNumber: string | null;

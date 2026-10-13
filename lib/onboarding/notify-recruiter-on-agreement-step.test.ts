@@ -133,73 +133,118 @@ describe("isAgreementOrSignatureStep", () => {
 });
 
 describe("notifyRecruiterOnAgreementStepCompletion", () => {
-  const fakeSupabase = {
-    from: vi.fn((table: string) => {
-      if (table === "worker") {
+  function createFakeSupabase(overrides?: {
+    workerProgressData?: Record<string, unknown> | null;
+    existingNotifs?: Array<{ id: string }> | null;
+    tenantStepTitle?: string | null;
+  }) {
+    return {
+      from: vi.fn((table: string) => {
+        if (table === "worker") {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: {
+                id: "w-1",
+                first_name: "Kimberly Kay",
+                last_name: "Ford",
+                email: "kimberly@example.com",
+                job_role: "Senior Program Manager",
+                assigned_recruiter_user_id: "rec-1",
+              },
+            }),
+          };
+        }
+        if (table === "job_applications") {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            order: vi.fn().mockReturnThis(),
+            limit: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: {
+                id: "app-1",
+                assigned_recruiter_user_id: "rec-1",
+                job_requisitions: [{ public_title: "Senior Program Manager", assigned_recruiter_user_id: "rec-1" }],
+              },
+            }),
+          };
+        }
+        if (table === "tenants") {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: { name: "Nexus Health" },
+            }),
+          };
+        }
+        if (table === "users") {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            in: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: { id: "rec-1", email: "recruiter@nexushealth.com", role: "recruiter" },
+            }),
+          };
+        }
+        if (table === "user_roles") {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            in: vi.fn().mockResolvedValue({ data: [] }),
+          };
+        }
+        if (table === "tenant_onboarding_steps") {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: overrides?.tenantStepTitle !== undefined
+                ? { id: "step-123", title: overrides.tenantStepTitle, step_key: "agreement-1" }
+                : null,
+            }),
+          };
+        }
+        if (table === "worker_onboarding_step_progress") {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            update: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: overrides?.workerProgressData !== undefined
+                ? { data: overrides.workerProgressData }
+                : null,
+            }),
+          };
+        }
+        if (table === "notifications") {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            ilike: vi.fn().mockReturnThis(),
+            limit: vi.fn().mockResolvedValue({
+              data: overrides?.existingNotifs ?? [],
+            }),
+            insert: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({ data: null }),
+          };
+        }
         return {
           select: vi.fn().mockReturnThis(),
+          insert: vi.fn().mockReturnThis(),
+          update: vi.fn().mockReturnThis(),
           eq: vi.fn().mockReturnThis(),
-          maybeSingle: vi.fn().mockResolvedValue({
-            data: {
-              id: "w-1",
-              first_name: "Jane",
-              last_name: "Doe",
-              email: "jane@example.com",
-              job_role: "Registered Nurse",
-              assigned_recruiter_user_id: "rec-1",
-            },
-          }),
+          maybeSingle: vi.fn().mockResolvedValue({ data: null }),
         };
-      }
-      if (table === "job_applications") {
-        return {
-          select: vi.fn().mockReturnThis(),
-          eq: vi.fn().mockReturnThis(),
-          maybeSingle: vi.fn().mockResolvedValue({
-            data: {
-              id: "app-1",
-              assigned_recruiter_user_id: "rec-1",
-              job_requisitions: [{ public_title: "ICU RN", assigned_recruiter_user_id: "rec-1" }],
-            },
-          }),
-        };
-      }
-      if (table === "tenants") {
-        return {
-          select: vi.fn().mockReturnThis(),
-          eq: vi.fn().mockReturnThis(),
-          maybeSingle: vi.fn().mockResolvedValue({
-            data: { name: "Nexus Health" },
-          }),
-        };
-      }
-      if (table === "users") {
-        return {
-          select: vi.fn().mockReturnThis(),
-          eq: vi.fn().mockReturnThis(),
-          in: vi.fn().mockReturnThis(),
-          maybeSingle: vi.fn().mockResolvedValue({
-            data: { id: "rec-1", email: "recruiter@nexushealth.com", role: "recruiter" },
-          }),
-        };
-      }
-      if (table === "user_roles") {
-        return {
-          select: vi.fn().mockReturnThis(),
-          eq: vi.fn().mockReturnThis(),
-          in: vi.fn().mockResolvedValue({ data: [] }),
-        };
-      }
-      return {
-        select: vi.fn().mockReturnThis(),
-        insert: vi.fn().mockReturnThis(),
-        eq: vi.fn().mockReturnThis(),
-        maybeSingle: vi.fn().mockResolvedValue({ data: null }),
-      };
-    }),
-  } as unknown as Parameters<typeof notifyRecruiterOnAgreementStepCompletion>[0];
+      }),
+    } as unknown as Parameters<typeof notifyRecruiterOnAgreementStepCompletion>[0];
+  }
 
   it("skips non-agreement steps without notifications", async () => {
+    const fakeSupabase = createFakeSupabase();
     const result = await notifyRecruiterOnAgreementStepCompletion(fakeSupabase, {
       tenantId: "t-1",
       workerId: "w-1",
@@ -212,5 +257,82 @@ describe("notifyRecruiterOnAgreementStepCompletion", () => {
 
     expect(result.notified).toBe(false);
     expect(result.reason).toBe("NOT_AN_AGREEMENT_STEP");
+  });
+
+  it("skips notification when params.data already has recruiter_notified_at", async () => {
+    const fakeSupabase = createFakeSupabase();
+    const result = await notifyRecruiterOnAgreementStepCompletion(fakeSupabase, {
+      tenantId: "t-1",
+      workerId: "w-1",
+      applicationId: "app-1",
+      step: {
+        step_key: "agreement",
+        title: "Employment Agreement",
+      },
+      data: {
+        recruiter_notified_at: "2026-10-12T18:00:00Z",
+      },
+    });
+
+    expect(result.notified).toBe(false);
+    expect(result.reason).toBe("ALREADY_NOTIFIED");
+  });
+
+  it("skips notification when worker_onboarding_step_progress already has recruiter_notified_at", async () => {
+    const fakeSupabase = createFakeSupabase({
+      workerProgressData: {
+        recruiter_notified_at: "2026-10-12T18:00:00Z",
+      },
+    });
+    const result = await notifyRecruiterOnAgreementStepCompletion(fakeSupabase, {
+      tenantId: "t-1",
+      workerId: "w-1",
+      applicationId: "app-1",
+      step: {
+        id: "step-123",
+        step_key: "agreement",
+        title: "Employment Agreement",
+      },
+    });
+
+    expect(result.notified).toBe(false);
+    expect(result.reason).toBe("ALREADY_NOTIFIED");
+  });
+
+  it("skips notification when matching notification already exists in notifications table", async () => {
+    const fakeSupabase = createFakeSupabase({
+      existingNotifs: [{ id: "notif-existing" }],
+    });
+    const result = await notifyRecruiterOnAgreementStepCompletion(fakeSupabase, {
+      tenantId: "t-1",
+      workerId: "w-1",
+      applicationId: "app-1",
+      step: {
+        id: "step-123",
+        step_key: "agreement",
+        title: "Agreement eSign",
+      },
+    });
+
+    expect(result.notified).toBe(false);
+    expect(result.reason).toBe("ALREADY_NOTIFIED");
+  });
+
+  it("dynamically resolves step title and job title from database when generic title is given", async () => {
+    const fakeSupabase = createFakeSupabase({
+      tenantStepTitle: "Nexus W2 Employment Agreement",
+    });
+    const result = await notifyRecruiterOnAgreementStepCompletion(fakeSupabase, {
+      tenantId: "t-1",
+      workerId: "w-1",
+      applicationId: "app-1",
+      step: {
+        id: "step-123",
+        step_key: "agreement",
+        title: "Agreement", // generic title to trigger dynamic DB lookup
+      },
+    });
+
+    expect(result.notified).toBe(true);
   });
 });

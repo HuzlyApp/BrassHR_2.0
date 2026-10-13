@@ -368,6 +368,46 @@ export default function CandidatesPage() {
   const [bulkAnalyzingIds, setBulkAnalyzingIds] = useState<Set<string>>(() => new Set());
   const [addCandidateOpen, setAddCandidateOpen] = useState(false);
   const [addCandidateJobs, setAddCandidateJobs] = useState<JobPickerOption[]>([]);
+  const [convertedWorkerIdentities, setConvertedWorkerIdentities] = useState<{
+    candidateIds: Set<string>;
+    emails: Set<string>;
+    names: Set<string>;
+  }>({
+    candidateIds: new Set(),
+    emails: new Set(),
+    names: new Set(),
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadConvertedWorkers() {
+      try {
+        const res = await fetch("/api/admin/employment-workers?tab=all", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        const list = Array.isArray(data?.workers) ? data.workers : [];
+        const candidateIds = new Set<string>();
+        const emails = new Set<string>();
+        const names = new Set<string>();
+        for (const w of list) {
+          const cId = String(w.candidate_id ?? w.id ?? "").trim();
+          if (cId) candidateIds.add(cId);
+          const em = String(w.email ?? "").trim().toLowerCase();
+          if (em) emails.add(em);
+          const nm = `${String(w.first_name ?? "").trim()} ${String(w.last_name ?? "").trim()}`.toLowerCase().trim();
+          if (nm) names.add(nm);
+        }
+        setConvertedWorkerIdentities({ candidateIds, emails, names });
+      } catch {
+        // Non-blocking
+      }
+    }
+    void loadConvertedWorkers();
+    return () => {
+      cancelled = true;
+    };
+  }, [candidates]);
   const [updateResumeApplicationId, setUpdateResumeApplicationId] = useState<string | null>(null);
   const [resumeSuccessOpen, setResumeSuccessOpen] = useState(false);
   const [resumeErrorOpen, setResumeErrorOpen] = useState(false);
@@ -825,6 +865,30 @@ export default function CandidatesPage() {
 
   const visibleCandidates = useMemo(() => {
     return candidates.filter((row) => {
+      // Exclude candidates who have become workers or are marked converted / hired
+      const statusKey = String(row.statusKey ?? "").trim().toLowerCase();
+      const statusLabel = String(row.status ?? "").trim().toLowerCase();
+      const progStatusKey = String(row.progressStatusKey ?? "").trim().toLowerCase();
+      const progStatusName = String(row.progressStatusName ?? "").trim().toLowerCase();
+      if (
+        statusKey === "converted" ||
+        statusKey === "hired" ||
+        statusLabel === "converted" ||
+        statusLabel === "hired" ||
+        progStatusKey === "hired" ||
+        progStatusName === "hired"
+      ) {
+        return false;
+      }
+
+      if (convertedWorkerIdentities.candidateIds.has(row.id)) return false;
+
+      const email = String(row.email ?? "").trim().toLowerCase();
+      if (email && convertedWorkerIdentities.emails.has(email)) return false;
+
+      const name = String(row.name ?? "").trim().toLowerCase();
+      if (name && convertedWorkerIdentities.names.has(name)) return false;
+
       if (highlightMultiJob && Number(row.appliedJobCount ?? 1) <= 1) return false;
       if (clientNameFilter.trim()) {
         const wanted = clientNameFilter.trim().toLowerCase();
@@ -842,11 +906,13 @@ export default function CandidatesPage() {
     clientNameFilter,
     assigneeFilter,
     advancedSearchContext.active,
+    convertedWorkerIdentities,
   ]);
   const hasClientSideListFilter =
     highlightMultiJob ||
     Boolean(clientNameFilter.trim()) ||
-    (advancedSearchContext.active && Boolean(assigneeFilter.trim()));
+    (advancedSearchContext.active && Boolean(assigneeFilter.trim())) ||
+    visibleCandidates.length !== candidates.length;
   const listDisplayTotal = hasClientSideListFilter
     ? visibleCandidates.length
     : (totalFromApi ?? candidates.length);

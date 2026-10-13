@@ -57,7 +57,125 @@ export async function notifyRecruiterOnAgreementStepCompletion(
     };
   }
 
-  // 1. Resolve candidate, job, assigned recruiter, and tenant details
+  // 1. Dynamic stepTitle resolution
+  let stepTitle = mergedStep.title?.trim() || "";
+  const stepId = mergedStep.id || null;
+  const stepKey = mergedStep.stepKey || null;
+
+  let dbStepRow: { id: string; title: string | null; step_key: string | null; metadata: Record<string, unknown> | null } | null = null;
+
+  const isGenericTitle =
+    !stepTitle ||
+    stepTitle.toLowerCase() === "agreement" ||
+    stepTitle.toLowerCase() === "agreement & signature step" ||
+    stepTitle.toLowerCase() === "step";
+
+  if (isGenericTitle && (stepId || stepKey)) {
+    try {
+      let dbStepQuery = supabase
+        .from("tenant_onboarding_steps")
+        .select("id, title, step_key, metadata");
+
+      if (stepId) {
+        dbStepQuery = dbStepQuery.eq("id", stepId);
+      } else if (stepKey) {
+        dbStepQuery = dbStepQuery.eq("tenant_id", params.tenantId).eq("step_key", stepKey);
+      }
+
+      const { data: fetchedStep } = await dbStepQuery.maybeSingle();
+      if (fetchedStep) {
+        dbStepRow = fetchedStep;
+        if (fetchedStep.title?.trim()) {
+          stepTitle = fetchedStep.title.trim();
+        }
+      }
+    } catch {
+      /* best effort step lookup */
+    }
+  }
+
+  if (!stepTitle || stepTitle.toLowerCase() === "agreement" || stepTitle.toLowerCase() === "agreement & signature step") {
+    const metaWorkflowSettings = (mergedStep.metadata?.workflow_settings ?? dbStepRow?.metadata?.workflow_settings) as Record<string, unknown> | undefined;
+    const recruiterTemplateName =
+      (typeof metaWorkflowSettings?.recruiterTemplateName === "string" && metaWorkflowSettings.recruiterTemplateName.trim()) ||
+      (typeof mergedStep.metadata?.template_name === "string" && (mergedStep.metadata.template_name as string).trim()) ||
+      (typeof mergedStep.metadata?.document_title === "string" && (mergedStep.metadata.document_title as string).trim()) ||
+      (typeof mergedStep.data?.template_name === "string" && (mergedStep.data.template_name as string).trim());
+
+    if (recruiterTemplateName) {
+      stepTitle = recruiterTemplateName;
+    }
+  }
+
+  if (!stepTitle || stepTitle.toLowerCase() === "agreement & signature step") {
+    if (stepKey) {
+      stepTitle = stepKey
+        .split(/[-_]/)
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
+    } else {
+      stepTitle = "Agreement";
+    }
+  }
+
+  // 2. Deduplication check: verify if recruiter was already notified for this candidate and step
+  const callerData = params.data && typeof params.data === "object" ? (params.data as Record<string, unknown>) : null;
+  if (callerData?.recruiter_notified_at) {
+    return {
+      notified: false,
+      reason: "ALREADY_NOTIFIED",
+      inAppRecipientsCount: 0,
+      emailsSentCount: 0,
+    };
+  }
+
+  const effectiveStepId = stepId || dbStepRow?.id || null;
+  if (effectiveStepId) {
+    try {
+      const { data: existingProgress } = await supabase
+        .from("worker_onboarding_step_progress")
+        .select("data")
+        .eq("worker_id", params.workerId)
+        .eq("onboarding_step_id", effectiveStepId)
+        .maybeSingle();
+
+      const existingData = existingProgress?.data as Record<string, unknown> | undefined;
+      if (existingData?.recruiter_notified_at) {
+        return {
+          notified: false,
+          reason: "ALREADY_NOTIFIED",
+          inAppRecipientsCount: 0,
+          emailsSentCount: 0,
+        };
+      }
+    } catch {
+      /* continue to notifications check */
+    }
+  }
+
+  try {
+    const { data: existingNotifs } = await supabase
+      .from("notifications")
+      .select("id")
+      .eq("tenant_id", params.tenantId)
+      .eq("type", "candidate_agreement_signed")
+      .eq("title", `Agreement signed: ${stepTitle}`)
+      .ilike("link", `%${params.workerId}%`)
+      .limit(1);
+
+    if (existingNotifs && existingNotifs.length > 0) {
+      return {
+        notified: false,
+        reason: "ALREADY_NOTIFIED",
+        inAppRecipientsCount: 0,
+        emailsSentCount: 0,
+      };
+    }
+  } catch {
+    /* continue if notifications check failed */
+  }
+
+  // 3. Resolve candidate, job, assigned recruiter, and tenant details
   const [workerRes, appRes, tenantRes] = await Promise.all([
     supabase
       .from("worker")
@@ -77,7 +195,19 @@ export async function notifyRecruiterOnAgreementStepCompletion(
           .eq("id", params.applicationId)
           .eq("tenant_id", params.tenantId)
           .maybeSingle()
-      : Promise.resolve({ data: null, error: null }),
+      : supabase
+          .from("job_applications")
+          .select(`
+            id,
+            assigned_recruiter_user_id,
+            job_requisitions(public_title, source_job_title, assigned_recruiter_user_id),
+            onboarding_flows(title)
+          `)
+          .eq("worker_id", params.workerId)
+          .eq("tenant_id", params.tenantId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
     supabase
       .from("tenants")
       .select("name")
@@ -86,15 +216,36 @@ export async function notifyRecruiterOnAgreementStepCompletion(
   ]);
 
   const worker = workerRes.data;
-  const app = appRes.data;
+  let app = appRes.data;
   const tenant = tenantRes.data;
+
+  if (!app && params.applicationId) {
+    try {
+      const fallbackApp = await supabase
+        .from("job_applications")
+        .select(`
+          id,
+          assigned_recruiter_user_id,
+          job_requisitions(public_title, source_job_title, assigned_recruiter_user_id),
+          onboarding_flows(title)
+        `)
+        .eq("worker_id", params.workerId)
+        .eq("tenant_id", params.tenantId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      app = fallbackApp.data;
+    } catch {
+      /* fallback app lookup best effort */
+    }
+  }
 
   const candidateName =
     `${worker?.first_name ?? ""} ${worker?.last_name ?? ""}`.trim() ||
     worker?.email ||
     "Candidate";
 
-  let jobTitle = worker?.job_role || "Position";
+  let jobTitle = "";
   let assignedRecruiterId = worker?.assigned_recruiter_user_id || null;
 
   if (app) {
@@ -121,8 +272,15 @@ export async function notifyRecruiterOnAgreementStepCompletion(
     }
   }
 
+  if (!jobTitle && worker?.job_role?.trim()) {
+    jobTitle = worker.job_role.trim();
+  }
+
+  if (!jobTitle) {
+    jobTitle = "Position";
+  }
+
   const tenantName = tenant?.name?.trim() || "Organization";
-  const stepTitle = mergedStep.title?.trim() || "Agreement & Signature Step";
 
   // Determine Pre-Hire vs Post-Hire lifecycle
   const metadataSettings = mergedStep.metadata?.workflow_settings as Record<string, unknown> | undefined;
@@ -258,7 +416,41 @@ export async function notifyRecruiterOnAgreementStepCompletion(
     }
   }
 
-  // 4. Audit Log
+  // 4. Mark step progress row as notified so subsequent attempts never send duplicates
+  const notifiedAt = new Date().toISOString();
+  if (callerData) {
+    callerData.recruiter_notified_at = notifiedAt;
+  }
+
+  if (effectiveStepId) {
+    try {
+      const { data: currProgress } = await supabase
+        .from("worker_onboarding_step_progress")
+        .select("data")
+        .eq("worker_id", params.workerId)
+        .eq("onboarding_step_id", effectiveStepId)
+        .maybeSingle();
+
+      const currData = (currProgress?.data as Record<string, unknown> | undefined) || {};
+      await supabase
+        .from("worker_onboarding_step_progress")
+        .update({
+          data: {
+            ...currData,
+            recruiter_notified_at: notifiedAt,
+            recruiter_notified_emails_count: emailsSentCount,
+            recruiter_notified_in_app_count: inAppRecipientsCount,
+          },
+          updated_at: notifiedAt,
+        })
+        .eq("worker_id", params.workerId)
+        .eq("onboarding_step_id", effectiveStepId);
+    } catch (saveErr) {
+      console.warn("[notifyRecruiterOnAgreementStep] failed to persist notified flag", saveErr);
+    }
+  }
+
+  // 5. Audit Log
   await writeActivityLog({
     actorUserId: null,
     action: "candidate_agreement_signed_recruiter_notified",

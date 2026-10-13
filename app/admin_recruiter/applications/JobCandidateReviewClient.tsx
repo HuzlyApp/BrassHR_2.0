@@ -96,6 +96,8 @@ type ApplicationRow = {
   ai_match_action?: string | null;
   ai_match_readiness?: string | null;
   ai_match_display_category?: string | null;
+  post_hire_activated_at?: string | null;
+  application_statuses?: { id?: string; name?: string; system_key?: string | null; color?: string | null } | null;
   job_requisitions: Record<string, unknown> | Record<string, unknown>[] | null;
   applicant_profiles: Record<string, unknown> | Record<string, unknown>[] | null;
   worker?: Record<string, unknown> | Record<string, unknown>[] | null;
@@ -469,7 +471,28 @@ export default function JobCandidateReviewClient() {
         if (cancelled) return;
         if (!response.ok) throw new Error(payload.error || "Failed to load applications");
         const applications = ((payload.applications ?? []) as ApplicationRow[]).filter(
-          (row) => row.job_requisition_id === jobId
+          (row) => {
+            if (row.job_requisition_id !== jobId) return false;
+            const status = String(row.status ?? "").trim().toLowerCase();
+            const appStatuses = Array.isArray(row.application_statuses) ? row.application_statuses[0] : row.application_statuses;
+            const statusKey = String(appStatuses?.system_key ?? "").trim().toLowerCase();
+            const statusName = String(row.statusName ?? "").trim().toLowerCase();
+            const workflowPhase = String(row.workflow_phase ?? "").trim().toLowerCase();
+            if (
+              status === "hired" ||
+              status === "converted" ||
+              statusKey === "hired" ||
+              statusKey === "converted" ||
+              statusName === "hired" ||
+              statusName === "converted" ||
+              statusName === "selected by client" ||
+              workflowPhase === "post_hire" ||
+              Boolean(row.post_hire_activated_at)
+            ) {
+              return false;
+            }
+            return true;
+          }
         );
         setRows(applications);
         setError("");

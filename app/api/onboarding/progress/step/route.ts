@@ -27,6 +27,7 @@ import { resolveApplicationWorkflowPhase } from "@/lib/onboarding/resolve-applic
 import {
   applicantMayActOnStep,
   isPlacementAcceptedStatus,
+  isPreHireWorkflowStep,
   readStepLifecyclePhase,
 } from "@/lib/onboarding/workflow-phase";
 import {
@@ -35,8 +36,13 @@ import {
 } from "@/lib/onboarding/step-progress-write";
 import {
   autoConvertCandidateAfterAgreement,
+  autoConvertCandidateAfterOfferAccepted,
   ensureCandidateConvertedIfAgreementCompleted,
 } from "@/lib/onboarding/auto-convert-after-agreement";
+import {
+  isOfferAcceptanceStep,
+  readOfferDecision,
+} from "@/lib/onboarding/offer-acceptance";
 import { notifyRecruiterOnAgreementStepCompletion } from "@/lib/onboarding/notify-recruiter-on-agreement-step";
 
 export const runtime = "nodejs";
@@ -156,6 +162,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const candidateFacingStep = stepRow;
+
     // Job workflows may surface preview-* ids for steps not in the last-published tenant config.
     // Persist progress against the best matching published tenant step when needed.
     let persistStep = stepRow;
@@ -176,12 +184,39 @@ export async function POST(req: NextRequest) {
     stepRow = persistStep ?? stepRow;
 
     const activePhase = phaseRecord?.phase ?? "pre_hire";
+    const isPreHire =
+      isPreHireWorkflowStep({
+        key: candidateFacingStep?.step_key || stepRow?.step_key || body.stepKey,
+        title: candidateFacingStep?.title || stepRow?.title,
+        snapshotId: String(
+          candidateFacingStep?.metadata?.workflow_step_id ??
+          stepRow?.metadata?.workflow_step_id ??
+          body.stepId ??
+          ""
+        ),
+        stepId: String(
+          candidateFacingStep?.metadata?.stepId ??
+          stepRow?.metadata?.stepId ??
+          body.stepId ??
+          ""
+        ),
+        data: body.data,
+      });
+
+    const effectiveStepPhase = isPreHire
+      ? "pre_hire"
+      : candidateFacingStep
+      ? readStepLifecyclePhase(candidateFacingStep)
+      : stepRow
+      ? readStepLifecyclePhase(stepRow)
+      : "pre_hire";
+
     if (
       stepRow &&
       (status === "completed" || status === "skipped" || status === "in_progress" || status === "failed") &&
       !applicantMayActOnStep({
         activePhase,
-        stepPhase: readStepLifecyclePhase(stepRow),
+        stepPhase: effectiveStepPhase,
         isHired:
           isPlacementAcceptedStatus(phaseRecord?.status) ||
           Boolean(phaseRecord?.postHireActivatedAt) ||
@@ -434,26 +469,51 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    let postHireConversion: Awaited<ReturnType<typeof autoConvertCandidateAfterAgreement>> | null = null;
+    let postHireConversion: Awaited<ReturnType<typeof autoConvertCandidateAfterOfferAccepted>> | null = null;
     if (status === "completed") {
-      try {
-        postHireConversion = await autoConvertCandidateAfterAgreement(supabase, {
-          tenantId: ctx.tenantId,
-          workerId: ctx.workerId,
-          applicationId: applicationId || null,
-          step: stepRow,
-          origin: req.nextUrl.origin,
-        });
-        if (!postHireConversion?.ok) {
-          postHireConversion = await ensureCandidateConvertedIfAgreementCompleted(supabase, {
+      const isOfferStep = isOfferAcceptanceStep({
+        snapshotStepId: String(stepRow?.metadata?.workflow_step_id ?? ""),
+        stepKey: stepRow?.step_key ?? body.stepKey,
+        stepType: stepRow?.step_type,
+        title: stepRow?.title,
+        metadata: stepRow?.metadata as Record<string, unknown> | null,
+      });
+
+      const offerDecision = readOfferDecision(body.data, status);
+
+      if (isOfferStep && offerDecision?.decision === "accepted") {
+        try {
+          postHireConversion = await autoConvertCandidateAfterOfferAccepted(supabase, {
             tenantId: ctx.tenantId,
             workerId: ctx.workerId,
             applicationId: applicationId || null,
+            step: stepRow,
+            data: body.data,
             origin: req.nextUrl.origin,
           });
+        } catch (offerConversionError) {
+          console.error("[onboarding/progress/step] offer accepted conversion failed", offerConversionError);
         }
-      } catch (conversionError) {
-        console.error("[onboarding/progress/step] auto conversion failed", conversionError);
+      } else {
+        try {
+          postHireConversion = await autoConvertCandidateAfterAgreement(supabase, {
+            tenantId: ctx.tenantId,
+            workerId: ctx.workerId,
+            applicationId: applicationId || null,
+            step: stepRow,
+            origin: req.nextUrl.origin,
+          });
+          if (!postHireConversion?.ok) {
+            postHireConversion = await ensureCandidateConvertedIfAgreementCompleted(supabase, {
+              tenantId: ctx.tenantId,
+              workerId: ctx.workerId,
+              applicationId: applicationId || null,
+              origin: req.nextUrl.origin,
+            });
+          }
+        } catch (conversionError) {
+          console.error("[onboarding/progress/step] auto conversion failed", conversionError);
+        }
       }
 
       try {

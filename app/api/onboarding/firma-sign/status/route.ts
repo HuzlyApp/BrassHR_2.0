@@ -163,7 +163,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const nextData = {
+    const nextData: Record<string, unknown> = {
       ...previousData,
       signing_provider: "firma",
       signing_request_id: session.signing_request_id,
@@ -178,14 +178,24 @@ export async function GET(req: NextRequest) {
           ? existingRow.status
           : "in_progress";
 
+    const wasAlreadyCompleted =
+      existingRow?.status === "completed" ||
+      Boolean(existingRow?.completed_at) ||
+      Boolean(previousData?.recruiter_notified_at);
+
+    const effectiveCompletedAt =
+      existingRow?.completed_at ?? (completed ? new Date().toISOString() : null);
+
+    if (completed && !wasAlreadyCompleted) {
+      nextData.recruiter_notified_at = new Date().toISOString();
+    }
+
     if (existingRow) {
       const { error: upErr } = await supabase
         .from("worker_onboarding_step_progress")
         .update({
           status: nextStatus,
-          completed_at: completed
-            ? new Date().toISOString()
-            : existingRow.completed_at ?? null,
+          completed_at: effectiveCompletedAt,
           data: nextData,
           updated_at: new Date().toISOString(),
         })
@@ -200,14 +210,14 @@ export async function GET(req: NextRequest) {
         tenant_id: resolved.tenantId,
         onboarding_step_id: resolved.step.id,
         status: nextStatus,
-        completed_at: completed ? new Date().toISOString() : null,
+        completed_at: effectiveCompletedAt,
         data: nextData,
       });
       if (insErr) throw insErr;
     }
 
     let postHireConversion: Awaited<ReturnType<typeof autoConvertCandidateAfterAgreement>> | null = null;
-    if (completed) {
+    if (completed && !wasAlreadyCompleted) {
       try {
         postHireConversion = await autoConvertCandidateAfterAgreement(supabase, {
           tenantId: resolved.tenantId,

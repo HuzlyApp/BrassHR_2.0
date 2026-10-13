@@ -4,7 +4,17 @@ import { requireStaffApiSession } from "@/lib/auth/api-session";
 import { createAdminJobApplication, bulkDeleteJobApplications, deleteOrphanWorkersAfterApplicationDelete, parseBulkDeleteIds } from "@/lib/jobs/service";
 import { JobValidationError } from "@/lib/jobs/types";
 import { resolveStaffTenantId } from "@/lib/jobs/tenant";
-import { JOB_APPLICATION_APPLICANT_EMBED } from "@/lib/jobs/application-applicant-display";
+import {
+  JOB_APPLICATION_APPLICANT_EMBED,
+  resolveApplicationApplicantEmail,
+  resolveApplicationApplicantName,
+  resolveApplicationWorkerId,
+  type ApplicationApplicantSource,
+} from "@/lib/jobs/application-applicant-display";
+import {
+  loadTenantConvertedWorkerIdentities,
+  isConvertedWorkerOrApplication,
+} from "@/lib/admin/converted-worker-identities";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { loadStaffUsersByIds } from "@/lib/account/resolve-staff-users";
 import { isUuid } from "@/lib/validation/uuid";
@@ -182,6 +192,32 @@ export async function GET(req: NextRequest) {
         return Boolean(workerId && matchingWorkers.has(workerId));
       });
     }
+
+    const identities = await loadTenantConvertedWorkerIdentities(db, tenantId);
+    applications = applications.filter((app) => {
+      const workerId = resolveApplicationWorkerId(app as ApplicationApplicantSource);
+      const email = resolveApplicationApplicantEmail(app as ApplicationApplicantSource);
+      const name = resolveApplicationApplicantName(app as ApplicationApplicantSource);
+      const statusObj = Array.isArray(app.application_statuses)
+        ? app.application_statuses[0]
+        : app.application_statuses;
+      const systemKey = (statusObj as { system_key?: string } | null)?.system_key ?? null;
+
+      const isConverted = isConvertedWorkerOrApplication(
+        {
+          id: String(app.id ?? ""),
+          applicationId: String(app.id ?? ""),
+          workerId,
+          email,
+          name,
+          status: String(app.status ?? ""),
+          systemKey,
+          workflowPhase: String(app.workflow_phase ?? ""),
+        },
+        identities
+      );
+      return !isConverted;
+    });
 
     const countByWorker = new Map<string, number>();
     const workerIds = Array.from(

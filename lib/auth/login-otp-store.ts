@@ -1,6 +1,7 @@
 import { createHash, randomInt } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  formatLoginOtpCooldownMessage,
   LOGIN_OTP_MAX_RESENDS,
   LOGIN_OTP_RESEND_COOLDOWN_MESSAGE,
   LOGIN_OTP_RESEND_COOLDOWN_SECONDS,
@@ -202,11 +203,12 @@ export function evaluateLoginOtpIssueGate(
   if (latest) {
     const elapsedSec = (now.getTime() - new Date(latest.created_at).getTime()) / 1000;
     if (elapsedSec < cooldownSeconds) {
+      const retryAfterSec = Math.max(1, Math.ceil(cooldownSeconds - elapsedSec));
       return {
         ok: false,
         reason: "cooldown",
-        message: LOGIN_OTP_RESEND_COOLDOWN_MESSAGE,
-        retryAfterSec: Math.max(1, Math.ceil(cooldownSeconds - elapsedSec)),
+        message: formatLoginOtpCooldownMessage(retryAfterSec),
+        retryAfterSec,
         resendCount,
         maxResends,
       };

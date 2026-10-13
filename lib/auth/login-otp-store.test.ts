@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  classifyAuthMessage,
   LOGIN_OTP_EXPIRED_MESSAGE,
   LOGIN_OTP_INVALID_MESSAGE,
   LOGIN_OTP_RESEND_LIMIT_MESSAGE,
+  parseLoginApiError,
 } from "@/lib/auth/login-api-errors";
 import {
   classifyLoginOtpFailureFromRows,
@@ -13,7 +15,13 @@ import {
   LOGIN_OTP_PURPOSE,
   verifyLoginOtp,
 } from "@/lib/auth/login-otp-store";
-import { LOGIN_OTP_MAX_RESENDS, LOGIN_OTP_TTL_SECONDS } from "@/lib/auth/login-otp-constants";
+import {
+  formatLoginOtpCooldownMessage,
+  LOGIN_OTP_MAX_RESENDS,
+  LOGIN_OTP_RESEND_COOLDOWN_SECONDS,
+  LOGIN_OTP_TTL_SECONDS,
+  parseLoginOtpCooldownSeconds,
+} from "@/lib/auth/login-otp-constants";
 
 type OtpRow = {
   id: string;
@@ -404,7 +412,21 @@ describe("login OTP store", () => {
     if (!gate.ok) {
       expect(gate.reason).toBe("cooldown");
       expect(gate.retryAfterSec).toBe(30);
+      expect(gate.message).toBe("Please wait for the timer (30s) before requesting a new code.");
     }
+  });
+
+  it("defaults to 30-second cooldown and dynamic timer format", () => {
+    expect(LOGIN_OTP_RESEND_COOLDOWN_SECONDS).toBe(30);
+    expect(formatLoginOtpCooldownMessage(30)).toBe(
+      "Please wait for the timer (30s) before requesting a new code."
+    );
+    expect(formatLoginOtpCooldownMessage(1)).toBe(
+      "Please wait for the timer (1s) before requesting a new code."
+    );
+    expect(
+      parseLoginOtpCooldownSeconds("Please wait for the timer (25s) before requesting a new code.")
+    ).toBe(25);
   });
 
   it("blocks OTP issue after the max resend count", () => {
@@ -466,5 +488,33 @@ describe("login OTP store", () => {
         { email, purpose: LOGIN_OTP_PURPOSE, now }
       )
     ).toBe("invalid");
+  });
+
+  it("classifies cooldown error messages with dynamic seconds", () => {
+    const classified = classifyAuthMessage(
+      "Please wait for the timer (24s) before requesting a new code."
+    );
+    expect(classified.code).toBe("RATE_LIMIT");
+    expect(classified.error).toBe(
+      "Please wait for the timer (24s) before requesting a new code."
+    );
+    expect((classified as any).retryAfterSec).toBe(24);
+  });
+
+  it("parses login API error responses for cooldown rate limits", async () => {
+    const res = new Response(
+      JSON.stringify({
+        error: "Please wait for the timer (15s) before requesting a new code.",
+        code: "RATE_LIMIT",
+        retryAfterSec: 15,
+      }),
+      { status: 429, headers: { "Retry-After": "15" } }
+    );
+    const parsed = await parseLoginApiError(res);
+    expect(parsed.code).toBe("RATE_LIMIT");
+    expect(parsed.error).toBe(
+      "Please wait for the timer (15s) before requesting a new code."
+    );
+    expect(parsed.retryAfterSec).toBe(15);
   });
 });

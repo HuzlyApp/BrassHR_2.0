@@ -12,6 +12,7 @@ import { enforceRateLimit, getClientIp } from "@/lib/security/rate-limit";
 import { hireGateFromApplications } from "@/lib/onboarding/lock-post-hire";
 import {
   applicantMayActOnStep,
+  isPreHireWorkflowStep,
   readStepLifecyclePhase,
 } from "@/lib/onboarding/workflow-phase";
 import type { TenantOnboardingStep } from "@/lib/onboarding/types";
@@ -96,10 +97,21 @@ export async function POST(req: NextRequest) {
         .eq("worker_id", ctx.workerId)
         .order("created_at", { ascending: false });
       const gate = hireGateFromApplications(applications ?? []);
+      const effectiveStepPhase =
+        stepRow &&
+        isPreHireWorkflowStep({
+          key: stepRow.step_key,
+          title: stepRow.title,
+          snapshotId: String(stepRow.metadata?.workflow_step_id ?? stepRow.metadata?.stepId ?? ""),
+          stepId: String(stepRow.metadata?.stepId ?? ""),
+        })
+          ? "pre_hire"
+          : readStepLifecyclePhase(stepRow as TenantOnboardingStep);
+
       if (
         !applicantMayActOnStep({
           activePhase: gate.activePhase,
-          stepPhase: readStepLifecyclePhase(stepRow as TenantOnboardingStep),
+          stepPhase: effectiveStepPhase,
           isHired: gate.isHired,
           postHireSuspended: gate.postHireSuspended,
         })
