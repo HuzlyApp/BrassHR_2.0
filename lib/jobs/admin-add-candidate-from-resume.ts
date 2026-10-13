@@ -3,8 +3,10 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { extractResumeTextFromUpload } from "@/lib/jobs/match-analysis/extract-resume-text";
-import { createAdminJobApplication } from "@/lib/jobs/service";
+import { createAdminJobApplication, findActiveApplicationForJob } from "@/lib/jobs/service";
 import { JobValidationError } from "@/lib/jobs/types";
+import { normalizeApplicantEmail } from "@/lib/jobs/validation";
+import { syncWorkerPrimaryResumePath } from "@/lib/onboarding/sync-worker-primary-resume-path";
 import { validatePersonName } from "@/lib/person-name";
 import { grokParseResumeCached } from "@/lib/resume/grok-parse-resume-cached";
 import {
@@ -143,8 +145,89 @@ async function persistWorkerResumeByWorkerId(
 
   // Always insert. Workers can have multiple resumes; `.maybeSingle()` throws
   // when more than one row already exists (PGRST116).
-  const { error } = await supabase.from("worker_resumes").insert(row);
-  if (error) throw error;
+  for (let attempt = 1; ; attempt += 1) {
+    const { error } = await supabase.from("worker_resumes").insert(row);
+    if (!error) return;
+    if (attempt >= RESUME_INSERT_ATTEMPTS || !isTransientDbError(error)) throw error;
+    console.warn(
+      `[admin-add-candidate-from-resume] worker_resumes insert attempt ${attempt} failed, retrying`,
+      error
+    );
+    await new Promise((resolve) => setTimeout(resolve, attempt * 750));
+    if (await workerResumeRowExists(supabase, row)) return;
+  }
+}
+
+const RESUME_INSERT_ATTEMPTS = 3;
+
+function isTransientDbError(error: unknown): boolean {
+  const err = error as { code?: unknown; message?: unknown } | null;
+  // 57014 = statement_timeout cancellation.
+  if (err?.code === "57014") return true;
+  const message = typeof err?.message === "string" ? err.message : "";
+  return /statement timeout|fetch failed|ECONNRESET|ETIMEDOUT|socket hang up/i.test(message);
+}
+
+async function workerResumeRowExists(
+  supabase: SupabaseClient,
+  row: { worker_id: string; storage_path: string; job_application_id: string | null }
+): Promise<boolean> {
+  let query = supabase
+    .from("worker_resumes")
+    .select("id")
+    .eq("worker_id", row.worker_id)
+    .eq("storage_path", row.storage_path)
+    .is("deleted_at", null)
+    .limit(1);
+  query = row.job_application_id
+    ? query.eq("job_application_id", row.job_application_id)
+    : query.is("job_application_id", null);
+  const { data, error } = await query;
+  if (error) return false;
+  return (data?.length ?? 0) > 0;
+}
+
+/**
+ * A previous add for this candidate + job can create the application and then fail to
+ * save the résumé row (e.g. statement timeout). When the recruiter retries, attach the new
+ * upload to that application instead of failing with DUPLICATE_APPLICATION.
+ */
+async function findApplicationMissingResume(
+  supabase: SupabaseClient,
+  input: { tenantId: string; jobRequisitionId: string; email: string }
+): Promise<{ applicationId: string; workerId: string; applicantProfileId: string } | null> {
+  const { data: profile, error: profileError } = await supabase
+    .from("applicant_profiles")
+    .select("id, worker_id")
+    .eq("tenant_id", input.tenantId)
+    .eq("normalized_email", normalizeApplicantEmail(input.email))
+    .maybeSingle();
+  if (profileError || !profile?.id) return null;
+
+  const application = await findActiveApplicationForJob(supabase, {
+    tenantId: input.tenantId,
+    jobRequisitionId: input.jobRequisitionId,
+    applicantProfileId: String(profile.id),
+  });
+  const workerId =
+    application?.worker_id?.trim() ||
+    (profile.worker_id != null ? String(profile.worker_id).trim() : "");
+  if (!application || !workerId) return null;
+
+  const { data: bound, error: boundError } = await supabase
+    .from("worker_resumes")
+    .select("id")
+    .eq("tenant_id", input.tenantId)
+    .eq("job_application_id", application.id)
+    .is("deleted_at", null)
+    .limit(1);
+  if (boundError || (bound?.length ?? 0) > 0) return null;
+
+  return {
+    applicationId: application.id,
+    workerId,
+    applicantProfileId: String(profile.id),
+  };
 }
 
 export type PreparedResumeCandidate = {
@@ -399,39 +482,70 @@ export async function adminAddCandidateFromResume(
     resumeContentType
   );
 
-  const result = await createAdminJobApplication(supabase, {
-    tenantId: input.tenantId,
-    jobRequisitionId,
-    name: fullName,
-    email,
-    phone,
-    streetAddress: [parsed.address1, parsed.address2].filter(Boolean).join(" ").trim() || null,
-    cityStateZip: formatCityStateZip(parsed.city, parsed.state, parsed.zip) || null,
-    lastJobTitle: parsed.job_role.trim() || null,
-    createdByStaffUserId: input.staffUserId ?? null,
-    resumePath: uploaded.path,
-    resumeFileName: uploaded.fileName,
-    workLocation: input.workCity && input.workState
-      ? {
-          country: "US",
-          city: input.workCity,
-          state: input.workState,
-          postalCode: input.workPostalCode ?? null,
-          locationType: "onsite",
-          relocateToJobSite: Boolean(input.relocateToJobSite),
-        }
-      : null,
-  });
+  let applicationId: string;
+  let applicantProfileId: string;
+  let jobTitle: string;
+  let workerId: string;
+  let repairedExistingApplication = false;
+  try {
+    const result = await createAdminJobApplication(supabase, {
+      tenantId: input.tenantId,
+      jobRequisitionId,
+      name: fullName,
+      email,
+      phone,
+      streetAddress: [parsed.address1, parsed.address2].filter(Boolean).join(" ").trim() || null,
+      cityStateZip: formatCityStateZip(parsed.city, parsed.state, parsed.zip) || null,
+      lastJobTitle: parsed.job_role.trim() || null,
+      createdByStaffUserId: input.staffUserId ?? null,
+      resumePath: uploaded.path,
+      resumeFileName: uploaded.fileName,
+      workLocation: input.workCity && input.workState
+        ? {
+            country: "US",
+            city: input.workCity,
+            state: input.workState,
+            postalCode: input.workPostalCode ?? null,
+            locationType: "onsite",
+            relocateToJobSite: Boolean(input.relocateToJobSite),
+          }
+        : null,
+    });
+    applicationId = String(result.application?.id ?? "").trim();
+    applicantProfileId = result.applicantProfileId;
+    jobTitle = result.jobTitle;
 
-  const { data: profileRow } = await supabase
-    .from("applicant_profiles")
-    .select("worker_id")
-    .eq("tenant_id", input.tenantId)
-    .eq("id", result.applicantProfileId)
-    .maybeSingle();
+    const { data: profileRow } = await supabase
+      .from("applicant_profiles")
+      .select("worker_id")
+      .eq("tenant_id", input.tenantId)
+      .eq("id", result.applicantProfileId)
+      .maybeSingle();
+    workerId = profileRow?.worker_id != null ? String(profileRow.worker_id).trim() : "";
+  } catch (error) {
+    const missing =
+      error instanceof JobValidationError && error.code === "DUPLICATE_APPLICATION"
+        ? await findApplicationMissingResume(supabase, {
+            tenantId: input.tenantId,
+            jobRequisitionId,
+            email,
+          }).catch(() => null)
+        : null;
+    if (!missing) throw error;
 
-  const workerId =
-    profileRow?.worker_id != null ? String(profileRow.worker_id).trim() : "";
+    applicationId = missing.applicationId;
+    applicantProfileId = missing.applicantProfileId;
+    workerId = missing.workerId;
+    const { data: job } = await supabase
+      .from("job_requisitions")
+      .select("public_title")
+      .eq("tenant_id", input.tenantId)
+      .eq("id", jobRequisitionId)
+      .maybeSingle();
+    jobTitle = String(job?.public_title ?? "");
+    repairedExistingApplication = true;
+  }
+
   if (workerId) {
     await persistWorkerResumeByWorkerId(supabase, workerId, input.tenantId, {
       fileUrl: uploaded.path,
@@ -441,12 +555,29 @@ export async function adminAddCandidateFromResume(
       extractedText,
       fileType: resumeFileType === "unknown" ? "txt" : resumeFileType,
       fileSizeBytes: resumeBytes.byteLength,
-      jobApplicationId: String(result.application?.id ?? "") || null,
+      jobApplicationId: applicationId || null,
       uploadedByUserId: input.staffUserId ?? null,
     });
   }
 
-  const applicationId = String(result.application?.id ?? "").trim();
+  if (repairedExistingApplication) {
+    const { error: profileError } = await supabase
+      .from("applicant_profiles")
+      .update({
+        resume_path: uploaded.path,
+        resume_file_name: uploaded.fileName,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("tenant_id", input.tenantId)
+      .eq("id", applicantProfileId);
+    if (profileError) {
+      console.warn("[admin-add-candidate-from-resume] profile resume_path repair failed", profileError);
+    }
+    await syncWorkerPrimaryResumePath(supabase, workerId).catch((err) => {
+      console.warn("[admin-add-candidate-from-resume] sync primary resume path", err);
+    });
+  }
+
   let autoQuickMatch: AutoQuickMatchResult | null = null;
   if (applicationId) {
     // Await Step 1 so Vercel does not kill fire-and-forget work, and the UI can show fit.
@@ -462,8 +593,8 @@ export async function adminAddCandidateFromResume(
 
   return {
     applicationId,
-    applicantProfileId: result.applicantProfileId,
-    jobTitle: result.jobTitle,
+    applicantProfileId,
+    jobTitle,
     candidateName: fullName,
     autoQuickMatch,
   };
