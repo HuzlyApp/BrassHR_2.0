@@ -354,7 +354,7 @@ export function StageStatusSequenceButtons({
             onClick={() => setPending({ lane: "alternate", options: alternates })}
             className="inline-flex h-9 items-center rounded-full border border-[#D0D5DD] bg-white px-4 text-sm font-semibold text-[#344054] transition hover:bg-[#F8FAFC] disabled:opacity-60"
           >
-            {busyId === alternates[0].id ? "Updating…" : "Alternate"}
+            {busyId === alternates[0].id ? "Updating…" : "Follow Up needed"}
           </button>
         ) : null}
         {closed[0] ? (
@@ -364,7 +364,7 @@ export function StageStatusSequenceButtons({
             onClick={() => setPending({ lane: "closed", options: closed })}
             className="inline-flex h-9 items-center rounded-full border border-[#FECACA] bg-white px-4 text-sm font-semibold text-[#B42318] transition hover:bg-[#FEF2F2] disabled:opacity-60"
           >
-            {busyId === closed[0].id ? "Updating…" : "Closing"}
+            {busyId === closed[0].id ? "Updating…" : "Close Application"}
           </button>
         ) : null}
       </div>
@@ -442,21 +442,15 @@ function StatusChangeDialog({
   const codes = reasonCodes ?? [];
   const choices = noteChoices(statuses, codes);
   const [selectedReason, setSelectedReason] = useState("");
-  const [reasonDraft, setReasonDraft] = useState("");
   const [selectedNote, setSelectedNote] = useState("");
   const [note, setNote] = useState("");
   const [selectedStatusId, setSelectedStatusId] = useState(statuses[0]?.id ?? "");
   const isAlternate = lane === "alternate";
   const picksFromList = lane === "closed";
   const title =
-    lane === "closed" ? "Close application" : isAlternate ? "Alternate status" : "Update status";
-  const reasonTyped = reasonDraft.trim() ? reasonDraft : selectedReason;
-  const reasonPlan = catalogSavePlan(codes, reasonTyped);
+    lane === "closed" ? "Close Application" : isAlternate ? "Follow Up needed" : "Update status";
+  const reasonPlan = catalogSavePlan(codes, selectedReason);
   const notePlan = catalogSavePlan(notes, note);
-  const reasonSuggestions = codes.filter((code) => {
-    if (!reasonDraft.trim()) return false;
-    return code.toLowerCase().includes(reasonDraft.trim().toLowerCase());
-  });
   const noteSuggestions = notes.filter((item) => {
     if (!note.trim()) return false;
     return item.toLowerCase().includes(note.trim().toLowerCase());
@@ -485,7 +479,7 @@ function StatusChangeDialog({
           <div className="mt-4 space-y-4">
             {statuses.length > 1 ? (
               <label className="block text-sm font-medium text-[#344054]">
-                Alternate status
+                Follow Up needed
                 <select
                   value={statusId}
                   onChange={(event) => setSelectedStatusId(event.target.value)}
@@ -505,10 +499,7 @@ function StatusChangeDialog({
               Reason code
               <select
                 value={selectedReason}
-                onChange={(event) => {
-                  setSelectedReason(event.target.value);
-                  setReasonDraft("");
-                }}
+                onChange={(event) => setSelectedReason(event.target.value)}
                 className="mt-1 h-10 w-full rounded-lg border border-[#D0D5DD] bg-white px-3 text-sm"
               >
                 <option value="">Select a reason code</option>
@@ -519,40 +510,8 @@ function StatusChangeDialog({
                 ))}
               </select>
             </label>
-            <label className="block text-sm font-medium text-[#344054]">
-              Or add a reason code for this stage
-              <input
-                value={reasonDraft}
-                onChange={(event) => setReasonDraft(event.target.value)}
-                placeholder="Search reason codes for this stage"
-                className="mt-1 h-10 w-full rounded-lg border border-[#D0D5DD] px-3 text-sm"
-              />
-            </label>
-            {reasonDraft.trim() && reasonSuggestions.length > 0 ? (
-              <ul className="max-h-28 overflow-auto rounded-lg border border-[#E2E8F0]">
-                {reasonSuggestions.slice(0, 8).map((code) => (
-                  <li key={code}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedReason(code);
-                        setReasonDraft("");
-                      }}
-                      className="block w-full px-3 py-1.5 text-left text-sm text-[#0F172A] hover:bg-[#F8FAFC]"
-                    >
-                      {code}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
             {reasonPlan.action === "reuse" ? (
               <p className="text-xs text-[#166534]">“{reasonPlan.value}” will be reused for this stage.</p>
-            ) : null}
-            {reasonPlan.action === "create" ? (
-              <p className="text-xs text-[#92400E]">
-                A new reason code will be created for this stage. Other stages keep their own codes.
-              </p>
             ) : null}
             <label className="block text-sm font-medium text-[#344054]">
               Notes
@@ -609,7 +568,7 @@ function StatusChangeDialog({
         )}
         {isAlternate ? null : (
           <label className="mt-4 block text-sm font-medium text-[#344054]">
-            {picksFromList ? "Notes" : "Detail"}
+            {picksFromList ? "Notes (optional)" : "Detail"}
             <textarea
               value={note}
               onChange={(event) => setNote(event.target.value)}
@@ -634,7 +593,7 @@ function StatusChangeDialog({
               busy ||
               (isAlternate
                 ? !alternateReady
-                : !statusId || (picksFromList && (!selectedNote || !note.trim())))
+                : !statusId || (picksFromList && !selectedNote))
             }
             onClick={() =>
               onConfirm({
