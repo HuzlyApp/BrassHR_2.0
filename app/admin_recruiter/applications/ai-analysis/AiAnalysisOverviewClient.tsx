@@ -58,7 +58,6 @@ import {
 import { brandingToCssVars } from "@/lib/tenant/tenant-branding";
 import { ResumeHistoryModal, type ResumeHistoryItem } from "../ResumeHistoryModal";
 import { RemoveFromJobConfirmModal } from "../RemoveFromJobConfirmModal";
-import { CandidateApplicationStatusControl } from "@/app/admin_recruiter/components/CandidateApplicationStatusControl";
 import { StageStatusSequenceButtons } from "@/app/admin_recruiter/components/StageStatusSequenceButtons";
 import { aiMatchStatusStageName } from "@/lib/jobs/application-statuses/stage-assignments";
 import CandidateCommunicationDialog from "@/app/admin_recruiter/components/CandidateCommunicationDialog";
@@ -97,8 +96,6 @@ import {
   matchProgressionInitialIndex,
   matchProgressionFollowUpNeedsConfirm,
   matchProgressionStepRequiresDeepConfirm,
-  matchProgressionPrimaryAction,
-  matchProgressionStageFromIndex,
   type QuickMatchFitBand,
 } from "@/lib/jobs/match-analysis/progression";
 import { fitBandFromQuickRoute, quickRouteFromAnalysis } from "@/lib/jobs/match-analysis/quick-route";
@@ -697,7 +694,6 @@ export function AiAnalysisOverviewClient({
     prefill: "verified" | "pending";
   } | null>(null);
   const [dataQualityOpen, setDataQualityOpen] = useState(true);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   /* ── Resume History Modal state ── */
   const [resumeHistoryOpen, setResumeHistoryOpen] = useState(false);
@@ -720,7 +716,6 @@ export function AiAnalysisOverviewClient({
   const [confirmDeepOpen, setConfirmDeepOpen] = useState(false);
   const [confirmFollowUpOpen, setConfirmFollowUpOpen] = useState(false);
   const [followUpAdvancing, setFollowUpAdvancing] = useState(false);
-  const [talentPoolBusy, setTalentPoolBusy] = useState(false);
   const pendingProgressionScrollRef = useRef<string | null>(null);
   const resumeInputRef = useRef<HTMLInputElement>(null);
   const screeningUploadRef = useRef<HTMLInputElement>(null);
@@ -1016,7 +1011,6 @@ export function AiAnalysisOverviewClient({
           applicationId,
         })
       : null;
-  const primaryAction = matchProgressionPrimaryAction(viewedStep, { hasSubmissionResume });
   const canRunPaidDeep = canRunDeepMatch({
     isAnalyzed,
     unlockedIndex,
@@ -1136,55 +1130,11 @@ export function AiAnalysisOverviewClient({
     void advanceToFollowUp();
   }
 
-  async function handlePrimaryProgressionAction() {
-    if (!primaryAction) return;
-    if (primaryAction.kind === "msp") {
-      setCommOpen(true);
-      return;
-    }
-    if (primaryAction.kind === "draft") {
-      if (!hasDeepMatch) {
-        toast.error("Run Deep Match before drafting the submission résumé.");
-        return;
-      }
-      const drafted = await draftSubmissionResume();
-      if (drafted) selectProgressionStep(4);
-      return;
-    }
-    if (primaryAction.kind === "deep") {
-      requestDeepMatchConfirm();
-      return;
-    }
-    if (primaryAction.nextIndex === 1) {
-      moveToVerifications();
-      return;
-    }
-    if (primaryAction.nextIndex === 2) {
-      moveToFollowUp();
-      return;
-    }
-    if (!canAdvance) {
-      toast.error("This candidate is not qualified to continue. Use Talent Pool.");
-      return;
-    }
-    try {
-      await advanceMatchProgress(matchProgressionStageFromIndex(primaryAction.nextIndex) as "call_pack" | "follow_up");
-      selectProgressionStep(primaryAction.nextIndex);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not continue.");
-    }
-  }
-
   async function handleTalentPool() {
-    setTalentPoolBusy(true);
-    try {
-      const ok = await sendToTalentPool();
-      if (ok) {
-        setStatusName("Not a Fit");
-        setStatusSystemKey("rejected");
-      }
-    } finally {
-      setTalentPoolBusy(false);
+    const ok = await sendToTalentPool();
+    if (ok) {
+      setStatusName("Not a Fit");
+      setStatusSystemKey("rejected");
     }
   }
   const analysisHistory = useMemo(() => {
@@ -1569,61 +1519,6 @@ export function AiAnalysisOverviewClient({
                   }}
                 />
               ) : null}
-              <div className="mt-1">
-                {primaryAction && primaryAction.kind !== "advance" ? (
-                  <button
-                    type="button"
-                    className="inline-flex items-center justify-center rounded-full bg-[color:var(--brand-primary)] px-5 py-2 text-sm font-semibold text-white transition hover:brightness-95 disabled:opacity-60"
-                    disabled={
-                      analyzing ||
-                      talentPoolBusy ||
-                      draftingSubmissionResume ||
-                      (primaryAction.kind !== "msp" &&
-                        primaryAction.kind !== "draft" &&
-                        !canAdvance &&
-                        primaryAction.kind !== "deep") ||
-                      (primaryAction.kind === "deep" && !canRunPaidDeep) ||
-                      (primaryAction.kind === "draft" && !hasDeepMatch)
-                    }
-                    onClick={() => void handlePrimaryProgressionAction()}
-                  >
-                    {draftingSubmissionResume && primaryAction.kind === "draft"
-                      ? "Drafting résumé…"
-                      : primaryAction.label}
-                  </button>
-                ) : null}
-              </div>
-
-              <div className="mt-4 flex flex-col gap-4 border-t border-[color:color-mix(in_srgb,var(--brand-primary)_20%,transparent)] pt-4 sm:flex-row sm:items-start sm:justify-between">
-                <div className="flex flex-col items-start gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setAdvancedOpen((prev) => !prev)}
-                    className="flex h-6 items-center gap-2 text-sm text-[#475467] transition hover:text-[#101828] focus:outline-none"
-                  >
-                    <span className="text-[10px] transition-transform duration-200" style={{ transform: advancedOpen ? 'rotate(90deg)' : 'none' }}>▶</span>
-                    <span>Advanced - Correction only</span>
-                  </button>
-                  {advancedOpen && progressionStep && aiMatchStatusStageName(progressionStep.id) ? (
-                    <CandidateApplicationStatusControl
-                      key={`status-${aiMatchStatusStageName(progressionStep.id)}-${statusRevision}`}
-                      applicationId={applicationId}
-                      stageName={aiMatchStatusStageName(progressionStep.id)}
-                      buttonClassName="h-9 min-w-[180px] flex items-center justify-between gap-2 rounded-lg border border-[#D0D5DD] bg-white px-3 text-sm font-medium text-[#101828] shadow-sm transition hover:bg-gray-50"
-                      onStatusChanged={(next) => {
-                        setStatusName(next.statusName);
-                        setStatusSystemKey(null);
-                        setStatusRevision((revision) => revision + 1);
-                      }}
-                    />
-                  ) : null}
-                </div>
-                {parkedInTalentPool ? (
-                  <div className="flex h-6 items-center text-sm font-semibold text-[color:var(--brand-primary)]">
-                    In Talent Pool
-                  </div>
-                ) : null}
-              </div>
             </div>
           </section>
 
