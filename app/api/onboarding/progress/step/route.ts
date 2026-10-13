@@ -27,6 +27,7 @@ import { resolveApplicationWorkflowPhase } from "@/lib/onboarding/resolve-applic
 import {
   applicantMayActOnStep,
   isPlacementAcceptedStatus,
+  isPreHireWorkflowStep,
   readStepLifecyclePhase,
 } from "@/lib/onboarding/workflow-phase";
 import {
@@ -161,6 +162,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const candidateFacingStep = stepRow;
+
     // Job workflows may surface preview-* ids for steps not in the last-published tenant config.
     // Persist progress against the best matching published tenant step when needed.
     let persistStep = stepRow;
@@ -181,12 +184,39 @@ export async function POST(req: NextRequest) {
     stepRow = persistStep ?? stepRow;
 
     const activePhase = phaseRecord?.phase ?? "pre_hire";
+    const isPreHire =
+      isPreHireWorkflowStep({
+        key: candidateFacingStep?.step_key || stepRow?.step_key || body.stepKey,
+        title: candidateFacingStep?.title || stepRow?.title,
+        snapshotId: String(
+          candidateFacingStep?.metadata?.workflow_step_id ??
+          stepRow?.metadata?.workflow_step_id ??
+          body.stepId ??
+          ""
+        ),
+        stepId: String(
+          candidateFacingStep?.metadata?.stepId ??
+          stepRow?.metadata?.stepId ??
+          body.stepId ??
+          ""
+        ),
+        data: body.data,
+      });
+
+    const effectiveStepPhase = isPreHire
+      ? "pre_hire"
+      : candidateFacingStep
+      ? readStepLifecyclePhase(candidateFacingStep)
+      : stepRow
+      ? readStepLifecyclePhase(stepRow)
+      : "pre_hire";
+
     if (
       stepRow &&
       (status === "completed" || status === "skipped" || status === "in_progress" || status === "failed") &&
       !applicantMayActOnStep({
         activePhase,
-        stepPhase: readStepLifecyclePhase(stepRow),
+        stepPhase: effectiveStepPhase,
         isHired:
           isPlacementAcceptedStatus(phaseRecord?.status) ||
           Boolean(phaseRecord?.postHireActivatedAt) ||

@@ -32,6 +32,10 @@ import {
   shouldExcludeFromApprovedCandidates,
   shouldExcludeFromCandidateLists,
 } from "@/lib/workers/candidate-conversion-filter";
+import {
+  loadTenantConvertedWorkerIdentities,
+  isConvertedWorkerOrApplication,
+} from "@/lib/admin/converted-worker-identities";
 import { ACTIVE_CANDIDATE_PIPELINE_STATUSES } from "@/lib/workers/candidate-status-label";
 import { applyWorkerTenantEq } from "@/lib/workers/tenant-query";
 import {
@@ -160,10 +164,7 @@ export async function GET(req: Request) {
     const includePhotoUrls = listParams.includePhotoUrls;
     const conversionFilter = listParams.conversion;
     const { limit, offset } = listParams;
-    const needsConversionFilter =
-      conversionFilter === "pending" ||
-      status == null ||
-      (status === "approved" && conversionFilter !== "all");
+    const needsConversionFilter = conversionFilter !== "all";
     const queryLimit = limit;
     const queryOffset = offset;
     const requestStarted = Date.now();
@@ -367,49 +368,46 @@ export async function GET(req: Request) {
           return { ...r, status: s };
         });
 
-        const shouldFilterConversion = !headOnly && needsConversionFilter && !usedServerPage;
+        const shouldFilterConversion = !headOnly && needsConversionFilter;
 
-        if (shouldFilterConversion && normalized.length > 0) {
-          const candidateIds = normalized
-            .map((row) => (typeof row.id === "string" ? row.id : ""))
-            .filter(Boolean);
-          const { data: employmentRows, error: employmentErr } = await queryInChunks(
-            candidateIds,
-            async (chunk) => {
-              const result = await supabase
-                .from("workers")
-                .select("candidate_id")
-                .in("candidate_id", chunk);
-              return {
-                data: (result.data ?? []) as Array<{ candidate_id?: string }>,
-                error: result.error,
-              };
-            }
-          );
-          if (employmentErr && !isMissingColumnErr(employmentErr)) {
-            const sbEmploymentErr = employmentErr as SbErr;
-            error = {
-              message: sbEmploymentErr.message || "Supabase query failed",
-              code: sbEmploymentErr.code,
-            };
-          } else {
-            const convertedIds = new Set(
-              ((employmentRows as { candidate_id?: string }[] | null) ?? [])
-                .map((row) => String(row.candidate_id ?? ""))
-                .filter(Boolean)
+        if (shouldFilterConversion && normalized.length > 0 && tenantScope.mode === "scoped") {
+          try {
+            const identities = await loadTenantConvertedWorkerIdentities(
+              supabase,
+              tenantScope.tenantId
             );
+            const beforeLen = normalized.length;
             normalized = normalized.filter((row) => {
               const rowStatus = typeof row.status === "string" ? row.status : null;
               const rowId = typeof row.id === "string" ? row.id : "";
-              const hasEmployment = convertedIds.has(rowId);
+              const rowEmail = typeof row.email === "string" ? row.email : "";
+              const rowFirstName = typeof row.first_name === "string" ? row.first_name : "";
+              const rowLastName = typeof row.last_name === "string" ? row.last_name : "";
+
+              const isConverted = isConvertedWorkerOrApplication(
+                {
+                  id: rowId,
+                  workerId: rowId,
+                  candidateId: rowId,
+                  email: rowEmail,
+                  firstName: rowFirstName,
+                  lastName: rowLastName,
+                  status: rowStatus,
+                },
+                identities
+              );
+              if (isConverted) return false;
+
               if (conversionFilter === "pending") {
-                return isApprovedPendingConversion(rowStatus, hasEmployment);
+                return isApprovedPendingConversion(rowStatus, false);
               }
-              if (status == null) {
-                return !shouldExcludeFromCandidateLists(rowStatus, hasEmployment);
-              }
-              return !shouldExcludeFromApprovedCandidates(rowStatus, hasEmployment);
+              return true;
             });
+            if (count != null && normalized.length < beforeLen) {
+              count = Math.max(0, count - (beforeLen - normalized.length));
+            }
+          } catch (filterErr) {
+            console.warn("[api/workers] conversion filter failed:", filterErr);
           }
         }
 

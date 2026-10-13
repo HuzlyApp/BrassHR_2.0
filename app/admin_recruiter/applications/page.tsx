@@ -171,6 +171,7 @@ type ApplicationRow = {
   ai_requirement_counts?: ListingRequirementOutcomeCounts | null;
   assigned_recruiter_user_id?: string | null;
   assignedRecruiter?: { id: string; name: string; profilePhotoUrl?: string | null } | null;
+  post_hire_activated_at?: string | null;
   application_statuses?:
     | { id?: string; name?: string; system_key?: string | null; color?: string | null }
     | { id?: string; name?: string; system_key?: string | null; color?: string | null }[]
@@ -548,6 +549,53 @@ function formatActivity(row: ApplicationRow): string {
   })}`;
 }
 
+function isApplicationForConvertedWorker(
+  row: ApplicationRow,
+  convertedIdentities?: {
+    candidateIds: Set<string>;
+    emails: Set<string>;
+    names: Set<string>;
+  }
+): boolean {
+  const status = String(row.status ?? "").trim().toLowerCase();
+  const appStatuses = Array.isArray(row.application_statuses) ? row.application_statuses[0] : row.application_statuses;
+  const statusKey = String(appStatuses?.system_key ?? "").trim().toLowerCase();
+  const statusName = String(row.statusName ?? "").trim().toLowerCase();
+  const workflowPhase = String(row.workflow_phase ?? "").trim().toLowerCase();
+
+  if (
+    status === "hired" ||
+    status === "converted" ||
+    statusKey === "hired" ||
+    statusKey === "converted" ||
+    statusName === "hired" ||
+    statusName === "converted" ||
+    statusName === "selected by client" ||
+    workflowPhase === "post_hire" ||
+    Boolean(row.post_hire_activated_at)
+  ) {
+    return true;
+  }
+
+  const workerId = resolveApplicationWorkerId(row);
+  const email = resolveApplicationApplicantEmail(row).toLowerCase().trim();
+  const name = resolveApplicationApplicantName(row).toLowerCase().trim();
+
+  if (convertedIdentities) {
+    if (workerId && convertedIdentities.candidateIds.has(workerId)) {
+      return true;
+    }
+    if (email && convertedIdentities.emails.has(email)) {
+      return true;
+    }
+    if (name && convertedIdentities.names.has(name)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 const ACTION_TOAST_DURATION_MS = 4000;
 
 function statusChangeSuccessMessage(
@@ -727,6 +775,47 @@ export default function JobApplicationsPage() {
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [actionTargetRowId, setActionTargetRowId] = useState<string | null>(null);
+  const [applicationsRefreshNonce, setApplicationsRefreshNonce] = useState(0);
+  const [convertedWorkerIdentities, setConvertedWorkerIdentities] = useState<{
+    candidateIds: Set<string>;
+    emails: Set<string>;
+    names: Set<string>;
+  }>({
+    candidateIds: new Set(),
+    emails: new Set(),
+    names: new Set(),
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadConvertedWorkers() {
+      try {
+        const res = await fetch("/api/admin/employment-workers?tab=all", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        const list = Array.isArray(data?.workers) ? data.workers : [];
+        const candidateIds = new Set<string>();
+        const emails = new Set<string>();
+        const names = new Set<string>();
+        for (const w of list) {
+          const cId = String(w.candidate_id ?? w.id ?? "").trim();
+          if (cId) candidateIds.add(cId);
+          const em = String(w.email ?? "").trim().toLowerCase();
+          if (em) emails.add(em);
+          const nm = `${String(w.first_name ?? "").trim()} ${String(w.last_name ?? "").trim()}`.toLowerCase().trim();
+          if (nm) names.add(nm);
+        }
+        setConvertedWorkerIdentities({ candidateIds, emails, names });
+      } catch {
+        // Non-blocking
+      }
+    }
+    void loadConvertedWorkers();
+    return () => {
+      cancelled = true;
+    };
+  }, [applicationsRefreshNonce]);
   const [messageOpen, setMessageOpen] = useState(false);
   const [callOpen, setCallOpen] = useState(false);
   const [interviewOpen, setInterviewOpen] = useState(false);
@@ -738,7 +827,6 @@ export default function JobApplicationsPage() {
   const [resumeErrorMessage, setResumeErrorMessage] = useState("");
   const [addCandidateOpen, setAddCandidateOpen] = useState(false);
   const [importCandidatesOpen, setImportCandidatesOpen] = useState(false);
-  const [applicationsRefreshNonce, setApplicationsRefreshNonce] = useState(0);
   const [claimConfirmOpen, setClaimConfirmOpen] = useState(false);
   const [claimBusy, setClaimBusy] = useState(false);
   const [assignRecruiterTarget, setAssignRecruiterTarget] = useState<ApplicationRow | null>(null);
@@ -1489,8 +1577,11 @@ export default function JobApplicationsPage() {
   }, [rows, statusOptions, listMeta.paged, listMeta.buckets]);
 
   const baseFilteredRows = useMemo(() => {
-    if (listMeta.paged) return rows;
-    let next = rows.filter((row) => matchesTab(row, resolvedActiveTab, statusOptions));
+    const nonWorkers = rows.filter(
+      (row) => !isApplicationForConvertedWorker(row, convertedWorkerIdentities)
+    );
+    if (listMeta.paged) return nonWorkers;
+    let next = nonWorkers.filter((row) => matchesTab(row, resolvedActiveTab, statusOptions));
     if (locationFilter) {
       next = next.filter((row) => {
         const loc = applicantLocation(row);
@@ -1531,7 +1622,7 @@ export default function JobApplicationsPage() {
       );
     }
     return sortApplicationRows(next, listSort);
-  }, [rows, resolvedActiveTab, locationFilter, listSort, candidateSearchQuery, statusOptions, listingStatusFilter, listingJobFilter, listingStageFilter, evaluationFilter, workflowFilter, matchScoreFilter, dateAppliedFilter, listMeta.paged]);
+  }, [rows, resolvedActiveTab, locationFilter, listSort, candidateSearchQuery, statusOptions, listingStatusFilter, listingJobFilter, listingStageFilter, evaluationFilter, workflowFilter, matchScoreFilter, dateAppliedFilter, listMeta.paged, convertedWorkerIdentities]);
 
   const multiJobApplicantCount = useMemo(() => {
     if (listMeta.paged) return listMeta.multiJobApplicantCount;
@@ -1543,12 +1634,16 @@ export default function JobApplicationsPage() {
   }, [baseFilteredRows, listMeta.paged, listMeta.multiJobApplicantCount]);
 
   const filteredRows = useMemo(() => {
-    if (listMeta.paged) return rows;
-    if (!highlightMultiJobApplicants) return baseFilteredRows;
-    return baseFilteredRows.filter((row) => Number(row.appliedJobCount ?? 1) > 1);
-  }, [baseFilteredRows, highlightMultiJobApplicants, listMeta.paged, rows]);
+    const list = listMeta.paged
+      ? rows.filter((row) => !isApplicationForConvertedWorker(row, convertedWorkerIdentities))
+      : baseFilteredRows;
+    if (!highlightMultiJobApplicants) return list;
+    return list.filter((row) => Number(row.appliedJobCount ?? 1) > 1);
+  }, [baseFilteredRows, highlightMultiJobApplicants, listMeta.paged, rows, convertedWorkerIdentities]);
 
-  const resultTotal = listMeta.paged ? listMeta.total : filteredRows.length;
+  const resultTotal = listMeta.paged
+    ? Math.max(0, listMeta.total - (rows.length - (rows.filter((row) => !isApplicationForConvertedWorker(row, convertedWorkerIdentities)).length)))
+    : filteredRows.length;
   const totalPages = Math.max(1, Math.ceil(resultTotal / pageSize));
   const currentPage = Math.min(page, totalPages);
   const pageStart = resultTotal === 0 ? 0 : (currentPage - 1) * pageSize + 1;
@@ -1557,9 +1652,11 @@ export default function JobApplicationsPage() {
       ? 0
       : pageStart + rows.length - 1
     : Math.min(currentPage * pageSize, resultTotal);
-  const paginatedRows = listMeta.paged
-    ? rows
-    : filteredRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const paginatedRows = useMemo(() => {
+    return listMeta.paged
+      ? rows.filter((row) => !isApplicationForConvertedWorker(row, convertedWorkerIdentities))
+      : filteredRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  }, [listMeta.paged, rows, filteredRows, currentPage, pageSize, convertedWorkerIdentities]);
 
   const listColumns = ensureActionsLast(
     listColumnOrder.length ? listColumnOrder : DEFAULT_APPLICATION_COLUMNS
