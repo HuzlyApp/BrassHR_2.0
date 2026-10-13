@@ -1,50 +1,34 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import {
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-} from "lucide-react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import BrandedSvgIcon from "@/app/components/BrandedSvgIcon";
 
-type ScheduleItem = {
-  id: string;
-  time: string;
-  label: string;
-  description: string;
+type StatMetric = {
+  value: number;
+  changePct: number | null;
 };
 
-type TodoItem = {
+type AttentionTone = "orange" | "red" | "green";
+
+type AttentionItem = {
   id: string;
+  name: string;
   title: string;
-  description: string;
+  subtitle: string;
+  tag: string;
+  tone: AttentionTone;
   agoLabel: string;
-  isRead: boolean;
+  href: string;
 };
 
-type ShiftItem = {
+type JobByClientItem = {
   id: string;
-  date: string;
-  timeRange: string;
-  facilityAddress: string;
-  workerCount: number;
-  managerName: string;
-};
-
-type OnboardHireItem = {
-  id: string;
-  name: string;
+  clientName: string;
   role: string;
-  startLabel: string;
-  status: string;
-};
-
-type FacilityWorkerItem = {
-  id: string;
-  name: string;
-  address: string;
-  workerCount: number;
+  agoLabel: string;
+  href: string;
 };
 
 type DashboardOverviewData = {
@@ -52,26 +36,113 @@ type DashboardOverviewData = {
   userName: string;
   selectedDate: string;
   selectedDateLabel: string;
-  schedule: {
-    meetings: ScheduleItem[];
-    interviews: ScheduleItem[];
-    meetingCount: number;
-    interviewCount: number;
+  stats?: {
+    activeWorkers: StatMetric;
+    newCandidates: StatMetric;
+    newlyOnboarded: StatMetric;
+    hired: StatMetric;
   };
-  todos: TodoItem[];
-  shifts: ShiftItem[];
-  onboardHires: OnboardHireItem[];
-  facilityWorkers: FacilityWorkerItem[];
+  needsAttention?: AttentionItem[];
+  jobsByClient?: JobByClientItem[];
 };
 
-const AVATAR_COLORS = ["#E85D4C", "#012352", "#6B7280", "#3B82F6", "#0D9488", "#9333EA"];
+type StatKey = keyof NonNullable<DashboardOverviewData["stats"]>;
 
-function addDaysIso(isoDate: string, days: number): string {
-  const date = new Date(`${isoDate}T12:00:00`);
-  date.setDate(date.getDate() + days);
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
+const HOME_ICON_BASE = "/icons/admin-recruiter/home";
+const SHIFTS_ROUTE = "/admin_recruiter/calendar/shifts";
+
+const STAT_CARDS: {
+  key: StatKey;
+  label: string;
+  icon: string;
+  iconSize: number;
+  color: string;
+  tint: string;
+}[] = [
+  {
+    key: "activeWorkers",
+    label: "Active Workers",
+    icon: `${HOME_ICON_BASE}/stat-active-workers.svg`,
+    iconSize: 30,
+    color: "#12AA00",
+    tint: "rgba(18,170,0,0.15)",
+  },
+  {
+    key: "newCandidates",
+    label: "New Candidates",
+    icon: `${HOME_ICON_BASE}/stat-new-candidates.svg`,
+    iconSize: 30,
+    color: "#9000B1",
+    tint: "rgba(144,0,177,0.15)",
+  },
+  {
+    key: "newlyOnboarded",
+    label: "Newly Onboarded",
+    icon: `${HOME_ICON_BASE}/stat-newly-onboarded.svg`,
+    iconSize: 30,
+    color: "#0062FF",
+    tint: "rgba(0,98,255,0.15)",
+  },
+  {
+    key: "hired",
+    label: "Hired",
+    icon: `${HOME_ICON_BASE}/stat-hired.svg`,
+    iconSize: 28,
+    color: "#DC6803",
+    tint: "rgba(220,104,3,0.15)",
+  },
+];
+
+const ATTENTION_TONE_CLASS: Record<AttentionTone, string> = {
+  orange: "bg-[rgba(255,122,0,0.15)] text-[#FF7A00]",
+  red: "bg-[rgba(225,29,72,0.15)] text-[#E11D48]",
+  green: "bg-[rgba(18,170,0,0.15)] text-[#12AA00]",
+};
+
+const QUICK_ACTIONS: {
+  label: string;
+  icon: string;
+  iconClass: string;
+  href?: string;
+  primary?: boolean;
+}[] = [
+  {
+    label: "Post a shift",
+    icon: `${HOME_ICON_BASE}/quick-post-shift.svg`,
+    iconClass: "size-6",
+    href: SHIFTS_ROUTE,
+    primary: true,
+  },
+  {
+    label: "Manage Clients",
+    icon: `${HOME_ICON_BASE}/quick-manage-clients.svg`,
+    iconClass: "h-[22px] w-[23.28px]",
+    href: "/admin_recruiter/facilities",
+  },
+  {
+    label: "View Submission",
+    icon: `${HOME_ICON_BASE}/quick-view-submission.svg`,
+    iconClass: "h-[22px] w-[18px]",
+    href: "/admin_recruiter/applications",
+  },
+  {
+    label: "Approve PTO",
+    icon: `${HOME_ICON_BASE}/quick-approve-pto.svg`,
+    iconClass: "size-6",
+  },
+];
+
+const PANEL_CLASS = "w-full min-w-0 overflow-hidden rounded-xl border border-[#E5E7EB] bg-white";
+const PANEL_HEADER_CLASS = "flex h-12 shrink-0 items-center justify-between border-b border-[#E5E7EB] px-5";
+const PANEL_TITLE_CLASS = "text-[14px] font-semibold leading-5 text-black!";
+const VIEW_ALL_CLASS =
+  "text-[12px] font-semibold leading-4 text-[#012352] transition hover:text-[color:var(--brand-primary)]";
+
+function todayIsoDate(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
 }
 
@@ -82,140 +153,236 @@ function initials(name: string): string {
   return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
 }
 
-function formatWeekdayDate(isoDate: string): string {
-  const date = new Date(`${isoDate}T12:00:00`);
-  if (Number.isNaN(date.getTime())) return isoDate;
-  return date.toLocaleDateString("en-US", { timeZone: "America/New_York", 
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+function formatStatValue(value: number | undefined): string {
+  return typeof value === "number" ? value.toLocaleString("en-US") : "—";
 }
 
-function buildDateOptions(anchorIso: string, range = 14): { iso: string; label: string }[] {
-  const options: { iso: string; label: string }[] = [];
-  for (let offset = -range; offset <= range; offset += 1) {
-    const iso = addDaysIso(anchorIso, offset);
-    options.push({ iso, label: formatWeekdayDate(iso) });
-  }
-  return options;
-}
-
-function DashboardDateDropdown({
-  selectedDate,
-  onSelectDate,
-}: {
-  selectedDate: string;
-  onSelectDate: (iso: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const dateOptions = useMemo(() => buildDateOptions(selectedDate), [selectedDate]);
-  const selectedDateLabel = formatWeekdayDate(selectedDate);
-
-  useEffect(() => {
-    if (!open) return;
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handlePointerDown);
-    return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, [open]);
-
+function TrendArrow({ down }: { down: boolean }) {
   return (
-    <div ref={rootRef} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((current) => !current)}
-        className="inline-flex items-center gap-1 rounded-md border border-[#E5E7EB] bg-white px-2.5 py-1.5 text-sm font-medium text-[#374151] transition hover:bg-[#F9FAFB]"
-        aria-label="Select date"
-        aria-haspopup="listbox"
-        aria-expanded={open}
+    <svg
+      width="6"
+      height="7"
+      viewBox="0 0 6 7"
+      fill="none"
+      aria-hidden
+      className={`shrink-0 ${down ? "rotate-180" : ""}`}
+    >
+      <path d="M3.6 7V3.5H6L3 0L0 3.5H2.4V7H3.6Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function StatCard({
+  label,
+  icon,
+  iconSize,
+  color,
+  tint,
+  metric,
+}: {
+  label: string;
+  icon: string;
+  iconSize: number;
+  color: string;
+  tint: string;
+  metric?: StatMetric;
+}) {
+  const changePct = metric?.changePct ?? null;
+  return (
+    <div className="flex h-[90px] min-w-0 items-center gap-3 rounded-xl border border-[#E5E7EB] bg-white px-5 py-3.5">
+      <span
+        className="flex size-[50px] shrink-0 items-center justify-center rounded-lg"
+        style={{ backgroundColor: tint }}
+        aria-hidden
       >
-        {selectedDateLabel}
-        <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} aria-hidden />
-      </button>
-      {open ? (
-        <div
-          role="listbox"
-          aria-label="Date options"
-          className="absolute right-0 top-full z-50 mt-1 max-h-64 w-[min(320px,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-[#E5E7EB] bg-white py-1 shadow-lg"
-        >
-          {dateOptions.map((option) => {
-            const active = option.iso === selectedDate;
-            return (
-              <button
-                key={option.iso}
-                type="button"
-                role="option"
-                aria-selected={active}
-                onClick={() => {
-                  onSelectDate(option.iso);
-                  setOpen(false);
-                }}
-                className={`block w-full px-3 py-2 text-left text-sm transition ${
-                  active
-                    ? "bg-[color:color-mix(in_srgb,var(--brand-primary)_10%,white)] font-semibold text-[color:var(--brand-primary)]"
-                    : "text-[#374151] hover:bg-[#F9FAFB]"
-                }`}
-              >
-                {option.label}
-              </button>
-            );
-          })}
+        <img src={icon} alt="" width={iconSize} height={iconSize} style={{ width: iconSize, height: iconSize }} />
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[20px] font-semibold leading-7 text-[#012352]">{formatStatValue(metric?.value)}</span>
+          {changePct !== null ? (
+            <span
+              className="inline-flex shrink-0 items-center justify-center gap-0.5 rounded p-1 text-[10px] font-semibold leading-[10px]"
+              style={{ backgroundColor: tint, color }}
+              title={`${changePct >= 0 ? "Up" : "Down"} ${Math.abs(changePct)}% vs last week`}
+            >
+              <TrendArrow down={changePct < 0} />
+              {Math.abs(changePct)}%
+            </span>
+          ) : null}
         </div>
-      ) : null}
+        <p className="truncate text-[14px] font-semibold leading-5 text-[#374151]">{label}</p>
+      </div>
     </div>
   );
 }
 
-function CardShell({
-  title,
-  action,
-  children,
-}: {
-  title: string;
-  action?: ReactNode;
-  children: ReactNode;
-}) {
+function PanelMessage({ children }: { children: ReactNode }) {
   return (
-    <section className="w-full min-w-0 overflow-hidden rounded-xl border border-[#E5E7EB] bg-white shadow-sm">
-      <div className="flex items-center justify-between gap-3 border-b border-[#E5E7EB] px-5 py-4">
-        <h2 className="truncate text-base font-semibold text-[#111827]">{title}</h2>
-        {action}
+    <div className="flex flex-1 items-center justify-center bg-white px-5 py-10 text-center text-[12px] text-[#6B7280]">
+      {children}
+    </div>
+  );
+}
+
+function SkeletonRows({ count, height }: { count: number; height: string }) {
+  return (
+    <div className="flex flex-1 flex-col gap-px bg-[#ECF1F9]">
+      {Array.from({ length: count }, (_, index) => (
+        <div key={index} className={`flex items-center bg-white px-5 ${height}`}>
+          <div className="h-3 w-2/3 animate-pulse rounded bg-[#F1F5F9]" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function NeedsAttentionPanel({ loading, items }: { loading: boolean; items: AttentionItem[] }) {
+  return (
+    <section className={`${PANEL_CLASS} flex flex-col`}>
+      <div className={PANEL_HEADER_CLASS}>
+        <h2 className={PANEL_TITLE_CLASS}>Needs Attention</h2>
+        <Link href="/admin_recruiter/new" className={VIEW_ALL_CLASS}>
+          View All
+        </Link>
       </div>
-      <div className="px-5 py-4">{children}</div>
+      {loading ? (
+        <SkeletonRows count={5} height="h-[54px]" />
+      ) : items.length === 0 ? (
+        <PanelMessage>Nothing needs your attention right now.</PanelMessage>
+      ) : (
+        <ul className="flex flex-1 flex-col gap-px bg-[#ECF1F9]">
+          {items.map((item) => (
+            <li key={item.id} className="bg-white">
+              <Link
+                href={item.href}
+                className="flex items-center justify-between gap-4 px-5 py-3 transition hover:bg-[#F8FAFC]"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <span
+                    className="flex size-[30px] shrink-0 items-center justify-center rounded-full bg-[#94A3B8] p-0.5 text-[12px] font-semibold leading-4 text-white"
+                    aria-hidden
+                  >
+                    {initials(item.name)}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-[12px] font-semibold leading-4 text-black">{item.title}</p>
+                    <p className="truncate text-[10px] leading-[15px] text-[#6B7280]">{item.subtitle}</p>
+                  </div>
+                </div>
+                <div className="flex w-[150px] shrink-0 items-center gap-[30px]">
+                  <span
+                    className={`inline-flex min-w-[77px] items-center justify-center rounded px-2.5 py-1 text-[10px] font-semibold leading-[15px] ${ATTENTION_TONE_CLASS[item.tone]}`}
+                  >
+                    {item.tag}
+                  </span>
+                  <span className="whitespace-nowrap text-[10px] leading-[15px] text-[#6B7280]">{item.agoLabel}</span>
+                </div>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
 
-function GhostButton({ href, label }: { href: string; label: string }) {
+function JobsByClientPanel({ loading, items }: { loading: boolean; items: JobByClientItem[] }) {
   return (
-    <Link
-      href={href}
-      className="inline-flex h-9 items-center justify-center rounded-md border border-[#D1D5DB] bg-white px-4 text-sm font-semibold text-[#111827] transition hover:bg-[#F9FAFB]"
-    >
-      {label}
-    </Link>
+    <section className={`${PANEL_CLASS} flex flex-col`}>
+      <div className={PANEL_HEADER_CLASS}>
+        <h2 className={PANEL_TITLE_CLASS}>Jobs by Client</h2>
+        <Link href="/admin_recruiter/jobs" className={VIEW_ALL_CLASS}>
+          View All
+        </Link>
+      </div>
+      {loading ? (
+        <SkeletonRows count={7} height="h-10" />
+      ) : items.length === 0 ? (
+        <PanelMessage>No jobs posted yet.</PanelMessage>
+      ) : (
+        <ul className="flex flex-1 flex-col gap-px bg-[#ECF1F9]">
+          {items.map((job) => (
+            <li key={job.id} className="bg-white">
+              <Link
+                href={job.href}
+                className="grid h-10 grid-cols-[minmax(0,1fr)_minmax(0,1fr)_79px] items-center transition hover:bg-[#F8FAFC]"
+              >
+                <span className="truncate px-5 text-[12px] leading-4 text-black">{job.clientName}</span>
+                <span className="truncate px-5 text-[10px] leading-[15px] text-[color:var(--brand-primary)]">
+                  {job.role}
+                </span>
+                <span className="whitespace-nowrap px-5 text-[10px] leading-[15px] text-[#6B7280]">{job.agoLabel}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
-function EmptyState({ message }: { message: string }) {
-  return <p className="py-6 text-center text-sm text-[#6B7280]">{message}</p>;
+function QuickActionsPanel() {
+  return (
+    <section className={PANEL_CLASS}>
+      <div className={PANEL_HEADER_CLASS}>
+        <h2 className={PANEL_TITLE_CLASS}>Quick Actions</h2>
+      </div>
+      <div className="flex items-center justify-between gap-5 px-5 py-5 xl:py-0">
+        <div className="grid w-full min-w-0 grid-cols-1 gap-3.5 sm:grid-cols-2 xl:flex xl:w-[762px] xl:shrink-0">
+          {QUICK_ACTIONS.map((action) => {
+            const baseClass =
+              "flex h-12 min-w-0 items-center justify-center gap-3 overflow-hidden rounded-xl px-3.5 py-3 text-[14px] font-semibold leading-5 whitespace-nowrap transition xl:min-w-max xl:flex-1";
+            const toneClass = action.primary
+              ? "bg-[color:var(--brand-primary)] text-white hover:brightness-95"
+              : "border border-[#E5E7EB] bg-white text-[#374151] hover:bg-[#F9FAFB]";
+            const content = (
+              <>
+                <span className="flex size-6 shrink-0 items-center justify-center" aria-hidden>
+                  {action.primary ? (
+                    <img src={action.icon} alt="" className={action.iconClass} />
+                  ) : (
+                    <BrandedSvgIcon src={action.icon} color="var(--brand-primary)" className={action.iconClass} />
+                  )}
+                </span>
+                <span>{action.label}</span>
+              </>
+            );
+
+            return action.href ? (
+              <Link key={action.label} href={action.href} className={`${baseClass} ${toneClass}`}>
+                {content}
+              </Link>
+            ) : (
+              <button
+                key={action.label}
+                type="button"
+                title={`${action.label} (Coming soon)`}
+                className={`${baseClass} ${toneClass} cursor-default`}
+              >
+                {content}
+              </button>
+            );
+          })}
+        </div>
+        <div className="relative ml-auto hidden h-[113px] w-[282px] min-w-0 shrink xl:block" aria-hidden>
+          <div className="absolute inset-y-[3.73%] left-[9.63%] w-[84.09%]">
+            <Image
+              src="/images/admin-recruiter/home/quick-actions-illustration.png"
+              alt=""
+              fill
+              sizes="240px"
+              className="object-contain"
+            />
+          </div>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 export default function DashboardOverviewClient() {
-  const [selectedDate, setSelectedDate] = useState(() => {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, "0");
-    const d = String(now.getDate()).padStart(2, "0");
-    return `${y}-${m}-${d}`;
-  });
-  const [scheduleTab, setScheduleTab] = useState<"meetings" | "interviews">("meetings");
+  const [selectedDate] = useState(todayIsoDate);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<DashboardOverviewData | null>(null);
@@ -240,236 +407,95 @@ export default function DashboardOverviewClient() {
     void loadDashboard();
   }, [loadDashboard]);
 
-  const scheduleItems = useMemo(() => {
-    if (!data) return [];
-    return scheduleTab === "meetings" ? data.schedule.meetings : data.schedule.interviews;
-  }, [data, scheduleTab]);
-
   return (
-    <div className="relative w-full min-w-0 space-y-[14px] admin-recruiter-page-pad">
-        <header className="space-y-1">
-          <h1 className="inline-flex items-center gap-1 font-[Inter,sans-serif] text-[18px] font-semibold leading-[28px] text-[#012352]">
-            {data?.greeting ?? "Good morning"}, {data?.userName ?? "there"}!
+    <div className="relative flex w-full min-w-0 flex-col gap-5 admin-recruiter-page-pad pt-[30px]! pb-8!">
+      <header className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h1 className="flex items-center gap-2 text-[20px] font-semibold leading-7 text-[#012352]!">
+            <span className="truncate">
+              {data?.greeting ?? "Good morning"}, {data?.userName ?? "there"}!
+            </span>
             <img
               src="/icons/clapping-hands.svg"
               alt=""
               width={18}
               height={18}
-              className="h-[18px] w-[18px] shrink-0"
+              className="size-[18px] shrink-0"
               aria-hidden
             />
           </h1>
-          <p className="font-[Inter,sans-serif] text-[12px] font-normal leading-[16px] text-[#6B7280]">
+          <p className="text-[14px] leading-5 text-[#6B7280]">
             Here&apos;s what&apos;s happening with your schedule and work!
           </p>
-        </header>
-
-        {error ? (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
+        </div>
+        {data?.selectedDateLabel ? (
+          <p className="whitespace-nowrap text-[12px] leading-4 text-[#6B7280]">{data.selectedDateLabel}</p>
         ) : null}
+      </header>
 
-        <div className="grid w-full min-w-0 grid-cols-1 gap-[14px] xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-          <CardShell
-            title={data?.selectedDateLabel ?? "Schedule"}
-            action={
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => setSelectedDate((current) => addDaysIso(current, -1))}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#E5E7EB] text-[#374151] hover:bg-[#F9FAFB]"
-                  aria-label="Previous day"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedDate((current) => addDaysIso(current, 1))}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#E5E7EB] text-[#374151] hover:bg-[#F9FAFB]"
-                  aria-label="Next day"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </button>
-              </div>
-            }
-          >
-            <div className="mb-4 flex items-center gap-6 border-b border-[#E5E7EB]">
-              {(["meetings", "interviews"] as const).map((tab) => {
-                const active = scheduleTab === tab;
-                const count =
-                  tab === "meetings" ? (data?.schedule.meetingCount ?? 0) : (data?.schedule.interviewCount ?? 0);
-                return (
-                  <button
-                    key={tab}
-                    type="button"
-                    onClick={() => setScheduleTab(tab)}
-                    className={`border-b-2 pb-3 text-sm font-semibold capitalize transition ${
-                      active
-                        ? "border-[color:var(--brand-primary)] text-[color:var(--brand-primary)]"
-                        : "border-transparent text-[#6B7280] hover:text-[#111827]"
-                    }`}
-                  >
-                    {tab} ({count})
-                  </button>
-                );
-              })}
-            </div>
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
+      ) : null}
 
-            {loading ? null : scheduleItems.length === 0 ? (
-              <EmptyState message={`No ${scheduleTab} for this day.`} />
-            ) : (
-              <ul className="space-y-4">
-                {scheduleItems.slice(0, 4).map((item) => (
-                  <li key={item.id} className="flex gap-4">
-                    <div className="w-16 shrink-0 text-sm font-semibold text-[#111827]">{item.time}</div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs text-[#6B7280]">{item.label}</div>
-                      <div className="text-sm font-semibold leading-5 text-[#012352]">{item.description}</div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            <div className="mt-5 flex justify-center">
-              <GhostButton href="/admin_recruiter/calendar" label="More Details" />
-            </div>
-          </CardShell>
-
-          <CardShell title="To Do's">
-            {loading ? (
-              <EmptyState message="Loading to do list..." />
-            ) : !data?.todos.length ? (
-              <EmptyState message="No tasks right now." />
-            ) : (
-              <ul className="space-y-4">
-                {data.todos.map((item) => (
-                  <li key={item.id} className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-xs text-[#6B7280]">{item.title}</div>
-                      <div className="text-sm font-semibold leading-5 text-[#012352]">{item.description}</div>
-                    </div>
-                    <span className="shrink-0 text-xs font-medium text-[#6B7280]">{item.agoLabel}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="mt-5 flex justify-center">
-              <GhostButton href="/admin_recruiter/notifications" label="More Details" />
-            </div>
-          </CardShell>
+      <section className="relative flex min-h-[170px] flex-col justify-center gap-3.5 overflow-hidden rounded-xl bg-[#012352] p-5">
+        <div
+          className="pointer-events-none absolute left-[23.73%] top-[-5.2%] hidden h-[114.94%] w-[76.63%] md:block"
+          aria-hidden
+        >
+          <Image
+            src="/images/admin-recruiter/home/hero-team.png"
+            alt=""
+            fill
+            priority
+            sizes="(min-width: 1280px) 850px, 77vw"
+            className="object-cover"
+          />
         </div>
-
-        <CardShell title="Scheduled Shifts">
-          {loading ? (
-            <EmptyState message="Loading shifts..." />
-          ) : !data?.shifts.length ? (
-            <EmptyState message="No upcoming shifts." />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-[760px] w-full border-collapse">
-                <thead>
-                  <tr className="border-b border-[#E5E7EB] text-left text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
-                    <th className="px-2 py-3">Date</th>
-                    <th className="px-2 py-3">Time</th>
-                    <th className="px-2 py-3">Facility Address</th>
-                    <th className="px-2 py-3">Workers</th>
-                    <th className="px-2 py-3">Manager</th>
-                    <th className="px-2 py-3" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.shifts.map((shift) => (
-                    <tr key={shift.id} className="border-b border-[#F3F4F6] text-sm text-[#111827]">
-                      <td className="px-2 py-4 font-medium">{shift.date}</td>
-                      <td className="px-2 py-4">{shift.timeRange}</td>
-                      <td className="px-2 py-4 text-[#374151]">{shift.facilityAddress}</td>
-                      <td className="px-2 py-4">{shift.workerCount}</td>
-                      <td className="px-2 py-4">{shift.managerName}</td>
-                      <td className="px-2 py-4 text-right">
-                        <GhostButton href="/admin_recruiter/calendar/shifts" label="Details" />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardShell>
-
-        <div className="grid w-full min-w-0 grid-cols-1 gap-[14px] xl:grid-cols-2">
-          <CardShell title="Onboard New Hires">
-            {loading ? (
-              <EmptyState message="Loading hires..." />
-            ) : !data?.onboardHires.length ? (
-              <EmptyState message="No new hires to onboard." />
-            ) : (
-              <ul className="space-y-4">
-                {data.onboardHires.map((hire, index) => (
-                  <li key={hire.id} className="flex items-center justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <span
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
-                        style={{ backgroundColor: AVATAR_COLORS[index % AVATAR_COLORS.length] }}
-                        aria-hidden
-                      >
-                        {initials(hire.name)}
-                      </span>
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-[#111827]">{hire.name}</div>
-                        <div className="truncate text-xs text-[#6B7280]">{hire.role}</div>
-                        <div className="truncate text-xs text-[#6B7280]">{hire.startLabel}</div>
-                      </div>
-                    </div>
-                    <Link
-                      href={`/admin_recruiter/new/checklist/${hire.id}`}
-                      className="inline-flex h-9 shrink-0 items-center justify-center rounded-md border border-[#D1D5DB] bg-white px-4 text-sm font-semibold text-[#111827] hover:bg-[#F9FAFB]"
-                    >
-                      Onboard
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="mt-5 flex justify-center">
-              <GhostButton href="/admin_recruiter/new" label="More Details" />
-            </div>
-          </CardShell>
-
-          <CardShell
-            title="Active Facilities Workers"
-            action={
-              <DashboardDateDropdown selectedDate={selectedDate} onSelectDate={setSelectedDate} />
-            }
-          >
-            {loading ? null : !data?.facilityWorkers.length ? (
-              <EmptyState message="No active facility workers yet." />
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full border-collapse">
-                  <thead>
-                    <tr className="border-b border-[#E5E7EB] text-left text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
-                      <th className="px-2 py-3">Facility</th>
-                      <th className="px-2 py-3">Address</th>
-                      <th className="px-2 py-3">Number of workers</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.facilityWorkers.map((facility) => (
-                      <tr key={facility.id} className="border-b border-[#F3F4F6] text-sm">
-                        <td className="px-2 py-4 font-semibold text-[#111827]">{facility.name}</td>
-                        <td className="px-2 py-4 text-[#374151]">{facility.address}</td>
-                        <td className="px-2 py-4 font-semibold text-[#111827]">{facility.workerCount}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            <div className="mt-5 flex justify-center">
-              <GhostButton href="/admin_recruiter/facilities" label="More Details" />
-            </div>
-          </CardShell>
+        <p className="relative text-[12px] font-semibold leading-4 text-[color:var(--brand-primary)]">
+          Keep your shifts filled
+        </p>
+        <div className="relative flex flex-col gap-2">
+          <h2 className="text-[20px] font-semibold leading-7 text-white!">Get the right people on shift.</h2>
+          <p className="max-w-[438px] text-[12px] leading-4 text-white">
+            Post new shifts, review submission and keep your clients covered.
+          </p>
         </div>
+        <div className="relative flex flex-wrap gap-3.5">
+          <Link
+            href={SHIFTS_ROUTE}
+            className="inline-flex items-center justify-center rounded-lg bg-[color:var(--brand-primary)] px-4 py-2 text-[12px] font-semibold leading-4 text-white transition hover:brightness-95"
+          >
+            Post a Shift
+          </Link>
+          <Link
+            href={SHIFTS_ROUTE}
+            className="inline-flex items-center justify-center rounded-lg border border-[color:var(--brand-primary)] px-4 py-2 text-[12px] font-semibold leading-4 text-white transition hover:bg-white/10"
+          >
+            View Open Shifts
+          </Link>
+        </div>
+      </section>
+
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+        {STAT_CARDS.map((card) => (
+          <StatCard
+            key={card.key}
+            label={card.label}
+            icon={card.icon}
+            iconSize={card.iconSize}
+            color={card.color}
+            tint={card.tint}
+            metric={data?.stats?.[card.key]}
+          />
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,600fr)_minmax(0,484fr)]">
+        <NeedsAttentionPanel loading={loading} items={data?.needsAttention ?? []} />
+        <JobsByClientPanel loading={loading} items={data?.jobsByClient ?? []} />
+      </div>
+
+      <QuickActionsPanel />
     </div>
   );
 }

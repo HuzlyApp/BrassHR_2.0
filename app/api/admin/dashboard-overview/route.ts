@@ -3,12 +3,15 @@ import { getCachedStaffApiSession, getCachedStaffTenantScope } from "@/lib/auth/
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { loadFacilitiesForTenant } from "@/lib/facilities/facility-management-service";
 import { buildCacheKey, CACHE_TTL_SECONDS, getOrSetCache } from "@/lib/cache";
+import { countWorkersCreatedBetween } from "@/lib/dashboard/analytics-counts";
+import { fetchWorkerStatusMetrics } from "@/lib/dashboard/worker-status-metrics";
+import { resolveWorkforceBuckets } from "@/lib/dashboard/workforce-analytics";
 import { createPerfTimer, logPerf } from "@/lib/perf";
 import {
   applicantDisplayName,
   interviewOrdinalTitle,
 } from "@/lib/interviews/format";
-import { easternDateString, easternHour, formatEastern } from "@/lib/datetime/eastern";
+import { addEasternDays, easternDateString, easternHour, formatEastern } from "@/lib/datetime/eastern";
 import { localDateString, localTimeString, scheduleRowToIso } from "@/lib/interviews/schedule-fields";
 
 export const runtime = "nodejs";
@@ -114,6 +117,84 @@ function greetingForHour(hour: number): string {
   return "Good evening";
 }
 
+type AttentionTone = "orange" | "red" | "green";
+
+type AttentionItem = {
+  id: string;
+  name: string;
+  title: string;
+  subtitle: string;
+  tag: string;
+  tone: AttentionTone;
+  agoLabel: string;
+  href: string;
+};
+
+type RankedAttentionItem = {
+  item: AttentionItem;
+  priority: number;
+  sortAt: number;
+};
+
+type JobRequisitionRow = {
+  id: string;
+  title: string | null;
+  public_title: string | null;
+  job_role: string | null;
+  msp_name: string | null;
+  msp_client_name: string | null;
+  msp_client: string | null;
+  facility_name: string | null;
+  facility: string | null;
+  created_at: string | null;
+};
+
+type LicenseRecordRow = {
+  id: string;
+  worker_id: string;
+  license_type: string | null;
+  expires_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+function pctChange(current: number, previous: number): number | null {
+  if (previous === 0) return current > 0 ? 100 : null;
+  return Math.round(((current - previous) / previous) * 100);
+}
+
+function agoLabel(iso: string | null): string {
+  const label = relativeTimeLabel(iso);
+  return label === "—" ? label : `${label} ago`;
+}
+
+function timestampOf(iso: string | null): number {
+  if (!iso) return 0;
+  const ms = new Date(iso).getTime();
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+function jobClientName(row: JobRequisitionRow): string {
+  return (
+    row.msp_client_name?.trim() ||
+    row.msp_client?.trim() ||
+    row.msp_name?.trim() ||
+    row.facility_name?.trim() ||
+    row.facility?.trim() ||
+    "Direct hire"
+  );
+}
+
+function jobRoleName(row: JobRequisitionRow): string {
+  return row.public_title?.trim() || row.title?.trim() || row.job_role?.trim() || "Open role";
+}
+
+function onboardingAttentionCopy(status: string): { subtitle: string; tone: AttentionTone } {
+  if (status === "approved") return { subtitle: "Approved · ready to start onboarding", tone: "green" };
+  if (status === "pending") return { subtitle: "Onboarding pending review", tone: "orange" };
+  return { subtitle: "New hire awaiting onboarding", tone: "orange" };
+}
+
 export async function GET(req: NextRequest) {
   const routeTimer = createPerfTimer();
   try {
@@ -126,8 +207,9 @@ export async function GET(req: NextRequest) {
     }
 
     const selectedDate = parseDateParam(req.nextUrl.searchParams.get("date"));
-    const cacheKey = buildCacheKey("dashboard_overview", ["tenant", scope.tenantId], {
+    const cacheKey = buildCacheKey("dashboard_overview_v2", ["tenant", scope.tenantId], {
       date: selectedDate,
+      user: auth.userId,
     });
 
     const payload = await getOrSetCache(
@@ -164,7 +246,12 @@ async function buildDashboardOverviewPayload(tenantId: string, selectedDate: str
       throw new Error("Supabase service role not configured");
     }
 
-    const todayKey = localDateString(new Date());
+    const now = new Date();
+    const todayKey = localDateString(now);
+    const currentWindowStart = addEasternDays(now, -6);
+    const previousWindowStart = addEasternDays(now, -13);
+    const previousWindowEnd = new Date(currentWindowStart.getTime() - 1);
+    const credentialCutoff = easternDateString(addEasternDays(now, 30));
 
     const [
       profileRes,
@@ -174,6 +261,11 @@ async function buildDashboardOverviewPayload(tenantId: string, selectedDate: str
       workersRes,
       facilityShiftsRes,
       facilitiesData,
+      workerStatusMetrics,
+      newCandidatesCurrent,
+      newCandidatesPrevious,
+      jobsRes,
+      licensesRes,
     ] = await Promise.all([
       supabase
         .from("users")
@@ -217,7 +309,35 @@ async function buildDashboardOverviewPayload(tenantId: string, selectedDate: str
         .lte("start_date", selectedDate)
         .or(`end_date.gte.${selectedDate},end_date.is.null`),
       loadFacilitiesForTenant(supabase, tenantId),
+      fetchWorkerStatusMetrics(supabase, tenantId),
+      countWorkersCreatedBetween(supabase, tenantId, currentWindowStart.toISOString(), now.toISOString()),
+      countWorkersCreatedBetween(
+        supabase,
+        tenantId,
+        previousWindowStart.toISOString(),
+        previousWindowEnd.toISOString(),
+      ),
+      supabase
+        .from("job_requisitions")
+        .select(
+          "id, title, public_title, job_role, msp_name, msp_client_name, msp_client, facility_name, facility, created_at"
+        )
+        .eq("tenant_id", tenantId)
+        .is("archived_at", null)
+        .order("created_at", { ascending: false })
+        .limit(7),
+      supabase
+        .from("worker_license_records")
+        .select("id, worker_id, license_type, expires_at, created_at, updated_at")
+        .eq("tenant_id", tenantId)
+        .not("expires_at", "is", null)
+        .lte("expires_at", credentialCutoff)
+        .order("expires_at", { ascending: true })
+        .limit(10),
     ]);
+
+    if (jobsRes.error) console.warn("[admin/dashboard-overview] job_requisitions", jobsRes.error.message);
+    if (licensesRes.error) console.warn("[admin/dashboard-overview] worker_license_records", licensesRes.error.message);
 
     if (profileRes.error) throw profileRes.error;
     if (scheduleRes.error) throw scheduleRes.error;
@@ -227,8 +347,13 @@ async function buildDashboardOverviewPayload(tenantId: string, selectedDate: str
     if (facilityShiftsRes.error) throw facilityShiftsRes.error;
 
     const schedules = (scheduleRes.data ?? []) as InterviewScheduleRow[];
+    const licenseRows = (licensesRes.error ? [] : (licensesRes.data ?? [])) as LicenseRecordRow[];
     const workerIds = Array.from(
-      new Set(schedules.map((row) => row.worker_id).filter((id): id is string => Boolean(id)))
+      new Set(
+        [...schedules.map((row) => row.worker_id), ...licenseRows.map((row) => row.worker_id)].filter(
+          (id): id is string => Boolean(id)
+        )
+      )
     );
 
     const { data: workerRows } = workerIds.length
@@ -349,6 +474,82 @@ async function buildDashboardOverviewPayload(tenantId: string, selectedDate: str
       isRead: Boolean(item.is_read),
     }));
 
+    const workforceBuckets = resolveWorkforceBuckets(workerStatusMetrics);
+    const stats = {
+      activeWorkers: {
+        value: workforceBuckets.active,
+        changePct: pctChange(workforceBuckets.active, Math.max(0, workforceBuckets.active - newCandidatesCurrent)),
+      },
+      newCandidates: {
+        value: newCandidatesCurrent,
+        changePct: pctChange(newCandidatesCurrent, newCandidatesPrevious),
+      },
+      newlyOnboarded: {
+        value: workforceBuckets.newHires,
+        changePct: pctChange(workforceBuckets.newHires, Math.max(0, workforceBuckets.newHires - newCandidatesCurrent)),
+      },
+      hired: {
+        value: workerStatusMetrics.hires,
+        changePct: pctChange(workerStatusMetrics.hires, Math.max(0, workerStatusMetrics.hires - newCandidatesCurrent)),
+      },
+    };
+
+    const onboardingAttention: RankedAttentionItem[] = ((workersRes.data ?? []) as WorkerRow[]).map((worker) => {
+      const name = applicantDisplayName(worker.first_name, worker.last_name);
+      const role = worker.job_role?.trim() || "Worker";
+      const { subtitle, tone } = onboardingAttentionCopy((worker.status ?? "new").toLowerCase());
+      return {
+        item: {
+          id: `onboarding-${worker.id}`,
+          name,
+          title: `${name} · ${role}`,
+          subtitle,
+          tag: "Onboarding",
+          tone,
+          agoLabel: agoLabel(worker.created_at),
+          href: `/admin_recruiter/new/checklist/${worker.id}`,
+        },
+        priority: 1,
+        sortAt: timestampOf(worker.created_at),
+      };
+    });
+
+    const credentialAttention: RankedAttentionItem[] = licenseRows.map((record) => {
+      const worker = workersById.get(record.worker_id);
+      const name = worker ? applicantDisplayName(worker.first_name, worker.last_name) : "Worker";
+      const credential = record.license_type?.trim() || "Credential";
+      const expiresAt = record.expires_at ?? todayKey;
+      const expired = expiresAt < todayKey;
+      const expiryLabel = formatHumanDate(expiresAt);
+      return {
+        item: {
+          id: `credential-${record.id}`,
+          name,
+          title: `${name} · ${credential} ${expired ? "expired" : "expiring"}`,
+          subtitle: expired ? `Expired on ${expiryLabel}` : `Expires on ${expiryLabel}`,
+          tag: "Credential",
+          tone: expired ? "red" : "orange",
+          agoLabel: agoLabel(record.updated_at ?? record.created_at),
+          href: `/admin_recruiter/workers/${record.worker_id}/profile`,
+        },
+        priority: expired ? 0 : 1,
+        sortAt: timestampOf(record.updated_at ?? record.created_at),
+      };
+    });
+
+    const needsAttention = [...credentialAttention, ...onboardingAttention]
+      .sort((a, b) => a.priority - b.priority || b.sortAt - a.sortAt)
+      .slice(0, 5)
+      .map((entry) => entry.item);
+
+    const jobsByClient = ((jobsRes.error ? [] : (jobsRes.data ?? [])) as JobRequisitionRow[]).map((row) => ({
+      id: row.id,
+      clientName: jobClientName(row),
+      role: jobRoleName(row),
+      agoLabel: agoLabel(row.created_at),
+      href: `/admin_recruiter/jobs/${row.id}`,
+    }));
+
     return {
       greeting: greetingForHour(easternHour(new Date())),
       userName: profileName,
@@ -364,6 +565,9 @@ async function buildDashboardOverviewPayload(tenantId: string, selectedDate: str
       shifts,
       onboardHires,
       facilityWorkers,
+      stats,
+      needsAttention,
+      jobsByClient,
     };
 }
 

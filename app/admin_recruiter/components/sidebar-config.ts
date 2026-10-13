@@ -43,6 +43,8 @@ const ICON = {
   notifications: "Notifications",
   help: "Help & Support",
   settings: "Settings",
+  time: "Time",
+  pay: "Pay",
   logout: "Logout",
 } as const satisfies Record<string, SidebarIconType>;
 
@@ -122,6 +124,19 @@ const SCHEDULING_CHILDREN: SidebarLink[] = [
     href: "/admin_recruiter/attendance",
     matchPrefixes: ["/admin_recruiter/attendance"],
   },
+];
+
+/** Routes not built yet — rows render without navigation. */
+const TIME_CHILDREN: SidebarLink[] = [
+  { label: "Clock-ins", href: "#", matchPrefixes: [], disabled: true },
+  { label: "Timesheets", href: "#", matchPrefixes: [], disabled: true },
+  { label: "Approvals", href: "#", matchPrefixes: [], disabled: true },
+];
+
+/** Routes not built yet — rows render without navigation. */
+const PAY_CHILDREN: SidebarLink[] = [
+  { label: "Payroll Export", href: "#", matchPrefixes: [], disabled: true },
+  { label: "Bill / Pay Rates", href: "#", matchPrefixes: [], disabled: true },
 ];
 
 const TASKBOARD_CHILDREN: SidebarLink[] = [
@@ -332,14 +347,14 @@ export const CLIENT_SIDEBAR_SECTIONS: SidebarSection[] = [
     children: DASHBOARD_CHILDREN,
   },
   {
-    label: "Recruitment",
+    label: "Hiring",
     href: "#",
     iconType: ICON.candidates,
     matchPrefixes: CANDIDATE_ROUTE_PREFIXES,
     children: RECRUITMENT_CHILDREN,
   },
   {
-    label: "Workforce",
+    label: "People",
     href: "#",
     iconType: ICON.teams,
     matchPrefixes: ["/admin_recruiter/workers", "/admin_recruiter/managers"],
@@ -364,6 +379,20 @@ export const CLIENT_SIDEBAR_SECTIONS: SidebarSection[] = [
     iconType: ICON.schedule,
     matchPrefixes: ["/admin_recruiter/calendar/shifts", "/admin_recruiter/attendance"],
     children: SCHEDULING_CHILDREN,
+  },
+  {
+    label: "Time",
+    href: "#",
+    iconType: ICON.time,
+    matchPrefixes: [],
+    children: TIME_CHILDREN,
+  },
+  {
+    label: "Pay",
+    href: "#",
+    iconType: ICON.pay,
+    matchPrefixes: [],
+    children: PAY_CHILDREN,
   },
   {
     label: "Automation",
@@ -424,14 +453,14 @@ export const CLIENT_SIDEBAR_SECTIONS: SidebarSection[] = [
 export const GOD_ADMIN_SIDEBAR_SECTIONS: SidebarSection[] = [
   ...FIGMA_PRIMARY_SECTIONS,
   {
-    label: "Recruitment",
+    label: "Hiring",
     href: "#",
     iconType: ICON.candidates,
     matchPrefixes: CANDIDATE_ROUTE_PREFIXES,
     children: RECRUITMENT_CHILDREN,
   },
   {
-    label: "Workforce",
+    label: "People",
     href: "#",
     iconType: ICON.teams,
     matchPrefixes: ["/admin_recruiter/workers", "/admin_recruiter/managers"],

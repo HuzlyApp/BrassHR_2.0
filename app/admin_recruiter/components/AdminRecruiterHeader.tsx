@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ChevronDown, ChevronLeft } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import {
   isCandidateDetailPage,
   navigateCandidateDetailBack,
@@ -28,7 +28,6 @@ import { useStaffConversations } from "@/lib/messaging/hooks/use-staff-conversat
 import { useMarkConversationRead } from "@/lib/messaging/hooks/use-mark-conversation-read";
 import { useQueryClient } from "@tanstack/react-query";
 import { StaffProfileAvatar } from "@/app/admin_recruiter/components/StaffProfileAvatar";
-import SidebarNavIcon from "@/app/admin_recruiter/components/SidebarNavIcon";
 
 type ConversationItem = StaffConversation;
 
@@ -40,8 +39,16 @@ type AdminRecruiterHeaderProps = {
 };
 
 const DEFAULT_TENANT_LOGO = BRAAS_PLATFORM_FAVICON;
-const SIDEBAR_TOGGLE_ICON = "/icons/sidebar-on-off-icon.svg";
+const SIDEBAR_TOGGLE_ICON = "/icons/admin-recruiter/header/sidebar-toggle.svg";
+const HEADER_SEARCH_ICON = "/icons/admin-recruiter/header/search.svg";
+const HEADER_CHAT_ICON = "/icons/admin-recruiter/header/chat.svg";
+const HEADER_BELL_ICON = "/icons/admin-recruiter/header/bell.svg";
 const HEADER_HELP_SUPPORT_ICON = "/icons/admin-recruiter/help-support.svg";
+const HEADER_PROFILE_CHEVRON_ICON = "/icons/admin-recruiter/header/chevron-down.svg";
+
+/** 32px hit area around a 20px Figma icon; neighbours use 2px gaps → 14px visual spacing. */
+const HEADER_ICON_BUTTON_CLASS =
+  "relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition hover:bg-slate-100";
 
 /** Static count removed — use live unreadNotifications from header data API. */
 
@@ -248,8 +255,8 @@ export function AdminRecruiterHeader({
 
   return (
     <header className="admin-recruiter-topbar sticky top-0 z-40 w-full bg-white max-[999px]:z-30">
-      <div className="flex h-full min-w-0 w-full items-center justify-between gap-2 px-3 sm:gap-3 sm:px-5 min-[1000px]:px-8 max-[999px]:pr-3">
-        <div className="flex min-w-0 shrink-0 items-center gap-1 sm:gap-2">
+      <div className="flex h-full min-w-0 w-full items-center gap-2 px-3 sm:gap-3 sm:px-5 min-[1000px]:px-[30px] max-[999px]:pr-3">
+        <div className="flex min-w-0 flex-1 items-center gap-1 sm:gap-2 min-[1000px]:-ml-1.5">
           {onMenuClick ? (
             <button
               type="button"
@@ -302,13 +309,23 @@ export function AdminRecruiterHeader({
           ) : null}
         </div>
 
-        <div className="hidden min-w-0 flex-1 justify-center px-2 sm:flex">
+        <div className="hidden min-w-0 flex-1 items-center justify-center gap-3 sm:flex">
           <GodAdminTenantSwitcher />
+          <label className="hidden w-[317px] min-w-0 max-w-full cursor-text items-center gap-1 rounded-lg border border-[#CBD5E1] bg-white px-2.5 py-2 transition focus-within:border-[color:var(--brand-primary)] md:flex">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={HEADER_SEARCH_ICON} alt="" width={20} height={20} className="size-5 shrink-0" aria-hidden />
+            <input
+              type="search"
+              placeholder="Search anything"
+              aria-label="Search anything"
+              className="min-w-0 flex-1 border-0 bg-transparent p-0 text-[12px] leading-4 font-light text-[#0F172A] outline-none placeholder:text-[#94A3B8] focus:ring-0"
+            />
+          </label>
         </div>
 
-        <div className="relative ml-auto shrink-0">
+        <div className="relative flex min-w-0 flex-1 justify-end">
           <div className="flex items-center">
-            <div ref={messagesAreaRef} className="relative flex items-center gap-[14px]">
+            <div ref={messagesAreaRef} className="relative flex items-center gap-0.5">
               <button
                 type="button"
                 onClick={() => {
@@ -316,10 +333,11 @@ export function AdminRecruiterHeader({
                   setShowNotifications(false);
                   setShowProfileMenu(false);
                 }}
-                className="relative inline-flex h-8 w-8 items-center justify-center rounded-md transition hover:bg-slate-100"
+                className={HEADER_ICON_BUTTON_CLASS}
                 aria-label="Open messages"
               >
-                <SidebarNavIcon iconType="Chat" active={false} colorHex="#94A3B8" />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={HEADER_CHAT_ICON} alt="" width={20} height={20} className="size-5 shrink-0" aria-hidden />
                 {unreadMessages > 0 ? (
                   <span className="absolute -right-0.5 -top-0.5 inline-flex min-h-[16px] min-w-[16px] items-center justify-center rounded-full bg-[#0EA5A4] px-1 text-[10px] font-semibold text-white">
                     {unreadMessages > 9 ? "9+" : unreadMessages}
@@ -334,7 +352,7 @@ export function AdminRecruiterHeader({
                   setShowMessages(false);
                   setShowProfileMenu(false);
                 }}
-                className="relative inline-flex h-8 w-8 items-center justify-center rounded-md transition hover:bg-slate-100"
+                className={HEADER_ICON_BUTTON_CLASS}
                 aria-label={
                   unreadNotifications > 0
                     ? `Notifications, ${unreadNotifications} unread`
@@ -347,7 +365,8 @@ export function AdminRecruiterHeader({
                     : "Notifications"
                 }
               >
-                <SidebarNavIcon iconType="Notifications" active={false} colorHex="#94A3B8" />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={HEADER_BELL_ICON} alt="" width={20} height={20} className="size-5 shrink-0" aria-hidden />
                 <HeaderIconCountBadge count={unreadNotifications} />
               </button>
 
@@ -492,7 +511,7 @@ export function AdminRecruiterHeader({
                 setShowNotifications(false);
                 setShowProfileMenu(false);
               }}
-              className="ml-[14px] inline-flex h-8 w-8 items-center justify-center rounded-md transition hover:bg-slate-100"
+              className={`ml-0.5 ${HEADER_ICON_BUTTON_CLASS}`}
               aria-label="Help and support"
               title="Help and support"
             >
@@ -507,7 +526,7 @@ export function AdminRecruiterHeader({
               />
             </Link>
 
-            <div ref={profileAreaRef} className="relative ml-5">
+            <div ref={profileAreaRef} className="relative ml-2 sm:ml-[14px]">
             <button
               type="button"
               onClick={() => {
@@ -515,18 +534,35 @@ export function AdminRecruiterHeader({
                 setShowMessages(false);
                 setShowNotifications(false);
               }}
-              className="flex max-w-full items-center gap-1 rounded-lg border border-[#E5E7EB] bg-white px-1.5 py-1 transition hover:bg-[#F8FAFC] sm:gap-2 sm:rounded-xl sm:px-2.5 sm:py-1.5"
+              className="flex max-w-full items-center gap-3 rounded-md bg-transparent transition hover:opacity-90"
               aria-label="Open profile menu"
               aria-expanded={showProfileMenu}
             >
-            <StaffProfileAvatar name={displayName ?? "Account"} photoUrl={profilePhoto} size="sm" />
-            <div className="hidden min-w-0 leading-tight text-left sm:block">
-              <p className="max-w-[88px] truncate text-sm font-semibold text-[#0F172A] md:max-w-[140px]">
-                {profileNameLoading ? "Loading..." : displayName ?? "Account"}
-              </p>
-              <p className="max-w-[88px] truncate text-[11px] text-[#64748B] md:max-w-[140px]">{displayRole}</p>
-            </div>
-            <ChevronDown className="h-4 w-4 shrink-0 text-[#94A3B8]" aria-hidden />
+            <span className="flex min-w-0 items-center gap-2">
+              <StaffProfileAvatar
+                name={displayName ?? "Account"}
+                photoUrl={profilePhoto}
+                size="sm"
+                className="text-[14px]!"
+              />
+              <span className="hidden min-w-0 flex-col text-left sm:flex">
+                <span className="-mb-[3px] max-w-[88px] truncate text-[14px] leading-5 font-semibold text-black md:max-w-[140px]">
+                  {profileNameLoading ? "Loading..." : displayName ?? "Account"}
+                </span>
+                <span className="max-w-[88px] truncate text-[10px] leading-[15px] font-light text-[#64748B] md:max-w-[140px]">
+                  {displayRole}
+                </span>
+              </span>
+            </span>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={HEADER_PROFILE_CHEVRON_ICON}
+              alt=""
+              width={6}
+              height={3.5}
+              className="h-[3.5px] w-[6px] shrink-0"
+              aria-hidden
+            />
             </button>
 
           {showProfileMenu ? (

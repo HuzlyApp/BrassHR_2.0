@@ -1,7 +1,8 @@
 .admin-recruiter-shell {
-  --admin-recruiter-header-height: 67px;
+  /* Figma Topnav: 64px tall, `border/border-lite` dividers */
+  --admin-recruiter-header-height: 64px;
   --admin-recruiter-subnav-height: 56px;
-  --admin-recruiter-chrome-border: #e2e8f0;
+  --admin-recruiter-chrome-border: #ecf1f9;
 }
 
 @media (max-width: 999px) {
@@ -67,7 +68,6 @@
   width: var(--admin-sidebar-collapsed-width, 80px);
   max-width: var(--admin-sidebar-collapsed-width, 80px);
   min-width: var(--admin-sidebar-collapsed-width, 80px);
-  box-shadow: inset 3px 0 0 var(--brand-primary);
 }
 
 /* Below 1000px: fixed collapsed icon rail (full menu opens via header toggle) */
@@ -292,14 +292,19 @@
   height: 1.5rem;
 }
 
-/* Submenu label aligns with parent row text (px-2 + 20px icon + 12px gap). */
+/*
+ * Submenu label aligns with parent row text (20px icon + 12px gap).
+ * Figma spacing: 14px parent→first child, 14px between children, 24px before next parent
+ * (parent rows are 44px tall with 12px above/below the 20px label).
+ */
 .admin-recruiter-sidebar-submenu {
-  margin-top: 0.125rem;
-  padding-left: 2.5rem;
+  margin-top: -5px;
+  padding-bottom: 5px;
+  padding-left: 2rem;
 }
 
 .admin-recruiter-sidebar-submenu-item {
-  padding: 0.375rem 0 0.375rem 0;
+  padding: 7px 0.75rem 7px 0;
 }
 
 /* Tenant branding remap for legacy utility colors in recruiter pages. */
