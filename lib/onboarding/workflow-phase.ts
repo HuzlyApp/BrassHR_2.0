@@ -45,13 +45,32 @@ export function lifecyclePhaseFromTemplatePhase(
 }
 
 export function readStepTemplatePhase(step: TenantOnboardingStep): WorkflowTemplatePhase {
+  const key = String(step.step_key ?? "").trim().toLowerCase();
+  const title = String(step.title ?? "").trim().toLowerCase();
+  const snapshotId = String(step.metadata?.workflow_step_id ?? "").trim().toLowerCase();
+  if (
+    key === "offer-acceptance" ||
+    key === "pay-rate-accepted" ||
+    snapshotId === "offer-acceptance" ||
+    snapshotId === "pay-rate-accepted" ||
+    title.includes("pay rate accepted") ||
+    title.includes("offer accept")
+  ) {
+    return "pre_hire";
+  }
+
   const settings =
     step.metadata?.workflow_settings &&
     typeof step.metadata.workflow_settings === "object" &&
     !Array.isArray(step.metadata.workflow_settings)
       ? (step.metadata.workflow_settings as Record<string, unknown>)
       : null;
-  return parseWorkflowTemplatePhase(settings?.phase ?? step.metadata?.phase);
+  return parseWorkflowTemplatePhase(
+    settings?.phase ??
+    step.metadata?.phase ??
+    (step as { phase?: unknown }).phase ??
+    (step as { settings?: { phase?: unknown } }).settings?.phase
+  );
 }
 
 export function readStepLifecyclePhase(
@@ -63,7 +82,22 @@ export function readStepLifecyclePhase(
 export function readPublishedStepTemplatePhase(
   step: PublishedWorkflowStep
 ): WorkflowTemplatePhase {
-  return parseWorkflowTemplatePhase(step.settings?.phase);
+  const key = String(step.type ?? step.id ?? "").trim().toLowerCase();
+  const title = String(step.title ?? "").trim().toLowerCase();
+  const stepId = String(step.settings?.stepId ?? "").trim().toLowerCase();
+  if (
+    key === "offer-acceptance" ||
+    key === "pay-rate-accepted" ||
+    stepId === "offer-acceptance" ||
+    stepId === "pay-rate-accepted" ||
+    title.includes("pay rate accepted") ||
+    title.includes("offer accept")
+  ) {
+    return "pre_hire";
+  }
+  return parseWorkflowTemplatePhase(
+    step.settings?.phase ?? (step as { phase?: unknown }).phase
+  );
 }
 
 export function readPublishedStepLifecyclePhase(
