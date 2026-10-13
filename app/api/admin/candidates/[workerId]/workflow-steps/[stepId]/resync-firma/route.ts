@@ -149,7 +149,7 @@ export async function POST(req: Request, context: RouteContext) {
       .eq("id", session.id);
 
     // Update worker_onboarding_step_progress
-    const nextData = {
+    const nextData: Record<string, unknown> = {
       ...previousData,
       signing_provider: "firma",
       signing_request_id: session.signing_request_id,
@@ -157,12 +157,24 @@ export async function POST(req: Request, context: RouteContext) {
       ...(downloadUrl ? { download_url: downloadUrl, signed_document_url: downloadUrl } : {}),
     };
 
+    const wasAlreadyCompleted =
+      existingProgressStep?.status === "completed" ||
+      Boolean(existingProgressStep?.completed_at) ||
+      Boolean(previousData?.recruiter_notified_at);
+
+    const effectiveCompletedAt =
+      existingProgressStep?.completed_at ?? (isSigned ? new Date().toISOString() : null);
+
+    if (isSigned && !wasAlreadyCompleted) {
+      nextData.recruiter_notified_at = new Date().toISOString();
+    }
+
     if (existingProgressStep) {
       await supabase
         .from("worker_onboarding_step_progress")
         .update({
           status: isSigned ? "completed" : existingProgressStep.status,
-          completed_at: isSigned ? new Date().toISOString() : existingProgressStep.completed_at,
+          completed_at: effectiveCompletedAt,
           data: nextData,
           updated_at: new Date().toISOString(),
         })
@@ -170,15 +182,26 @@ export async function POST(req: Request, context: RouteContext) {
         .eq("onboarding_step_id", stepId);
     }
 
-    if (isSigned) {
-      const stepStub = { id: stepId, step_key: "agreement", title: "Agreement" } as unknown as TenantOnboardingStep;
+    if (isSigned && !wasAlreadyCompleted) {
+      const { data: realStep } = await supabase
+        .from("tenant_onboarding_steps")
+        .select("id, step_key, title, step_type, phase, metadata")
+        .eq("id", stepId)
+        .maybeSingle();
+
+      const stepToNotify = (realStep || {
+        id: stepId,
+        step_key: "agreement",
+        title: "Agreement eSign",
+      }) as unknown as TenantOnboardingStep;
+
       const applicationId = (session.application_id as string | null) ?? null;
       try {
         await autoConvertCandidateAfterAgreement(supabase, {
           tenantId,
           workerId,
           applicationId,
-          step: stepStub,
+          step: stepToNotify,
           origin: new URL(req.url).origin,
         });
       } catch (e) {
@@ -190,7 +213,7 @@ export async function POST(req: Request, context: RouteContext) {
           tenantId,
           workerId,
           applicationId,
-          step: stepStub,
+          step: stepToNotify,
           data: nextData,
           origin: new URL(req.url).origin,
           request: req,

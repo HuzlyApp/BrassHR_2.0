@@ -31,7 +31,7 @@ describe("postHireScreenKindForStep", () => {
 
   it("ignores steps without a post-hire screen", () => {
     expect(postHireScreenKindForStep(stepWith("employee-agreement"))).toBeNull();
-    expect(postHireScreenKindForStep(stepWith("training-modules-quiz"))).toBeNull();
+    expect(postHireScreenKindForStep(stepWith("upload-resume"))).toBeNull();
     expect(postHireScreenKindForStep(stepWith(null))).toBeNull();
   });
 
