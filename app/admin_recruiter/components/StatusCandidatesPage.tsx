@@ -449,23 +449,9 @@ export function StatusCandidatesPage({ fetchUrl, statusLabel, emptyMessage }: St
 
   const paginated = useMemo(
     () =>
-      candidates.filter((row) => {
-        const statusKey = String(row.statusKey ?? "").trim().toLowerCase();
-        const statusLabel = String(row.status ?? "").trim().toLowerCase();
-        const progStatusKey = String(row.progressStatusKey ?? "").trim().toLowerCase();
-        const progStatusName = String(row.progressStatusName ?? "").trim().toLowerCase();
-        if (
-          statusKey === "converted" ||
-          statusKey === "hired" ||
-          statusLabel === "converted" ||
-          statusLabel === "hired" ||
-          progStatusKey === "hired" ||
-          progStatusName === "hired"
-        ) {
-          return false;
-        }
-        return candidateMatchesAssigneeFilter(row.assignedRecruiterUserId, assigneeFilter);
-      }),
+      candidates.filter((row) =>
+        candidateMatchesAssigneeFilter(row.assignedRecruiterUserId, assigneeFilter)
+      ),
     [candidates, assigneeFilter]
   );
 

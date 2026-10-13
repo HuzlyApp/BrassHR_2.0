@@ -23,7 +23,6 @@ export default function AccountReadyModal({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6 backdrop-blur-[2px] sm:py-8"
       role="presentation"
-      onClick={onExit}
     >
       <div
         role="dialog"

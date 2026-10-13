@@ -212,7 +212,8 @@ export function parseCandidateListQueryParams(
     includePhotoUrls: searchParams.get("includePhotoUrls") === "1",
     conversion,
     headOnly: searchParams.get("head") === "1",
-    excludeConverted: conversion !== "all",
+    excludeConverted:
+      conversion !== "all" && (status == null || status === "approved" || conversion === "pending"),
   };
 }
 
