@@ -7,6 +7,7 @@ import { resolveWorkerTenantProfessionId } from "@/lib/onboarding/profession-att
 import {
   linkWorkerProfession,
   listProfessionDocuments,
+  savedWorkerProfessionId,
   normalizeProfessionDocumentDrafts,
   renameWorkerDocumentFile,
   saveProfessionDocuments,
@@ -44,16 +45,18 @@ export async function GET(req: NextRequest) {
 
   try {
     const workerId = req.nextUrl.searchParams.get("workerId")?.trim() || "";
-    const [catalog, documents, workerProfessionId] = await Promise.all([
+    const [catalog, documents, workerProfessionId, savedProfessionId] = await Promise.all([
       listTenantProfessions(supabase, tenantId),
       listProfessionDocuments(supabase, tenantId),
       workerId ? resolveWorkerTenantProfessionId(supabase, tenantId, workerId) : Promise.resolve(null),
+      workerId ? savedWorkerProfessionId(supabase, tenantId, workerId) : Promise.resolve(null),
     ]);
     return NextResponse.json({
       canManage: auth.role === "admin" || auth.godAdmin,
       industryKey: catalog.industryKey,
       industryLabel: industryLabelForKey(catalog.industryKey),
       workerProfessionId,
+      savedProfessionId,
       professions: catalog.professions.map((profession) => ({
         id: profession.id,
         name: profession.name,

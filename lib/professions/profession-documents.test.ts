@@ -40,17 +40,24 @@ const config: TenantOnboardingConfig = {
 describe("normalizeProfessionDocumentDrafts", () => {
   it("keeps certificate and license rows and marks optional documents", () => {
     const result = normalizeProfessionDocumentDrafts([
-      { id: "new-1", name: " CPR ", documentKind: "certificate", isRequired: true },
-      { id: "11111111-1111-1111-1111-111111111111", name: "State license", documentKind: "license", isRequired: false },
+      { id: "new-1", name: " CPR ", documentKind: "certificate", isRequired: true, hasExpiration: true },
+      {
+        id: "11111111-1111-1111-1111-111111111111",
+        name: "State license",
+        documentKind: "license",
+        isRequired: false,
+        hasExpiration: false,
+      },
     ]);
     expect(result).toEqual({
       documents: [
-        { id: null, name: "CPR", documentKind: "certificate", isRequired: true },
+        { id: null, name: "CPR", documentKind: "certificate", isRequired: true, hasExpiration: true },
         {
           id: "11111111-1111-1111-1111-111111111111",
           name: "State license",
           documentKind: "license",
           isRequired: false,
+          hasExpiration: false,
         },
       ],
     });
@@ -75,6 +82,7 @@ describe("attachProfessionDocuments", () => {
         name: "CPR",
         documentKind: "certificate",
         isRequired: false,
+        hasExpiration: true,
         sortOrder: 20,
       },
       {
@@ -82,13 +90,22 @@ describe("attachProfessionDocuments", () => {
         name: "Nursing license",
         documentKind: "license",
         isRequired: true,
+        hasExpiration: true,
         sortOrder: 10,
       },
     ]);
 
-    expect(next.requiredDocuments.map((doc) => [doc.title, doc.is_required, doc.description, doc.source])).toEqual([
-      ["Nursing license", true, "License", "profession"],
-      ["CPR", false, "Certificate", "profession"],
+    expect(
+      next.requiredDocuments.map((doc) => [
+        doc.title,
+        doc.is_required,
+        doc.description,
+        doc.source,
+        doc.has_expiration,
+      ])
+    ).toEqual([
+      ["Nursing license", true, "License", "profession", true],
+      ["CPR", false, "Certificate", "profession", true],
     ]);
   });
 });

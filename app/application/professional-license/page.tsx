@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { TenantRequiredDocument } from "@/lib/onboarding/types";
 import { validateCredentialDates } from "@/lib/professions/catalog";
+import { MAX_PROFESSION_DOCUMENT_FILES } from "@/lib/professions/profession-documents";
 import AutosaveStatus from "@/app/components/AutosaveStatus";
 import {
   APPLICANT_ACTION_ROW,
@@ -93,7 +94,7 @@ export default function Step2License() {
   const onboarding = useOnboardingConfigOptional();
   const stepNav = useOnboardingStepNav();
   const [files, setFiles] = useState<Record<UploadType, UploadSlot | null>>(emptySlots);
-  const [dynamicFiles, setDynamicFiles] = useState<Record<string, UploadSlot | null>>({});
+  const [dynamicFiles, setDynamicFiles] = useState<Record<string, UploadSlot[]>>({});
   const [credentialFields, setCredentialFields] = useState<
     Record<string, { issuedDate: string; expiryDate: string; issuingOrganization: string; scope: string; validity: string }>
   >({});
@@ -126,7 +127,7 @@ export default function Step2License() {
   const useLegacyFallback = !useTenantRequirements;
 
   const hasAnyUpload = useTenantRequirements
-    ? configuredDocs.some((d) => Boolean(dynamicFiles[d.id]?.name))
+    ? configuredDocs.some((d) => (dynamicFiles[d.id] ?? []).some((slot) => Boolean(slot.name)))
     : Boolean(files.license || files.tb || files.cpr);
 
   const requiredUploadsMet = useTenantRequirements
@@ -134,12 +135,23 @@ export default function Step2License() {
       ? true
       : configuredDocs
           .filter((d) => d.is_required)
-          .every((d) => Boolean(dynamicFiles[d.id]?.name) && !dynamicFiles[d.id]?.uploading)
+          .every((d) => {
+            const slots = dynamicFiles[d.id] ?? [];
+            return slots.some((slot) => Boolean(slot.name) && !slot.uploading);
+          })
     : hasAnyUpload;
 
   const anyUploading = useTenantRequirements
-    ? Object.values(dynamicFiles).some((f) => f?.uploading)
+    ? Object.values(dynamicFiles).some((slots) => slots.some((f) => f.uploading))
     : Object.values(files).some((f) => f?.uploading);
+
+  function needsExpiryFields(doc: TenantRequiredDocument): boolean {
+    return doc.has_expiration === true && (doc.source === "workflow" || doc.source === "profession");
+  }
+
+  function maxFilesForDoc(doc: TenantRequiredDocument): number {
+    return doc.source === "profession" ? MAX_PROFESSION_DOCUMENT_FILES : 1;
+  }
 
   useEffect(() => {
     setFiles(readSlotsFromStorage());
@@ -206,31 +218,54 @@ export default function Step2License() {
 
     const payload = (await res.json()) as {
       documents?: Array<{
+        id?: string | null;
         required_document_id: string;
         original_file_name: string | null;
         status: string | null;
+        issued_date?: string | null;
+        expiry_date?: string | null;
       }>;
     };
 
-    const byReq = new Map(
-      (payload.documents ?? []).map((d) => [String(d.required_document_id), d])
-    );
+    const byReq = new Map<string, typeof payload.documents>();
+    for (const row of payload.documents ?? []) {
+      const key = String(row.required_document_id);
+      const list = byReq.get(key) ?? [];
+      list.push(row);
+      byReq.set(key, list);
+    }
 
     setDynamicFiles((prev) => {
       const next = { ...prev };
       for (const doc of configuredDocs) {
-        const row = byReq.get(doc.id);
-        if (row?.original_file_name && !next[doc.id]) {
-          next[doc.id] = {
-            name: row.original_file_name,
+        if (next[doc.id]?.length) continue;
+        const rows = byReq.get(doc.id) ?? [];
+        const slots = rows
+          .filter((row) => row?.original_file_name)
+          .map((row) => ({
+            name: row.original_file_name as string,
             size: "",
-            url: row.status === "uploaded" || row.status === "approved" ? "uploaded" : "uploaded",
-          };
+            url: "uploaded",
+          }));
+        if (slots.length) next[doc.id] = slots;
+
+        const withDates = rows.find((row) => row.issued_date || row.expiry_date);
+        if (withDates) {
+          setCredentialFields((fields) => ({
+            ...fields,
+            [doc.id]: {
+              issuedDate: withDates.issued_date ?? fields[doc.id]?.issuedDate ?? "",
+              expiryDate: withDates.expiry_date ?? fields[doc.id]?.expiryDate ?? "",
+              issuingOrganization: fields[doc.id]?.issuingOrganization ?? "",
+              scope: fields[doc.id]?.scope ?? "",
+              validity: fields[doc.id]?.validity ?? "",
+            },
+          }));
         }
       }
       return next;
     });
-  }, [configuredDocs]);
+  }, [configuredDocs, tenantSlug]);
 
   useEffect(() => {
     if (useLegacyFallback) {
@@ -263,15 +298,28 @@ export default function Step2License() {
     });
   };
 
-  const uploadForRequirement = async (file: File, doc: TenantRequiredDocument) => {
+  const uploadForRequirement = async (incoming: FileList | File[], doc: TenantRequiredDocument) => {
     const maxBytes = (doc.max_file_size_mb || 10) * 1024 * 1024;
-    if (file.size > maxBytes) {
-      setError(`Max file size is ${doc.max_file_size_mb || 10} MB.`);
+    const maxFiles = maxFilesForDoc(doc);
+    const existing = dynamicFiles[doc.id] ?? [];
+    const remaining = maxFiles - existing.length;
+    if (remaining <= 0) {
+      setError(`You can upload at most ${maxFiles} files for ${doc.title}.`);
       return;
     }
 
+    const selected = Array.from(incoming).slice(0, remaining);
+    if (!selected.length) return;
+
+    for (const file of selected) {
+      if (file.size > maxBytes) {
+        setError(`Max file size is ${doc.max_file_size_mb || 10} MB.`);
+        return;
+      }
+    }
+
     const fields = credentialFields[doc.id];
-    if (doc.source === "workflow") {
+    if (needsExpiryFields(doc) || doc.source === "workflow") {
       const dateError = validateCredentialDates({
         hasExpiration: doc.has_expiration === true,
         issuedDate: fields?.issuedDate ?? null,
@@ -284,13 +332,14 @@ export default function Step2License() {
     }
 
     setError(null);
+    const placeholders = selected.map((file) => ({
+      name: file.name,
+      size: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
+      uploading: true,
+    }));
     setDynamicFiles((prev) => ({
       ...prev,
-      [doc.id]: {
-        name: file.name,
-        size: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
-        uploading: true,
-      },
+      [doc.id]: [...(prev[doc.id] ?? []), ...placeholders],
     }));
 
     try {
@@ -299,37 +348,48 @@ export default function Step2License() {
         throw new Error("Missing applicant session — complete Step 1 (resume) first.");
       }
 
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("applicantId", applicantId);
-      fd.append("requiredDocumentId", doc.id);
-      if (tenantSlug) {
-        fd.append("tenantSlug", tenantSlug);
-      }
-      if (doc.source === "workflow" && fields) {
-        fd.append("issuedDate", fields.issuedDate);
-        fd.append("expiryDate", fields.expiryDate);
-        fd.append("issuingOrganization", fields.issuingOrganization);
-        fd.append("scope", fields.scope);
-        fd.append("validity", fields.validity);
-      }
+      for (const file of selected) {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("applicantId", applicantId);
+        fd.append("requiredDocumentId", doc.id);
+        if (tenantSlug) {
+          fd.append("tenantSlug", tenantSlug);
+        }
+        if ((doc.source === "workflow" || doc.source === "profession") && fields) {
+          fd.append("issuedDate", fields.issuedDate);
+          fd.append("expiryDate", fields.expiryDate);
+          if (doc.source === "workflow") {
+            fd.append("issuingOrganization", fields.issuingOrganization);
+            fd.append("scope", fields.scope);
+            fd.append("validity", fields.validity);
+          }
+        }
 
-      const res = await fetch("/api/onboarding/documents/upload", { method: "POST", body: fd });
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        throw new Error(json.error || "Upload failed");
+        const res = await fetch("/api/onboarding/documents/upload", { method: "POST", body: fd });
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) {
+          throw new Error(json.error || "Upload failed");
+        }
       }
 
       setDynamicFiles((prev) => ({
         ...prev,
-        [doc.id]: {
-          name: file.name,
-          size: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
-          url: "uploaded",
-        },
+        [doc.id]: (prev[doc.id] ?? []).map((slot) =>
+          slot.uploading
+            ? {
+                ...slot,
+                uploading: false,
+                url: "uploaded",
+              }
+            : slot
+        ),
       }));
     } catch (e) {
-      setDynamicFiles((prev) => ({ ...prev, [doc.id]: null }));
+      setDynamicFiles((prev) => ({
+        ...prev,
+        [doc.id]: (prev[doc.id] ?? []).filter((slot) => !slot.uploading),
+      }));
       setError(e instanceof Error ? e.message : "Upload failed");
     }
   };
@@ -389,21 +449,46 @@ export default function Step2License() {
 
   const RequirementUploadBox = ({
     doc,
-    file,
+    files: slots,
     onUpload,
     onRemove,
   }: {
     doc: TenantRequiredDocument;
-    file: UploadSlot | null;
-    onUpload: (f: File) => void;
-    onRemove: () => void;
+    files: UploadSlot[];
+    onUpload: (files: FileList | File[]) => void;
+    onRemove: (index: number) => void;
   }) => {
     const inputId = useId();
     const hint = doc.description?.trim() || undefined;
+    const maxFiles = maxFilesForDoc(doc);
+    const canAddMore = slots.length < maxFiles;
+    const showCredentialMeta = doc.source === "workflow" || needsExpiryFields(doc);
+
+    function patchCredential(
+      patch: Partial<{
+        issuedDate: string;
+        expiryDate: string;
+        issuingOrganization: string;
+        scope: string;
+        validity: string;
+      }>
+    ) {
+      setCredentialFields((prev) => ({
+        ...prev,
+        [doc.id]: {
+          issuedDate: patch.issuedDate ?? prev[doc.id]?.issuedDate ?? "",
+          expiryDate: patch.expiryDate ?? prev[doc.id]?.expiryDate ?? "",
+          issuingOrganization:
+            patch.issuingOrganization ?? prev[doc.id]?.issuingOrganization ?? "",
+          scope: patch.scope ?? prev[doc.id]?.scope ?? "",
+          validity: patch.validity ?? prev[doc.id]?.validity ?? "",
+        },
+      }));
+    }
 
     return (
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <p className="text-[16px] font-semibold leading-6 text-slate-800">
             {doc.title}
             {doc.is_required ? <span className="text-red-500"> *</span> : null}
@@ -412,159 +497,124 @@ export default function Step2License() {
             <p className="text-[10px] font-normal leading-4 text-slate-500">{hint}</p>
           ) : null}
         </div>
-        {doc.source === "workflow" ? (
+        {showCredentialMeta ? (
           <div className="grid gap-3 sm:grid-cols-2">
-            {doc.collect_issuing_organization ? (
+            {doc.source === "workflow" && doc.collect_issuing_organization ? (
               <input
                 value={credentialFields[doc.id]?.issuingOrganization ?? ""}
-                onChange={(event) =>
-                  setCredentialFields((prev) => ({
-                    ...prev,
-                    [doc.id]: {
-                      issuedDate: prev[doc.id]?.issuedDate ?? "",
-                      expiryDate: prev[doc.id]?.expiryDate ?? "",
-                      issuingOrganization: event.target.value,
-                      scope: prev[doc.id]?.scope ?? "",
-                      validity: prev[doc.id]?.validity ?? "",
-                    },
-                  }))
-                }
+                onChange={(event) => patchCredential({ issuingOrganization: event.target.value })}
                 placeholder="Issuing organization"
                 className="h-10 rounded-lg border border-slate-300 px-3 text-sm"
               />
             ) : null}
-            {doc.collect_scope ? (
+            {doc.source === "workflow" && doc.collect_scope ? (
               <input
                 value={credentialFields[doc.id]?.scope ?? ""}
-                onChange={(event) =>
-                  setCredentialFields((prev) => ({
-                    ...prev,
-                    [doc.id]: {
-                      issuedDate: prev[doc.id]?.issuedDate ?? "",
-                      expiryDate: prev[doc.id]?.expiryDate ?? "",
-                      issuingOrganization: prev[doc.id]?.issuingOrganization ?? "",
-                      scope: event.target.value,
-                      validity: prev[doc.id]?.validity ?? "",
-                    },
-                  }))
-                }
+                onChange={(event) => patchCredential({ scope: event.target.value })}
                 placeholder="Scope"
                 className="h-10 rounded-lg border border-slate-300 px-3 text-sm"
               />
             ) : null}
-            {doc.collect_validity ? (
+            {doc.source === "workflow" && doc.collect_validity ? (
               <input
                 value={credentialFields[doc.id]?.validity ?? ""}
-                onChange={(event) =>
-                  setCredentialFields((prev) => ({
-                    ...prev,
-                    [doc.id]: {
-                      issuedDate: prev[doc.id]?.issuedDate ?? "",
-                      expiryDate: prev[doc.id]?.expiryDate ?? "",
-                      issuingOrganization: prev[doc.id]?.issuingOrganization ?? "",
-                      scope: prev[doc.id]?.scope ?? "",
-                      validity: event.target.value,
-                    },
-                  }))
-                }
+                onChange={(event) => patchCredential({ validity: event.target.value })}
                 placeholder="Validity, such as 3 Years"
                 className="h-10 rounded-lg border border-slate-300 px-3 text-sm"
               />
             ) : null}
-            {doc.has_expiration ? (
+            {needsExpiryFields(doc) ? (
               <>
-                <input
-                  type="date"
-                  value={credentialFields[doc.id]?.issuedDate ?? ""}
-                  onChange={(event) =>
-                    setCredentialFields((prev) => ({
-                      ...prev,
-                      [doc.id]: {
-                        issuedDate: event.target.value,
-                        expiryDate: prev[doc.id]?.expiryDate ?? "",
-                        issuingOrganization: prev[doc.id]?.issuingOrganization ?? "",
-                        scope: prev[doc.id]?.scope ?? "",
-                        validity: prev[doc.id]?.validity ?? "",
-                      },
-                    }))
-                  }
-                  aria-label={`${doc.title} issued date`}
-                  className="h-10 rounded-lg border border-slate-300 px-3 text-sm"
-                />
-                <input
-                  type="date"
-                  value={credentialFields[doc.id]?.expiryDate ?? ""}
-                  onChange={(event) =>
-                    setCredentialFields((prev) => ({
-                      ...prev,
-                      [doc.id]: {
-                        issuedDate: prev[doc.id]?.issuedDate ?? "",
-                        expiryDate: event.target.value,
-                        issuingOrganization: prev[doc.id]?.issuingOrganization ?? "",
-                        scope: prev[doc.id]?.scope ?? "",
-                        validity: prev[doc.id]?.validity ?? "",
-                      },
-                    }))
-                  }
-                  aria-label={`${doc.title} expiry date`}
-                  className="h-10 rounded-lg border border-slate-300 px-3 text-sm"
-                />
+                <label className="block space-y-1">
+                  <span className="text-[11px] font-medium text-slate-600">Issued date</span>
+                  <input
+                    type="date"
+                    value={credentialFields[doc.id]?.issuedDate ?? ""}
+                    onChange={(event) => patchCredential({ issuedDate: event.target.value })}
+                    aria-label={`${doc.title} issued date`}
+                    className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
+                  />
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-[11px] font-medium text-slate-600">Expiry date</span>
+                  <input
+                    type="date"
+                    value={credentialFields[doc.id]?.expiryDate ?? ""}
+                    onChange={(event) => patchCredential({ expiryDate: event.target.value })}
+                    aria-label={`${doc.title} expiry date`}
+                    className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
+                    required
+                  />
+                </label>
               </>
             ) : null}
           </div>
         ) : null}
-        {file ? (
-          <div className="flex items-center justify-between rounded-lg border border-[color:var(--brand-primary)]/40 bg-[color:var(--brand-primary)]/10 px-4 py-3">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[13px] font-medium leading-5 text-slate-800">{file.name}</p>
-              <p className="text-[11px] font-normal leading-4 text-slate-600">
-                {file.uploading ? "Uploading…" : file.size || "Uploaded"}
-              </p>
-            </div>
-            <button
-              type="button"
-              disabled={file.uploading}
-              onClick={onRemove}
-              className="cursor-pointer rounded-md p-1 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 disabled:opacity-40"
-              aria-label={`Remove ${doc.title}`}
-            >
-              <BrandedSvgIcon
-                src="/icons/delete-icon.svg"
-                className="h-6 w-6"
-                color={branding.primaryHex}
-              />
-            </button>
-          </div>
-        ) : (
+        {slots.length > 0 ? (
+          <ul className="space-y-2">
+            {slots.map((file, index) => (
+              <li
+                key={`${file.name}-${index}`}
+                className="flex items-center justify-between rounded-lg border border-[color:var(--brand-primary)]/40 bg-[color:var(--brand-primary)]/10 px-4 py-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[13px] font-medium leading-5 text-slate-800">{file.name}</p>
+                  <p className="text-[11px] font-normal leading-4 text-slate-600">
+                    {file.uploading ? "Uploading…" : file.size || "Uploaded"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={file.uploading}
+                  onClick={() => onRemove(index)}
+                  className="cursor-pointer rounded-md p-1 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 disabled:opacity-40"
+                  aria-label={`Remove ${file.name}`}
+                >
+                  <BrandedSvgIcon
+                    src="/icons/delete-icon.svg"
+                    className="h-6 w-6"
+                    color={branding.primaryHex}
+                  />
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {canAddMore ? (
           <label
             htmlFor={inputId}
-            className="block w-full min-h-[206px] cursor-pointer rounded-xl border border-dashed border-[color:var(--brand-primary)] px-6 py-6 text-center transition hover:bg-slate-50"
+            className={`block w-full cursor-pointer rounded-xl border border-dashed border-[color:var(--brand-primary)] px-6 text-center transition hover:bg-slate-50 ${
+              slots.length ? "min-h-[120px] py-4" : "min-h-[206px] py-6"
+            }`}
           >
             <input
               id={inputId}
               type="file"
               className="hidden"
+              multiple={maxFiles > 1}
               accept="image/png,image/jpeg,image/jpg,image/webp,application/pdf"
               onChange={(e) => {
-                const selected = e.target.files?.[0];
+                const selected = e.target.files;
                 e.target.value = "";
-                if (selected) onUpload(selected);
+                if (selected?.length) onUpload(selected);
               }}
             />
             <div className="mx-auto flex h-full max-w-[360px] flex-col items-center justify-center gap-3">
               <BrandedUploadIcon className="h-9 w-9" primaryHex={branding.primaryHex} />
               <p className="text-[12px] font-normal leading-5 text-slate-800">
-                Drag your file(s) to start uploading
+                {slots.length ? "Add more files" : "Drag your file(s) to start uploading"}
               </p>
               <p className="text-[10px] font-normal leading-4 text-slate-400">OR</p>
               <span className="rounded-md border border-[color:var(--brand-primary)] px-4 py-1 text-[12px] font-medium leading-5 text-[color:var(--brand-primary)]">
                 Browse files
               </span>
               <p className="text-[10px] font-normal leading-4 text-slate-500">
-                Max {doc.max_file_size_mb || 10} MB — PNG, JPG, or PDF
+                Up to {maxFiles} files · Max {doc.max_file_size_mb || 10} MB each — PNG, JPG, or PDF
               </p>
             </div>
           </label>
+        ) : (
+          <p className="text-[11px] text-slate-500">Maximum of {maxFiles} files uploaded.</p>
         )}
       </div>
     );
@@ -727,9 +777,14 @@ export default function Step2License() {
                   <RequirementUploadBox
                     key={doc.id}
                     doc={doc}
-                    file={dynamicFiles[doc.id] ?? null}
-                    onUpload={(f) => void uploadForRequirement(f, doc)}
-                    onRemove={() => setDynamicFiles((prev) => ({ ...prev, [doc.id]: null }))}
+                    files={dynamicFiles[doc.id] ?? []}
+                    onUpload={(selected) => void uploadForRequirement(selected, doc)}
+                    onRemove={(index) =>
+                      setDynamicFiles((prev) => ({
+                        ...prev,
+                        [doc.id]: (prev[doc.id] ?? []).filter((_, i) => i !== index),
+                      }))
+                    }
                   />
                 ))
               ) : (

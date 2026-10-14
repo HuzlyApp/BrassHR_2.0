@@ -175,10 +175,18 @@ export async function loadAdminAttachmentRequirements(
 
     const { data: uploads, error: uploadError } = await supabase
       .from("worker_profession_document_uploads")
-      .select("id, profession_document_id, file_url, original_file_name, status")
+      .select("id, profession_document_id, file_url, original_file_name, status, uploaded_at")
       .eq("tenant_id", tenantId)
-      .eq("worker_id", workerId);
+      .eq("worker_id", workerId)
+      .order("uploaded_at", { ascending: true });
     if (uploadError) throw uploadError;
+
+    const countsByDocumentId = new Map<string, number>();
+    for (const upload of uploads ?? []) {
+      const documentId = String(upload.profession_document_id ?? "");
+      if (!documentId) continue;
+      countsByDocumentId.set(documentId, (countsByDocumentId.get(documentId) ?? 0) + 1);
+    }
 
     const filesByDocumentId = new Map<string, ProfessionAttachmentFile>();
     await Promise.all(
@@ -189,11 +197,13 @@ export async function loadAdminAttachmentRequirements(
         const signedUrl = await resolveStorageAccessibleUrl(supabase, fileUrl, {
           defaultBucket: WORKER_REQUIRED_FILES_BUCKET,
         });
+        // Later uploads overwrite earlier ones so the map keeps the newest file.
         filesByDocumentId.set(documentId, {
           id: String(upload.id ?? ""),
           signedUrl,
           originalFileName: upload.original_file_name ? String(upload.original_file_name) : null,
           status: upload.status ? String(upload.status) : null,
+          fileCount: countsByDocumentId.get(documentId) ?? 1,
         });
       })
     );

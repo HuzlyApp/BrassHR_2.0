@@ -9,6 +9,7 @@ export type ProfessionUploadDocument = {
   name: string;
   documentKind: ProfessionDocumentKind;
   isRequired: boolean;
+  hasExpiration: boolean;
   sortOrder: number;
 };
 
@@ -17,10 +18,12 @@ export type ProfessionUploadDraft = {
   name: string;
   documentKind: ProfessionDocumentKind;
   isRequired: boolean;
+  hasExpiration: boolean;
 };
 
 const NAME_MAX = 120;
 const DOCUMENT_MAX = 40;
+export const MAX_PROFESSION_DOCUMENT_FILES = 5;
 
 export function professionDocumentKindLabel(kind: ProfessionDocumentKind): string {
   return kind === "license" ? "License" : "Certificate";
@@ -59,6 +62,7 @@ export function normalizeProfessionDocumentDrafts(
       name,
       documentKind: kind,
       isRequired: record.isRequired !== false,
+      hasExpiration: record.hasExpiration === true,
     });
   }
 
@@ -87,6 +91,7 @@ export function attachProfessionDocuments(
     accepted_file_types: ["pdf", "png", "jpg", "jpeg", "webp"],
     max_file_size_mb: 10,
     source: "profession",
+    has_expiration: doc.hasExpiration,
   }));
 
   return {
@@ -106,6 +111,7 @@ type ProfessionDocumentRow = {
   name: string;
   document_kind: string;
   is_required: boolean;
+  has_expiration?: boolean | null;
   sort_order: number;
 };
 
@@ -115,14 +121,18 @@ function mapRow(row: ProfessionDocumentRow): ProfessionUploadDocument {
     name: row.name,
     documentKind: row.document_kind === "license" ? "license" : "certificate",
     isRequired: row.is_required !== false,
+    hasExpiration: row.has_expiration === true,
     sortOrder: row.sort_order,
   };
 }
 
+const PROFESSION_DOCUMENT_SELECT =
+  "id, profession_id, name, document_kind, is_required, has_expiration, sort_order";
+
 export async function listProfessionDocuments(supabase: Db, tenantId: string) {
   const { data, error } = await supabase
     .from("tenant_profession_documents")
-    .select("id, profession_id, name, document_kind, is_required, sort_order")
+    .select(PROFESSION_DOCUMENT_SELECT)
     .eq("tenant_id", tenantId)
     .eq("is_active", true)
     .order("sort_order", { ascending: true });
@@ -144,7 +154,7 @@ export async function listActiveProfessionDocuments(
 ): Promise<ProfessionUploadDocument[]> {
   const { data, error } = await supabase
     .from("tenant_profession_documents")
-    .select("id, profession_id, name, document_kind, is_required, sort_order")
+    .select(PROFESSION_DOCUMENT_SELECT)
     .eq("tenant_id", tenantId)
     .eq("profession_id", professionId)
     .eq("is_active", true)
@@ -212,6 +222,7 @@ export async function saveProfessionDocuments(
       name: draft.name,
       document_kind: draft.documentKind,
       is_required: draft.isRequired,
+      has_expiration: draft.hasExpiration === true,
       sort_order: (index + 1) * 10,
       is_active: true,
     };
@@ -236,12 +247,36 @@ export async function saveProfessionDocuments(
   return listActiveProfessionDocuments(supabase, tenantId, professionId);
 }
 
+export async function savedWorkerProfessionId(
+  supabase: Db,
+  tenantId: string,
+  workerId: string
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("job_applications")
+    .select("tenant_profession_id")
+    .eq("tenant_id", tenantId)
+    .eq("worker_id", workerId)
+    .not("tenant_profession_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.tenant_profession_id ? String(data.tenant_profession_id) : null;
+}
+
 export async function linkWorkerProfession(
   supabase: Db,
   tenantId: string,
   workerId: string,
   professionId: string
 ) {
+  const savedProfessionId = await savedWorkerProfessionId(supabase, tenantId, workerId);
+  if (savedProfessionId) {
+    if (savedProfessionId === professionId) return;
+    throw new Error("This candidate's profession is already saved and cannot be changed.");
+  }
+
   const { data: application, error: applicationError } = await supabase
     .from("job_applications")
     .select("id")
@@ -261,26 +296,70 @@ export async function linkWorkerProfession(
   if (error) throw error;
 }
 
+export async function countWorkerProfessionDocumentFiles(
+  supabase: Db,
+  tenantId: string,
+  workerId: string,
+  professionDocumentId: string
+): Promise<number> {
+  const { count, error } = await supabase
+    .from("worker_profession_document_uploads")
+    .select("id", { count: "exact", head: true })
+    .eq("tenant_id", tenantId)
+    .eq("worker_id", workerId)
+    .eq("profession_document_id", professionDocumentId);
+  if (error) throw error;
+  return count ?? 0;
+}
+
 export async function renameWorkerDocumentFile(
   supabase: Db,
   tenantId: string,
   workerId: string,
-  input: { professionDocumentId?: string | null; submittedDocumentId?: string | null; fileName: string }
+  input: {
+    professionDocumentId?: string | null;
+    professionUploadId?: string | null;
+    submittedDocumentId?: string | null;
+    fileName: string;
+  }
 ) {
   const fileName = input.fileName.trim();
   if (!fileName) throw new Error("File name is required.");
 
-  if (input.professionDocumentId) {
+  if (input.professionUploadId) {
     const { data, error } = await supabase
       .from("worker_profession_document_uploads")
       .update({ original_file_name: fileName })
       .eq("tenant_id", tenantId)
       .eq("worker_id", workerId)
-      .eq("profession_document_id", input.professionDocumentId)
+      .eq("id", input.professionUploadId)
       .select("id")
       .maybeSingle();
     if (error) throw error;
     if (data?.id) return;
+    if (!input.submittedDocumentId) throw new Error("Uploaded file was not found.");
+  }
+
+  if (input.professionDocumentId) {
+    const { data: latest, error: latestError } = await supabase
+      .from("worker_profession_document_uploads")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("worker_id", workerId)
+      .eq("profession_document_id", input.professionDocumentId)
+      .order("uploaded_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (latestError) throw latestError;
+    if (latest?.id) {
+      const { error } = await supabase
+        .from("worker_profession_document_uploads")
+        .update({ original_file_name: fileName })
+        .eq("id", latest.id)
+        .eq("tenant_id", tenantId);
+      if (error) throw error;
+      return;
+    }
     if (!input.submittedDocumentId) throw new Error("Uploaded file was not found.");
   }
 

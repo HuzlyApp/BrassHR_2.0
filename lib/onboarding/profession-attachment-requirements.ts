@@ -7,6 +7,7 @@ export type ProfessionAttachmentFile = {
   signedUrl: string | null;
   originalFileName: string | null;
   status: string | null;
+  fileCount?: number;
 };
 
 function isResumeAttachmentRow(row: AdminAttachmentRequirement): boolean {
@@ -85,10 +86,14 @@ export function applyProfessionDocumentsToAttachments(
         legacy_document_key: uploaded?.signedUrl ? null : mapped?.legacy_document_key ?? legacyFile.key,
         status: uploaded?.status ?? mapped?.status ?? (url ? "uploaded" : null),
         url,
-        filename:
-          uploaded?.originalFileName?.trim() ||
-          (mapped?.filename && mapped.filename !== "—" ? mapped.filename : "") ||
-          (url ? fileNameFromUrl(url) : "—"),
+        filename: (() => {
+          const primary =
+            uploaded?.originalFileName?.trim() ||
+            (mapped?.filename && mapped.filename !== "—" ? mapped.filename : "") ||
+            (url ? fileNameFromUrl(url) : "—");
+          const extra = (uploaded?.fileCount ?? 1) > 1 ? ` (+${(uploaded?.fileCount ?? 1) - 1} more)` : "";
+          return primary === "—" ? primary : `${primary}${extra}`;
+        })(),
         sort_order: resumeRows.length + index,
         is_required: doc.isRequired,
         document_kind: doc.documentKind,
