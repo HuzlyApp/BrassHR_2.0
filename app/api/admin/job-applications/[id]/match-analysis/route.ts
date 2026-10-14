@@ -27,7 +27,8 @@ import { enforceMatchAnalysisRateLimits } from "@/lib/jobs/match-analysis/rate-l
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 export const runtime = "nodejs";
-export const maxDuration = 180;
+// 120s Grok Deep Match + 120s Gemini fallback, plus load and persist.
+export const maxDuration = 300;
 
 type RouteContext = { params: Promise<{ id: string }> };
 
