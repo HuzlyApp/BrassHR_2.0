@@ -59,8 +59,6 @@ import SkillAssessmentResults from "./SkillAssessmentResults";
 import WorkflowStepStaffActionModal from "./WorkflowStepStaffActionModal";
 import StepDocumentUploadsSection from "./StepDocumentUploadsSection";
 import type { StepUploadSlot } from "@/lib/onboarding/staff-step-documents";
-import { CandidateApplicationStatusControl } from "./CandidateApplicationStatusControl";
-import { StageStatusSequenceButtons } from "./StageStatusSequenceButtons";
 import { StageContextNotesSection } from "./StageContextNotesSection";
 import { hireStageLabelForStep } from "@/lib/onboarding/hire-stage-groups";
 import { isPreHireStatusStageName } from "@/lib/jobs/application-statuses/stage-assignments";
@@ -394,7 +392,6 @@ export default function CandidateWorkflowStepModal({
   const [notice, setNotice] = useState<{ tone: "success" | "warning"; message: string } | null>(null);
   const [resyncing, setResyncing] = useState(false);
   const [resyncNotice, setResyncNotice] = useState<{ tone: "success" | "warning"; message: string } | null>(null);
-  const [statusRevision, setStatusRevision] = useState(0);
 
   useEffect(() => {
     setActiveInspectionOverride(null);
@@ -775,28 +772,6 @@ export default function CandidateWorkflowStepModal({
                     <p className="mt-1 text-sm text-slate-600">
                       Stage · <span className="font-semibold text-slate-900">{hireStageName}</span>
                     </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      The filled button is the next primary status. Alternate and Closing are optional
-                      for this stage.
-                    </p>
-                    <div className="mt-3">
-                      <StageStatusSequenceButtons
-                        key={`${hireStageName}-${statusRevision}`}
-                        applicationId={inspection.applicationId}
-                        stageName={hireStageName}
-                        onStatusChanged={() => setStatusRevision((revision) => revision + 1)}
-                      />
-                    </div>
-                    <div className="mt-4 max-w-sm">
-                      <p className="mb-1 text-xs font-medium text-slate-500">Advanced — correction only</p>
-                      <CandidateApplicationStatusControl
-                        key={`status-${hireStageName}-${statusRevision}`}
-                        applicationId={inspection.applicationId}
-                        stageName={hireStageName}
-                        compact={false}
-                        onStatusChanged={() => setStatusRevision((revision) => revision + 1)}
-                      />
-                    </div>
                   </section>
                 ) : null}
 

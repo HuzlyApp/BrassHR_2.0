@@ -11,9 +11,10 @@ import {
   saveStaffRequiredDocumentUpload,
   type StaffUploadResult,
 } from "@/lib/admin/staff-document-upload"
+import { isAcceptedDocumentFileType } from "@/lib/document-upload-helpers"
 import { persistWorkerResumePath } from "@/lib/onboarding/persist-worker-resume-path"
 import { getSupabaseUrl } from "@/lib/supabase-env"
-import { WORKER_RESUMES_BUCKET } from "@/lib/supabase-storage-buckets"
+import { WORKER_REQUIRED_FILES_BUCKET, WORKER_RESUMES_BUCKET } from "@/lib/supabase-storage-buckets"
 import { enforceRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { parseRequiredUuid } from "@/lib/validation/uuid"
 
@@ -28,6 +29,66 @@ const ALLOWED_RESUME_MIME = new Set([
 function uploadResponse(result: StaffUploadResult) {
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
   return NextResponse.json({ ok: true, path: result.path, bucket: result.bucket })
+}
+
+async function saveProfessionDocumentUpload(
+  supabase: ReturnType<typeof createClient>,
+  input: { tenantId: string; workerId: string; professionDocumentId: string; file: File }
+): Promise<StaffUploadResult | null> {
+  const { data: professionDoc, error } = await supabase
+    .from("tenant_profession_documents")
+    .select("id")
+    .eq("id", input.professionDocumentId)
+    .eq("tenant_id", input.tenantId)
+    .eq("is_active", true)
+    .maybeSingle()
+  if (error) throw error
+  if (!professionDoc) return null
+
+  if (!isAcceptedDocumentFileType(input.file, ["pdf", "png", "jpg", "jpeg", "webp"])) {
+    return { ok: false, status: 400, error: "File type not allowed. Upload a PNG, JPG, WebP, or PDF." }
+  }
+  if (input.file.size > 10 * 1024 * 1024) {
+    return { ok: false, status: 400, error: "File exceeds 10MB limit" }
+  }
+
+  const buffer = Buffer.from(await input.file.arrayBuffer())
+  const objectPath = `${input.tenantId}/${input.workerId}/${input.professionDocumentId}/${randomUUID()}-${sanitizeFileName(input.file.name)}`
+  const { error: uploadError } = await supabase.storage
+    .from(WORKER_REQUIRED_FILES_BUCKET)
+    .upload(objectPath, buffer, {
+      contentType: input.file.type || "application/octet-stream",
+      upsert: true,
+    })
+  if (uploadError) return { ok: false, status: 500, error: uploadError.message || "Upload failed" }
+
+  const row = {
+    tenant_id: input.tenantId,
+    worker_id: input.workerId,
+    profession_document_id: input.professionDocumentId,
+    file_url: objectPath,
+    original_file_name: input.file.name,
+    file_type: input.file.type || null,
+    file_size: input.file.size,
+    status: "uploaded",
+    uploaded_at: new Date().toISOString(),
+  }
+  const { data: existing, error: existingError } = await supabase
+    .from("worker_profession_document_uploads")
+    .select("id")
+    .eq("tenant_id", input.tenantId)
+    .eq("worker_id", input.workerId)
+    .eq("profession_document_id", input.professionDocumentId)
+    .maybeSingle()
+  if (existingError) throw existingError
+
+  const write = existing?.id
+    ? supabase.from("worker_profession_document_uploads").update(row).eq("id", existing.id)
+    : supabase.from("worker_profession_document_uploads").insert(row)
+  const { error: writeError } = await write
+  if (writeError) throw writeError
+
+  return { ok: true, path: objectPath, bucket: WORKER_REQUIRED_FILES_BUCKET }
 }
 
 export async function POST(req: NextRequest) {
@@ -149,18 +210,26 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    return uploadResponse(
-      await saveStaffRequiredDocumentUpload(supabase, {
+    const saved = await saveStaffRequiredDocumentUpload(supabase, {
+      tenantId,
+      workerId,
+      actorUserId: auth.userId,
+      uploadedByUserId: auth.devBypass ? null : auth.userId,
+      requiredDocumentId,
+      file,
+      documentTitle,
+      documentField: documentFieldRaw,
+    })
+    if (!saved.ok && saved.status === 404) {
+      const professionSaved = await saveProfessionDocumentUpload(supabase, {
         tenantId,
         workerId,
-        actorUserId: auth.userId,
-        uploadedByUserId: auth.devBypass ? null : auth.userId,
-        requiredDocumentId,
+        professionDocumentId: requiredDocumentId,
         file,
-        documentTitle,
-        documentField: documentFieldRaw,
       })
-    )
+      if (professionSaved) return uploadResponse(professionSaved)
+    }
+    return uploadResponse(saved)
   } catch (err: unknown) {
     console.error("[admin/worker-attachment-upload]", err)
     const msg = err instanceof Error ? err.message : "Unexpected error"

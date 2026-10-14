@@ -40,7 +40,7 @@ export type TenantRequiredDocument = {
   sort_order: number;
   accepted_file_types: string[];
   max_file_size_mb: number;
-  source?: "workflow" | "tenant_step";
+  source?: "workflow" | "tenant_step" | "profession";
   code?: string;
   has_expiration?: boolean;
   collect_issuing_organization?: boolean;

@@ -24,7 +24,6 @@ import {
   Users,
   X,
 } from "lucide-react";
-import PreIdentifiedCertifications from "../../../components/PreIdentifiedCertifications";
 import AiPreScanBanner from "@/app/components/AiPreScanBanner";
 import { scanUploadedDocument } from "@/lib/document-verification-client";
 import type { DocumentVerificationResult } from "@/lib/document-verification";
@@ -54,11 +53,32 @@ type AttachmentRequirement = {
   step_key?: string;
   phase?: "pre_hire" | "post_hire";
   step_title?: string;
+  is_required?: boolean;
+  document_kind?: "certificate" | "license" | null;
 };
 
 type WorkerProfileResponse = {
   worker: WorkerProfile;
   attachment_requirements?: AttachmentRequirement[];
+};
+
+type SettingsDocument = {
+  id: string;
+  name: string;
+  documentKind: "certificate" | "license";
+  isRequired: boolean;
+};
+
+type SettingsProfession = {
+  id: string;
+  name: string;
+  documents: SettingsDocument[];
+};
+
+type SettingsCatalog = {
+  canManage: boolean;
+  workerProfessionId: string | null;
+  professions: SettingsProfession[];
 };
 
 type AttachmentRow = {
@@ -75,6 +95,8 @@ type AttachmentRow = {
   stepKey: string | null;
   phase: "pre_hire" | "post_hire";
   stepTitle: string;
+  isRequired: boolean;
+  documentKind: "certificate" | "license" | null;
 };
 
 function attachmentRowKey(
@@ -113,11 +135,19 @@ export default function NewApplicantAttachmentsFilledPage() {
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [pendingUploadRow, setPendingUploadRow] = useState<AttachmentRow | null>(null);
+  const [settings, setSettings] = useState<SettingsCatalog | null>(null);
+  const [professionId, setProfessionId] = useState("");
+  const [nameDrafts, setNameDrafts] = useState<Record<string, string>>({});
+  const [fileNameDrafts, setFileNameDrafts] = useState<Record<string, string>>({});
+  const [newDocumentName, setNewDocumentName] = useState("");
+  const [newDocumentKind, setNewDocumentKind] = useState<"certificate" | "license">("certificate");
+  const [newDocumentRequired, setNewDocumentRequired] = useState(true);
+  const [savingDocuments, setSavingDocuments] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const fetchApplicant = useCallback(async () => {
+  const fetchApplicant = useCallback(async (quiet = false) => {
     if (!applicantId) return;
-    setLoading(true);
+    if (!quiet) setLoading(true);
     setLoadError(null);
     try {
       const res = await fetch(
@@ -144,9 +174,130 @@ export default function NewApplicantAttachmentsFilledPage() {
     isReviewLoading,
   } = useWorkerDocumentReview(applicantId, fetchApplicant);
 
+  const loadSettings = useCallback(async () => {
+    if (!applicantId) return;
+    const response = await fetch(
+      `/api/admin/profession-documents?workerId=${encodeURIComponent(applicantId)}`
+    );
+    const payload = (await response.json()) as SettingsCatalog & { error?: string };
+    if (!response.ok) throw new Error(payload.error || "Could not load document settings");
+    setSettings(payload);
+    setProfessionId((current) => current || payload.workerProfessionId || "");
+  }, [applicantId]);
+
   useEffect(() => {
     void fetchApplicant();
-  }, [fetchApplicant]);
+    void loadSettings().catch((error: unknown) => {
+      setUploadError(error instanceof Error ? error.message : "Could not load document settings");
+    });
+  }, [fetchApplicant, loadSettings]);
+
+  const selectedProfession = settings?.professions.find((profession) => profession.id === professionId) ?? null;
+
+  async function saveProfessionDocuments(
+    nextProfessionId: string,
+    documents: Array<{ id?: string; name: string; documentKind: "certificate" | "license"; isRequired: boolean }>
+  ) {
+    if (!applicantId || !nextProfessionId) return;
+    setSavingDocuments(true);
+    setUploadError(null);
+    try {
+      const response = await fetch("/api/admin/profession-documents", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ professionId: nextProfessionId, workerId: applicantId, documents }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Could not save documents");
+      setNameDrafts({});
+      await Promise.all([fetchApplicant(true), loadSettings()]);
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : "Could not save documents");
+    } finally {
+      setSavingDocuments(false);
+    }
+  }
+
+  async function connectProfession(nextProfessionId: string) {
+    setProfessionId(nextProfessionId);
+    if (!nextProfessionId || !settings?.canManage) return;
+    const documents = settings.professions.find((profession) => profession.id === nextProfessionId)?.documents ?? [];
+    await saveProfessionDocuments(
+      nextProfessionId,
+      documents.map((document) => ({
+        id: document.id,
+        name: document.name,
+        documentKind: document.documentKind,
+        isRequired: document.isRequired,
+      }))
+    );
+  }
+
+  async function commitDocumentName(row: AttachmentRow) {
+    if (!selectedProfession || !row.requiredDocumentId) return;
+    const name = (nameDrafts[row.requiredDocumentId] ?? row.title).trim();
+    if (!name || name === row.title) return;
+    await saveProfessionDocuments(
+      selectedProfession.id,
+      selectedProfession.documents.map((document) => ({
+        id: document.id,
+        name: document.id === row.requiredDocumentId ? name : document.name,
+        documentKind: document.documentKind,
+        isRequired: document.isRequired,
+      }))
+    );
+  }
+
+  async function commitFileName(row: AttachmentRow) {
+    if (!applicantId) return;
+    const fileName = (fileNameDrafts[row.key] ?? row.filename).trim();
+    if (!fileName || fileName === row.filename || fileName === "—") return;
+    setSavingDocuments(true);
+    setUploadError(null);
+    try {
+      const response = await fetch("/api/admin/profession-documents", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workerId: applicantId,
+          fileName,
+          professionDocumentId: row.requiredDocumentId,
+          submittedDocumentId: row.submittedDocumentId,
+        }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Could not rename file");
+      await fetchApplicant(true);
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : "Could not rename file");
+    } finally {
+      setSavingDocuments(false);
+    }
+  }
+
+  async function addDocument() {
+    if (!selectedProfession) {
+      setUploadError("Choose a profession before adding a document.");
+      return;
+    }
+    const name = newDocumentName.trim();
+    if (!name) {
+      setUploadError("Document name is required.");
+      return;
+    }
+    await saveProfessionDocuments(selectedProfession.id, [
+      ...selectedProfession.documents.map((document) => ({
+        id: document.id,
+        name: document.name,
+        documentKind: document.documentKind,
+        isRequired: document.isRequired,
+      })),
+      { name, documentKind: newDocumentKind, isRequired: newDocumentRequired },
+    ]);
+    setNewDocumentName("");
+    setNewDocumentKind("certificate");
+    setNewDocumentRequired(true);
+  }
 
   const openUploadPicker = (row: AttachmentRow) => {
     setUploadError(null);
@@ -219,6 +370,8 @@ export default function NewApplicantAttachmentsFilledPage() {
         stepKey: row.step_key ?? null,
         phase: row.phase ?? "pre_hire",
         stepTitle: row.step_title ?? row.title,
+        isRequired: row.is_required !== false,
+        documentKind: row.document_kind ?? null,
       };
       return {
         ...mapped,
@@ -491,14 +644,40 @@ export default function NewApplicantAttachmentsFilledPage() {
                 */}
 
                 <div>
-                  <div className="mb-4 flex items-center justify-between border-b border-[#E5E7EB] pb-4">
-                    <h3 className="text-[20px] font-semibold leading-7 text-[#111827]">Requirements Submitted</h3>
+                  <div className="mb-4 flex flex-wrap items-end justify-between gap-3 border-b border-[#E5E7EB] pb-4">
+                    <div>
+                      <h3 className="text-[20px] font-semibold leading-7 text-[#111827]">Requirements Submitted</h3>
+                      <p className="mt-1 text-sm text-[#6B7280]">
+                        These documents come from the profession’s upload settings. Rename one or add another here.
+                      </p>
+                    </div>
                     <p className="text-sm font-medium text-[#6B7280]">
                       Uploaded{" "}
                       <span className="font-semibold text-[#111827]">{uploadedCount}</span> of{" "}
                       <span className="font-semibold text-[#111827]">{totalCount}</span>
                     </p>
                   </div>
+
+                  {settings ? (
+                    <label className="mb-4 block max-w-sm">
+                      <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-[#64748B]">
+                        Profession
+                      </span>
+                      <select
+                        value={professionId}
+                        disabled={!settings.canManage || savingDocuments}
+                        onChange={(event) => void connectProfession(event.target.value)}
+                        className="h-9 w-full rounded-lg border border-[#CBD5E1] bg-white px-3 text-sm text-[#0F172A] disabled:bg-[#F8FAFC]"
+                      >
+                        <option value="">Select profession</option>
+                        {settings.professions.map((profession) => (
+                          <option key={profession.id} value={profession.id}>
+                            {profession.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
 
                   <div className="space-y-3">
                       {attachmentRows.map((r, idx) => {
@@ -512,10 +691,41 @@ export default function NewApplicantAttachmentsFilledPage() {
                         >
                           <div className="flex min-h-[44px] items-center justify-between gap-3 px-5 pt-3 pb-2 md:h-[44px]">
                             <div className="min-w-0 text-[16px] font-semibold leading-6 text-[#111827]">
-                              {idx + 1}. {r.title}
+                              {idx + 1}.{" "}
+                              {settings?.canManage && r.documentKind && r.requiredDocumentId ? (
+                                <input
+                                  value={nameDrafts[r.requiredDocumentId] ?? r.title}
+                                  disabled={savingDocuments}
+                                  onChange={(event) =>
+                                    setNameDrafts((current) => ({
+                                      ...current,
+                                      [r.requiredDocumentId!]: event.target.value,
+                                    }))
+                                  }
+                                  onBlur={() => void commitDocumentName(r)}
+                                  aria-label={`Document name for ${r.title}`}
+                                  className="h-8 max-w-xs rounded-md border border-[#CBD5E1] bg-white px-2 text-sm font-semibold text-[#111827]"
+                                />
+                              ) : (
+                                r.title
+                              )}
                               <span className="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
                                 {r.phase === "post_hire" ? "Post-Hire" : "Pre-Hire"}
                               </span>
+                              {r.documentKind ? (
+                                <span className="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+                                  {r.documentKind === "license" ? "License" : "Certificate"}
+                                </span>
+                              ) : null}
+                              {r.documentKind ? (
+                                <span
+                                  className={`ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                                    r.isRequired ? "bg-amber-50 text-amber-800" : "bg-slate-100 text-slate-600"
+                                  }`}
+                                >
+                                  {r.isRequired ? "Required" : "Optional"}
+                                </span>
+                              ) : null}
                             </div>
                             <div className="flex items-center gap-3">
                               <button
@@ -547,9 +757,25 @@ export default function NewApplicantAttachmentsFilledPage() {
                               <div className="flex h-[50px] w-full min-w-0 max-w-[520px] md:w-[306px] md:min-w-[306px] items-center gap-2 rounded-[8px] border border-[color:color-mix(in_srgb,var(--brand-primary)_30%,white)] bg-[#F8FAFC] px-3 py-2">
                                 <BrandedFileTypeIcon type={isPdf ? "pdf" : "jpeg"} className="h-6 w-6 shrink-0" />
                                 <div className="min-w-0">
-                                  <div className="truncate text-xs font-semibold leading-4 tracking-[0.01em] text-[color:var(--brand-primary)]">
-                                    {r.filename}
-                                  </div>
+                                  {settings?.canManage && !isResumeAttachmentRow(r) ? (
+                                    <input
+                                      value={fileNameDrafts[r.key] ?? r.filename}
+                                      disabled={savingDocuments}
+                                      onChange={(event) =>
+                                        setFileNameDrafts((current) => ({
+                                          ...current,
+                                          [r.key]: event.target.value,
+                                        }))
+                                      }
+                                      onBlur={() => void commitFileName(r)}
+                                      aria-label={`File name for ${r.title}`}
+                                      className="h-7 w-full min-w-0 rounded border border-[#CBD5E1] bg-white px-2 text-xs font-semibold text-[color:var(--brand-primary)]"
+                                    />
+                                  ) : (
+                                    <div className="truncate text-xs font-semibold leading-4 tracking-[0.01em] text-[color:var(--brand-primary)]">
+                                      {r.filename}
+                                    </div>
+                                  )}
                                   <div className="text-xs font-normal leading-4 tracking-[0.01em] text-[#6B7280]">
                                     Uploaded file
                                   </div>
@@ -629,7 +855,48 @@ export default function NewApplicantAttachmentsFilledPage() {
                       })}
                   </div>
 
-                  {applicantId ? <PreIdentifiedCertifications workerId={applicantId} /> : null}
+                  {settings?.canManage ? (
+                    <form
+                      className="mt-4 grid gap-2 rounded-md border border-dashed border-[#CBD5E1] bg-[#F8FAFC] p-3 sm:grid-cols-[minmax(0,1fr)_160px_auto_auto] sm:items-center"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void addDocument();
+                      }}
+                    >
+                      <input
+                        value={newDocumentName}
+                        onChange={(event) => setNewDocumentName(event.target.value)}
+                        placeholder="New certificate or license name"
+                        className="h-9 w-full rounded-lg border border-[#CBD5E1] bg-white px-3 text-sm"
+                      />
+                      <select
+                        value={newDocumentKind}
+                        onChange={(event) => setNewDocumentKind(event.target.value as "certificate" | "license")}
+                        className="h-9 w-full rounded-lg border border-[#CBD5E1] bg-white px-3 text-sm"
+                      >
+                        <option value="certificate">Certificate</option>
+                        <option value="license">License</option>
+                      </select>
+                      <label className="inline-flex items-center gap-2 text-sm text-[#0F172A]">
+                        <input
+                          type="checkbox"
+                          checked={newDocumentRequired}
+                          onChange={(event) => setNewDocumentRequired(event.target.checked)}
+                          className="h-4 w-4 rounded border-[#CBD5E1]"
+                        />
+                        {newDocumentRequired ? "Required" : "Optional"}
+                      </label>
+                      <button
+                        type="submit"
+                        disabled={savingDocuments || !professionId}
+                        className="inline-flex h-9 items-center justify-center gap-1 rounded-lg bg-[#012352] px-4 text-sm font-medium text-white disabled:opacity-60"
+                      >
+                        <Plus className="h-4 w-4" aria-hidden />
+                        {savingDocuments ? "Saving…" : "Add"}
+                      </button>
+                    </form>
+                  ) : null}
+
                 </div>
               </div>
             </div>
