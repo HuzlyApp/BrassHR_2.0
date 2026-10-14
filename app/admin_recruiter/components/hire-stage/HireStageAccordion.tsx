@@ -230,6 +230,13 @@ export function HireStageAccordion({
                         height={22}
                         className="shrink-0"
                       />
+                    ) : current ? (
+                      <HireFigmaIcon
+                        src={PRE_HIRE_UI_ICONS.inProgressClock}
+                        width={22}
+                        height={22}
+                        className="shrink-0"
+                      />
                     ) : (
                       <HireFigmaIcon
                         src={PRE_HIRE_UI_ICONS.stageCollapseMinus}
@@ -245,6 +252,14 @@ export function HireStageAccordion({
                     {completed ? (
                       <HireFigmaIcon
                         src={PRE_HIRE_UI_ICONS.stageCheckOutlineGreen}
+                        width={22}
+                        height={22}
+                        className="shrink-0"
+                      />
+                    ) : null}
+                    {current ? (
+                      <HireFigmaIcon
+                        src={PRE_HIRE_UI_ICONS.inProgressClock}
                         width={22}
                         height={22}
                         className="shrink-0"
@@ -396,6 +411,7 @@ export function HireStageAccordion({
                       ) : (
                         <StepRefreshButton
                           step={step}
+                          size={20}
                           refreshingId={refreshingId}
                           onRefreshStep={onRefresh ? (id) => void refreshStep(id) : undefined}
                         />
