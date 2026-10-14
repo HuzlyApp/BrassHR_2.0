@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
+  Circle,
   Sparkles,
   Award,
   Briefcase,
@@ -19,12 +20,32 @@ import { useOnboardingTenant } from "@/lib/tenant/use-onboarding-tenant";
 import { useOnboardingConfigOptional } from "@/app/components/onboarding/OnboardingConfigProvider";
 import {
   evaluateWorkflowCompletion,
+  type StepCompletionItem,
   type WorkflowCompletionResult,
 } from "@/lib/onboarding/workflow-completion-check";
 import {
   APPLICANT_SHELL_TALL_CLASS,
   APPLICANT_TITLE_CLASS,
 } from "@/app/application/applicant-onboarding-responsive";
+import { stepStatusLabel } from "@/app/application/components/completion/step-status-label";
+
+function StepStatusRow({ item }: { item: StepCompletionItem }) {
+  return (
+    <div className="flex items-center justify-between text-xs text-slate-700">
+      <span className="flex items-center gap-2">
+        {item.isComplete ? (
+          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+        ) : (
+          <Circle className="h-3.5 w-3.5 text-slate-400" />
+        )}
+        <span>{item.title}</span>
+      </span>
+      <span className={`text-[11px] font-semibold ${item.isComplete ? "text-emerald-700" : "text-slate-500"}`}>
+        {stepStatusLabel(item.status)}
+      </span>
+    </div>
+  );
+}
 
 type Props = {
   completionResult?: WorkflowCompletionResult | null;
@@ -121,7 +142,7 @@ export default function PostHireCompletionView({
                 <div>
                   <h3 className="text-sm font-semibold text-emerald-950">Pre-Hire Steps Completed</h3>
                   <p className="text-xs text-emerald-700">
-                    {effectiveResult.preHire.completedCount} of {effectiveResult.preHire.total} steps completed (100%)
+                    {`${effectiveResult.preHire.completedCount} of ${effectiveResult.preHire.total} steps completed (${effectiveResult.preHire.percent}%)`}
                   </p>
                 </div>
               </div>
@@ -146,13 +167,7 @@ export default function PostHireCompletionView({
             {showPreHireList && preHireSteps.length > 0 ? (
               <div className="mt-3 pt-3 border-t border-emerald-200/80 space-y-1.5">
                 {preHireSteps.map((item, idx) => (
-                  <div key={item.id || idx} className="flex items-center justify-between text-xs text-slate-700">
-                    <span className="flex items-center gap-2">
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                      <span>{item.title}</span>
-                    </span>
-                    <span className="text-[10px] font-semibold uppercase text-emerald-700">Completed</span>
-                  </div>
+                  <StepStatusRow key={item.id || idx} item={item} />
                 ))}
               </div>
             ) : null}
@@ -168,7 +183,7 @@ export default function PostHireCompletionView({
                 <div>
                   <h3 className="text-sm font-semibold text-emerald-950">Post-Hire Steps Completed</h3>
                   <p className="text-xs text-emerald-700">
-                    {effectiveResult.postHire.completedCount} of {effectiveResult.postHire.total || effectiveResult.postHire.completedCount} steps completed (100%)
+                    {`${effectiveResult.postHire.completedCount} of ${effectiveResult.postHire.total} steps completed (${effectiveResult.postHire.percent}%)`}
                   </p>
                 </div>
               </div>
@@ -193,13 +208,7 @@ export default function PostHireCompletionView({
             {showPostHireList && postHireSteps.length > 0 ? (
               <div className="mt-3 pt-3 border-t border-emerald-200/80 space-y-1.5">
                 {postHireSteps.map((item, idx) => (
-                  <div key={item.id || idx} className="flex items-center justify-between text-xs text-slate-700">
-                    <span className="flex items-center gap-2">
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                      <span>{item.title}</span>
-                    </span>
-                    <span className="text-[10px] font-semibold uppercase text-emerald-700">Completed</span>
-                  </div>
+                  <StepStatusRow key={item.id || idx} item={item} />
                 ))}
               </div>
             ) : null}
@@ -233,7 +242,7 @@ export default function PostHireCompletionView({
             <ArrowRight className="h-4 w-4" />
           </button>
 
-          <button
+          {/* <button
             type="button"
             onClick={() =>
               router.push(
@@ -245,7 +254,7 @@ export default function PostHireCompletionView({
             className="inline-flex h-12 w-full sm:w-auto items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
             View Application Status
-          </button>
+          </button> */}
         </div>
       </div>
     </div>

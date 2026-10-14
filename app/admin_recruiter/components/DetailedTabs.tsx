@@ -209,10 +209,10 @@ export default function DetailedTabs({
   const tabs = useMemo<TabName[]>(
     () =>
       candidateDetailTabs({
-        postHireVisible: Boolean(phaseView?.postHireVisible),
+        postHireVisible: Boolean(phaseView?.postHireVisible && phaseView.workflowHasPostHireSteps),
         showOnboarded: showOnboardedTab,
       }),
-    [showOnboardedTab, phaseView?.postHireVisible]
+    [showOnboardedTab, phaseView?.postHireVisible, phaseView?.workflowHasPostHireSteps]
   );
   const currentPhaseProgress =
     phaseView?.postHireVisible && phaseView.currentStage === "post_hire"

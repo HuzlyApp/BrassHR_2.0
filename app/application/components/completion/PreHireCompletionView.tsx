@@ -4,8 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
+  Circle,
   ArrowRight,
-  Sparkles,
   ClipboardCheck,
   FileCheck,
   ChevronDown,
@@ -25,6 +25,7 @@ import {
   APPLICANT_SHELL_TALL_CLASS,
   APPLICANT_TITLE_CLASS,
 } from "@/app/application/applicant-onboarding-responsive";
+import { stepStatusLabel } from "@/app/application/components/completion/step-status-label";
 
 type Props = {
   completionResult?: WorkflowCompletionResult | null;
@@ -144,9 +145,6 @@ export default function PreHireCompletionView({
           >
             <CheckCircle2 className="h-10 w-10" strokeWidth={2.5} />
           </div>
-          <div className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-amber-400 text-white shadow">
-            <Sparkles className="h-4 w-4" />
-          </div>
         </div>
 
         {/* Phase Pill */}
@@ -165,7 +163,9 @@ export default function PreHireCompletionView({
         </p>
 
         <p className="mt-1 text-base text-slate-600">
-          You continue with Post hire steps
+          {hasPostHireSteps
+            ? "You continue with Post hire steps"
+            : "No further action is needed. Your recruiter will contact you with next steps."}
         </p>
 
         {error ? (
@@ -186,7 +186,7 @@ export default function PreHireCompletionView({
                 <div>
                   <h3 className="text-sm font-semibold text-emerald-950">Pre-Hire Steps</h3>
                   <p className="text-xs text-emerald-700">
-                    {effectiveResult.preHire.completedCount} of {effectiveResult.preHire.total} steps completed (100%)
+                    {`${effectiveResult.preHire.completedCount} of ${effectiveResult.preHire.total} steps completed (${effectiveResult.preHire.percent}%)`}
                   </p>
                 </div>
               </div>
@@ -210,10 +210,20 @@ export default function PreHireCompletionView({
                 {preHireSteps.map((item, idx) => (
                   <div key={item.id || idx} className="flex items-center justify-between text-xs text-slate-700">
                     <span className="flex items-center gap-2">
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                      {item.isComplete ? (
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                      ) : (
+                        <Circle className="h-3.5 w-3.5 text-slate-400" />
+                      )}
                       <span className="font-medium">{item.title}</span>
                     </span>
-                    <span className="font-semibold text-emerald-700 uppercase text-[10px]">Completed</span>
+                    <span
+                      className={`text-[11px] font-semibold ${
+                        item.isComplete ? "text-emerald-700" : "text-slate-500"
+                      }`}
+                    >
+                      {stepStatusLabel(item.status)}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -221,6 +231,7 @@ export default function PreHireCompletionView({
           </div>
 
           {/* Post-Hire Preview Card */}
+          {hasPostHireSteps ? (
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -233,9 +244,9 @@ export default function PreHireCompletionView({
                 <div>
                   <h3 className="text-sm font-semibold text-slate-900">Post-Hire Steps</h3>
                   <p className="text-xs text-slate-500">
-                    {hasPostHireSteps
-                      ? `${effectiveResult.postHire.total} steps ready to complete (I-9, Direct Deposit, Tax & Policies)`
-                      : "Ready to complete final onboarding setup"}
+                    {`${effectiveResult.postHire.total} ${
+                      effectiveResult.postHire.total === 1 ? "step" : "steps"
+                    } ready to complete`}
                   </p>
                 </div>
               </div>
@@ -244,20 +255,20 @@ export default function PreHireCompletionView({
               </span>
             </div>
 
-            {hasPostHireSteps ? (
-              <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-600">
-                {postHireSteps.slice(0, 4).map((step, idx) => (
-                  <div key={step.id || idx} className="flex items-center gap-2 truncate">
-                    <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
-                    <span className="truncate">{step.title}</span>
-                  </div>
-                ))}
-              </div>
-            ) : null}
+            <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-600">
+              {postHireSteps.slice(0, 4).map((step, idx) => (
+                <div key={step.id || idx} className="flex items-center gap-2 truncate">
+                  <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                  <span className="truncate">{step.title}</span>
+                </div>
+              ))}
+            </div>
           </div>
+          ) : null}
         </div>
 
         {/* Primary Action Button (Required by user) */}
+        {hasPostHireSteps ? (
         <div className="mt-7 flex w-full flex-col sm:flex-row items-center justify-center gap-3">
           <button
             type="button"
@@ -279,7 +290,7 @@ export default function PreHireCompletionView({
             )}
           </button>
 
-          <button
+          {/* <button
             type="button"
             onClick={() =>
               router.push(
@@ -291,8 +302,9 @@ export default function PreHireCompletionView({
             className="inline-flex h-12 w-full sm:w-auto items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
             View Application Status
-          </button>
+          </button> */}
         </div>
+        ) : null}
       </div>
     </div>
   );

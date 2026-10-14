@@ -326,7 +326,7 @@ export function HireStageBoard({
               progressPercent={progressMeta.percent}
               progressLabel={progressMeta.label}
               lastUpdated={formatLongDate(phaseView?.phaseStartedAt ?? assignment?.assignedAt)}
-              showProceedToPostHire={preHireComplete}
+              showProceedToPostHire={preHireComplete && phaseView?.workflowHasPostHireSteps !== false}
               proceedDisabledReason={proceedDisabledReason}
               aiAnalysisHref={aiAnalysisHref}
               proceedBusy={activatingPostHire}

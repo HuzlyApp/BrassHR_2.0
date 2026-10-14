@@ -54,6 +54,39 @@ async function loadFullConfigForContext(
   return null;
 }
 
+/**
+ * Without a job token the tenant default workflow would be evaluated, which can list steps
+ * (e.g. post-hire) that the applicant's job workflow does not have.
+ */
+async function resolveJobTokenForApplicant(
+  supabase: SupabaseClient,
+  params: { tenantId: string; workerId: string; jobRequisitionId: string | null }
+): Promise<string | null> {
+  let jobRequisitionId = params.jobRequisitionId;
+  if (!jobRequisitionId) {
+    const { data } = await supabase
+      .from("job_applications")
+      .select("job_requisition_id")
+      .eq("tenant_id", params.tenantId)
+      .eq("worker_id", params.workerId)
+      .not("job_requisition_id", "is", null)
+      .not("status", "in", '("rejected","withdrawn","archived")')
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    jobRequisitionId = (data as { job_requisition_id?: string | null } | null)?.job_requisition_id ?? null;
+  }
+  if (!jobRequisitionId) return null;
+
+  const { data: job } = await supabase
+    .from("job_requisitions")
+    .select("public_job_token")
+    .eq("tenant_id", params.tenantId)
+    .eq("id", jobRequisitionId)
+    .maybeSingle();
+  return normalizeJobToken((job as { public_job_token?: string | null } | null)?.public_job_token ?? null);
+}
+
 export async function GET(req: NextRequest) {
   try {
     const applicantId = req.nextUrl.searchParams.get("applicantId")?.trim() || "";
@@ -88,9 +121,16 @@ export async function GET(req: NextRequest) {
     });
 
     const scopedApplicationId = applicationId || phaseRecord?.applicationId || null;
+    const workflowJobToken =
+      jobToken ||
+      (await resolveJobTokenForApplicant(supabase, {
+        tenantId: workerCtx.tenantId,
+        workerId: workerCtx.workerId,
+        jobRequisitionId: phaseRecord?.jobRequisitionId ?? null,
+      }));
 
     const [fullConfig, progress] = await Promise.all([
-      loadFullConfigForContext(supabase, tenantSlug, jobToken),
+      loadFullConfigForContext(supabase, tenantSlug, workflowJobToken),
       ensureWorkerOnboardingProgress(
         supabase,
         workerCtx.workerId,
@@ -185,7 +225,14 @@ export async function POST(req: NextRequest) {
         scopedApplicationId
       );
 
-      const fullConfig = await loadFullConfigForContext(supabase, tenantSlug, jobToken);
+      const workflowJobToken =
+        jobToken ||
+        (await resolveJobTokenForApplicant(supabase, {
+          tenantId: workerCtx.tenantId,
+          workerId: workerCtx.workerId,
+          jobRequisitionId: phaseRecord?.jobRequisitionId ?? null,
+        }));
+      const fullConfig = await loadFullConfigForContext(supabase, tenantSlug, workflowJobToken);
       let nextRoute: string | null = null;
 
       if (fullConfig) {
