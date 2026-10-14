@@ -27,6 +27,15 @@ export type AdminAttachmentRequirement = {
   review_notes?: string | null;
   is_required?: boolean;
   document_kind?: "certificate" | "license" | null;
+  has_expiration?: boolean;
+  issued_date?: string | null;
+  expiry_date?: string | null;
+  files?: Array<{
+    id: string;
+    url: string | null;
+    filename: string;
+    status: string | null;
+  }>;
 };
 
 export type LegacyDocumentUrls = {

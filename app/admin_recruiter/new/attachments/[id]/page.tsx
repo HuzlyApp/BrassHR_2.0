@@ -55,6 +55,15 @@ type AttachmentRequirement = {
   step_title?: string;
   is_required?: boolean;
   document_kind?: "certificate" | "license" | null;
+  has_expiration?: boolean;
+  issued_date?: string | null;
+  expiry_date?: string | null;
+  files?: Array<{
+    id: string;
+    url: string | null;
+    filename: string;
+    status: string | null;
+  }>;
 };
 
 type WorkerProfileResponse = {
@@ -99,6 +108,15 @@ type AttachmentRow = {
   stepTitle: string;
   isRequired: boolean;
   documentKind: "certificate" | "license" | null;
+  hasExpiration: boolean;
+  issuedDate: string | null;
+  expiryDate: string | null;
+  files: Array<{
+    id: string;
+    url: string | null;
+    filename: string;
+    status: string | null;
+  }>;
 };
 
 function attachmentRowKey(
@@ -139,8 +157,10 @@ export default function NewApplicantAttachmentsFilledPage() {
   const [pendingUploadRow, setPendingUploadRow] = useState<AttachmentRow | null>(null);
   const [settings, setSettings] = useState<SettingsCatalog | null>(null);
   const [professionId, setProfessionId] = useState("");
-  const [nameDrafts, setNameDrafts] = useState<Record<string, string>>({});
   const [fileNameDrafts, setFileNameDrafts] = useState<Record<string, string>>({});
+  const [dateDrafts, setDateDrafts] = useState<
+    Record<string, { issuedDate: string; expiryDate: string }>
+  >({});
   const [newDocumentName, setNewDocumentName] = useState("");
   const [newDocumentKind, setNewDocumentKind] = useState<"certificate" | "license">("certificate");
   const [newDocumentRequired, setNewDocumentRequired] = useState(true);
@@ -219,7 +239,6 @@ export default function NewApplicantAttachmentsFilledPage() {
       });
       const payload = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(payload.error || "Could not save documents");
-      setNameDrafts({});
       await Promise.all([fetchApplicant(true), loadSettings()]);
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : "Could not save documents");
@@ -245,26 +264,14 @@ export default function NewApplicantAttachmentsFilledPage() {
     );
   }
 
-  async function commitDocumentName(row: AttachmentRow) {
-    if (!selectedProfession || !row.requiredDocumentId) return;
-    const name = (nameDrafts[row.requiredDocumentId] ?? row.title).trim();
-    if (!name || name === row.title) return;
-    await saveProfessionDocuments(
-      selectedProfession.id,
-      selectedProfession.documents.map((document) => ({
-        id: document.id,
-        name: document.id === row.requiredDocumentId ? name : document.name,
-        documentKind: document.documentKind,
-        isRequired: document.isRequired,
-        hasExpiration: document.hasExpiration === true,
-      }))
-    );
-  }
-
-  async function commitFileName(row: AttachmentRow) {
+  async function commitFileName(
+    row: AttachmentRow,
+    file: { id: string; filename: string },
+    draftKey: string
+  ) {
     if (!applicantId) return;
-    const fileName = (fileNameDrafts[row.key] ?? row.filename).trim();
-    if (!fileName || fileName === row.filename || fileName === "—") return;
+    const fileName = (fileNameDrafts[draftKey] ?? file.filename).trim();
+    if (!fileName || fileName === file.filename || fileName === "—") return;
     setSavingDocuments(true);
     setUploadError(null);
     try {
@@ -274,6 +281,7 @@ export default function NewApplicantAttachmentsFilledPage() {
         body: JSON.stringify({
           workerId: applicantId,
           fileName,
+          professionUploadId: file.id.startsWith("legacy") ? undefined : file.id,
           professionDocumentId: row.requiredDocumentId,
           submittedDocumentId: row.submittedDocumentId,
         }),
@@ -319,8 +327,40 @@ export default function NewApplicantAttachmentsFilledPage() {
     setNewDocumentHasExpiration(true);
   }
 
+  function rowNeedsExpiration(row: AttachmentRow): boolean {
+    if (row.hasExpiration) return true;
+    return (
+      selectedProfession?.documents.find((document) => document.id === row.requiredDocumentId)
+        ?.hasExpiration === true
+    );
+  }
+
+  function patchDateDraft(rowKey: string, patch: Partial<{ issuedDate: string; expiryDate: string }>) {
+    setDateDrafts((current) => ({
+      ...current,
+      [rowKey]: {
+        issuedDate: patch.issuedDate ?? current[rowKey]?.issuedDate ?? "",
+        expiryDate: patch.expiryDate ?? current[rowKey]?.expiryDate ?? "",
+      },
+    }));
+  }
+
   const openUploadPicker = (row: AttachmentRow) => {
     setUploadError(null);
+    if (rowNeedsExpiration(row)) {
+      const dates = dateDrafts[row.key] ?? {
+        issuedDate: row.issuedDate ?? "",
+        expiryDate: row.expiryDate ?? "",
+      };
+      if (!dates.issuedDate.trim() || !dates.expiryDate.trim()) {
+        setUploadError(`Add issued and expiry dates for ${row.title} before uploading.`);
+        return;
+      }
+      if (dates.expiryDate < dates.issuedDate) {
+        setUploadError(`Expiry date for ${row.title} must be on or after the issued date.`);
+        return;
+      }
+    }
     setPendingUploadRow(row);
     const input = fileInputRef.current;
     if (input) {
@@ -338,20 +378,16 @@ export default function NewApplicantAttachmentsFilledPage() {
     const files = Array.from(fileList ?? []);
     if (!files.length || !row || !applicantId) return;
 
-    const settingsDoc = selectedProfession?.documents.find(
-      (document) => document.id === row.requiredDocumentId
-    );
-    const needsExpiry = settingsDoc?.hasExpiration === true;
-    let issuedDate = "";
-    let expiryDate = "";
-    if (needsExpiry) {
-      issuedDate = window.prompt(`Issued date for ${row.title} (YYYY-MM-DD)`)?.trim() || "";
-      expiryDate = window.prompt(`Expiry date for ${row.title} (YYYY-MM-DD)`)?.trim() || "";
-      if (!issuedDate || !expiryDate) {
-        setUploadError("Issued date and expiry date are required for this document.");
-        if (fileInputRef.current) fileInputRef.current.value = "";
-        return;
-      }
+    const dates = dateDrafts[row.key] ?? {
+      issuedDate: row.issuedDate ?? "",
+      expiryDate: row.expiryDate ?? "",
+    };
+    const issuedDate = dates.issuedDate.trim();
+    const expiryDate = dates.expiryDate.trim();
+    if (rowNeedsExpiration(row) && (!issuedDate || !expiryDate)) {
+      setUploadError(`Add issued and expiry dates for ${row.title} before uploading.`);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
     }
 
     setUploadingId(row.key);
@@ -408,6 +444,9 @@ export default function NewApplicantAttachmentsFilledPage() {
     if (!profile) return [];
     const fromConfig = profile.attachment_requirements ?? [];
     return fromConfig.map((row, index) => {
+      const settingsDoc = selectedProfession?.documents.find(
+        (document) => document.id === row.required_document_id
+      );
       const mapped = {
         id: row.id,
         title: row.title,
@@ -423,13 +462,45 @@ export default function NewApplicantAttachmentsFilledPage() {
         stepTitle: row.step_title ?? row.title,
         isRequired: row.is_required !== false,
         documentKind: row.document_kind ?? null,
+        hasExpiration: row.has_expiration === true || settingsDoc?.hasExpiration === true,
+        issuedDate: row.issued_date ?? null,
+        expiryDate: row.expiry_date ?? null,
+        files:
+          row.files && row.files.length
+            ? row.files
+            : row.url
+              ? [
+                  {
+                    id: row.submitted_document_id || row.id,
+                    url: row.url,
+                    filename: row.filename?.trim() ? row.filename : "—",
+                    status: row.status ?? null,
+                  },
+                ]
+              : [],
       };
       return {
         ...mapped,
         key: attachmentRowKey(mapped, index),
       };
     });
-  }, [profile]);
+  }, [profile, selectedProfession]);
+
+  useEffect(() => {
+    setDateDrafts((current) => {
+      const next = { ...current };
+      for (const row of attachmentRows) {
+        if (!row.hasExpiration) continue;
+        if (next[row.key]?.issuedDate || next[row.key]?.expiryDate) continue;
+        if (!row.issuedDate && !row.expiryDate) continue;
+        next[row.key] = {
+          issuedDate: row.issuedDate ?? "",
+          expiryDate: row.expiryDate ?? "",
+        };
+      }
+      return next;
+    });
+  }, [attachmentRows]);
 
   useEffect(() => {
     if (!attachmentRows.length) return;
@@ -698,7 +769,7 @@ export default function NewApplicantAttachmentsFilledPage() {
                     <div>
                       <h3 className="text-[20px] font-semibold leading-7 text-[#111827]">Requirements Submitted</h3>
                       <p className="mt-1 text-sm text-[#6B7280]">
-                        These documents come from the profession’s upload settings. Rename one or add another here.
+                        These documents come from the profession’s upload settings. Add another from settings if needed.
                       </p>
                     </div>
                     <p className="text-sm font-medium text-[#6B7280]">
@@ -738,7 +809,11 @@ export default function NewApplicantAttachmentsFilledPage() {
                   <div className="space-y-3">
                       {attachmentRows.map((r, idx) => {
                         const scan = scanById[r.key];
-                        const isPdf = isPdfFile(null, r.filename, r.url);
+                        const needsExpiration = rowNeedsExpiration(r);
+                        const issuedValue =
+                          dateDrafts[r.key]?.issuedDate ?? r.issuedDate ?? "";
+                        const expiryValue =
+                          dateDrafts[r.key]?.expiryDate ?? r.expiryDate ?? "";
 
                         return (
                         <div
@@ -747,24 +822,7 @@ export default function NewApplicantAttachmentsFilledPage() {
                         >
                           <div className="flex min-h-[44px] items-center justify-between gap-3 px-5 pt-3 pb-2 md:h-[44px]">
                             <div className="min-w-0 text-[16px] font-semibold leading-6 text-[#111827]">
-                              {idx + 1}.{" "}
-                              {settings?.canManage && r.documentKind && r.requiredDocumentId ? (
-                                <input
-                                  value={nameDrafts[r.requiredDocumentId] ?? r.title}
-                                  disabled={savingDocuments}
-                                  onChange={(event) =>
-                                    setNameDrafts((current) => ({
-                                      ...current,
-                                      [r.requiredDocumentId!]: event.target.value,
-                                    }))
-                                  }
-                                  onBlur={() => void commitDocumentName(r)}
-                                  aria-label={`Document name for ${r.title}`}
-                                  className="h-8 max-w-xs rounded-md border border-[#CBD5E1] bg-white px-2 text-sm font-semibold text-[#111827]"
-                                />
-                              ) : (
-                                r.title
-                              )}
+                              {idx + 1}. {r.title}
                               <span className="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
                                 {r.phase === "post_hire" ? "Post-Hire" : "Pre-Hire"}
                               </span>
@@ -808,95 +866,178 @@ export default function NewApplicantAttachmentsFilledPage() {
                             </div>
                           </div>
 
-                          <div className="flex flex-col items-stretch gap-3 px-5 py-3 md:flex-row md:items-center md:justify-between md:gap-4">
-                            {r.url ? (
-                              <div className="flex h-[50px] w-full min-w-0 max-w-[520px] md:w-[306px] md:min-w-[306px] items-center gap-2 rounded-[8px] border border-[color:color-mix(in_srgb,var(--brand-primary)_30%,white)] bg-[#F8FAFC] px-3 py-2">
-                                <BrandedFileTypeIcon type={isPdf ? "pdf" : "jpeg"} className="h-6 w-6 shrink-0" />
-                                <div className="min-w-0">
-                                  {settings?.canManage && !isResumeAttachmentRow(r) ? (
-                                    <input
-                                      value={fileNameDrafts[r.key] ?? r.filename}
-                                      disabled={savingDocuments}
-                                      onChange={(event) =>
-                                        setFileNameDrafts((current) => ({
-                                          ...current,
-                                          [r.key]: event.target.value,
-                                        }))
-                                      }
-                                      onBlur={() => void commitFileName(r)}
-                                      aria-label={`File name for ${r.title}`}
-                                      className="h-7 w-full min-w-0 rounded border border-[#CBD5E1] bg-white px-2 text-xs font-semibold text-[color:var(--brand-primary)]"
-                                    />
-                                  ) : (
-                                    <div className="truncate text-xs font-semibold leading-4 tracking-[0.01em] text-[color:var(--brand-primary)]">
-                                      {r.filename}
+                          {needsExpiration ? (
+                            <div className="grid gap-3 px-5 pb-1 sm:grid-cols-2 sm:max-w-[520px]">
+                              <label className="block space-y-1">
+                                <span className="text-[11px] font-medium text-[#64748B]">Issue date</span>
+                                <input
+                                  type="date"
+                                  value={issuedValue}
+                                  disabled={savingDocuments || uploadingId === r.key}
+                                  onChange={(event) =>
+                                    patchDateDraft(r.key, { issuedDate: event.target.value })
+                                  }
+                                  aria-label={`${r.title} issue date`}
+                                  className="h-9 w-full rounded-lg border border-[#CBD5E1] bg-white px-3 text-sm text-[#0F172A] disabled:bg-[#F8FAFC]"
+                                />
+                              </label>
+                              <label className="block space-y-1">
+                                <span className="text-[11px] font-medium text-[#64748B]">Expiry date</span>
+                                <input
+                                  type="date"
+                                  value={expiryValue}
+                                  disabled={savingDocuments || uploadingId === r.key}
+                                  onChange={(event) =>
+                                    patchDateDraft(r.key, { expiryDate: event.target.value })
+                                  }
+                                  aria-label={`${r.title} expiry date`}
+                                  className="h-9 w-full rounded-lg border border-[#CBD5E1] bg-white px-3 text-sm text-[#0F172A] disabled:bg-[#F8FAFC]"
+                                />
+                              </label>
+                            </div>
+                          ) : null}
+
+                          <div className="flex flex-col gap-3 px-5 py-3">
+                            {r.files.length > 0 ? (
+                              <div className="flex min-w-0 flex-wrap items-center gap-3">
+                                {r.files.map((file) => {
+                                  const fileDraftKey = `${r.key}:${file.id}`;
+                                  const fileIsPdf = isPdfFile(null, file.filename, file.url);
+                                  return (
+                                    <div
+                                      key={file.id}
+                                      className="flex h-[50px] w-full min-w-0 max-w-[280px] items-center gap-2 rounded-[8px] border border-[color:color-mix(in_srgb,var(--brand-primary)_30%,white)] bg-[#F8FAFC] px-3 py-2 sm:w-[240px]"
+                                    >
+                                      <BrandedFileTypeIcon
+                                        type={fileIsPdf ? "pdf" : "jpeg"}
+                                        className="h-6 w-6 shrink-0"
+                                      />
+                                      <div className="min-w-0 flex-1">
+                                        {settings?.canManage && !isResumeAttachmentRow(r) ? (
+                                          <input
+                                            value={fileNameDrafts[fileDraftKey] ?? file.filename}
+                                            disabled={savingDocuments}
+                                            onChange={(event) =>
+                                              setFileNameDrafts((current) => ({
+                                                ...current,
+                                                [fileDraftKey]: event.target.value,
+                                              }))
+                                            }
+                                            onBlur={() => void commitFileName(r, file, fileDraftKey)}
+                                            aria-label={`File name for ${file.filename}`}
+                                            className="h-7 w-full min-w-0 rounded border border-[#CBD5E1] bg-white px-2 text-xs font-semibold text-[color:var(--brand-primary)]"
+                                          />
+                                        ) : (
+                                          <div className="truncate text-xs font-semibold leading-4 tracking-[0.01em] text-[color:var(--brand-primary)]">
+                                            {file.filename}
+                                          </div>
+                                        )}
+                                        <div className="text-xs font-normal leading-4 tracking-[0.01em] text-[#6B7280]">
+                                          Uploaded file
+                                        </div>
+                                      </div>
+                                      <div className="flex shrink-0 items-center gap-1.5">
+                                        <button
+                                          type="button"
+                                          disabled={!file.url}
+                                          onClick={() =>
+                                            file.url && window.open(file.url, "_blank", "noopener,noreferrer")
+                                          }
+                                          className="inline-flex h-5 w-5 items-center justify-center text-[color:var(--brand-primary)] disabled:opacity-40"
+                                          aria-label={`View ${file.filename}`}
+                                        >
+                                          <Eye className="h-4 w-4" />
+                                        </button>
+                                        <a
+                                          href={file.url ?? undefined}
+                                          download
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className={`inline-flex h-5 w-5 items-center justify-center text-[color:var(--brand-primary)] ${
+                                            !file.url ? "pointer-events-none opacity-40" : ""
+                                          }`}
+                                          aria-label={`Download ${file.filename}`}
+                                        >
+                                          <Download className="h-4 w-4" />
+                                        </a>
+                                      </div>
                                     </div>
-                                  )}
-                                  <div className="text-xs font-normal leading-4 tracking-[0.01em] text-[#6B7280]">
-                                    Uploaded file
-                                  </div>
-                                </div>
+                                  );
+                                })}
+                                {r.files.length < 5 && !isResumeAttachmentRow(r) ? (
+                                  <button
+                                    type="button"
+                                    disabled={uploadingId === r.key}
+                                    onClick={() => openUploadPicker(r)}
+                                    className="inline-flex h-[50px] min-w-[120px] items-center justify-center rounded-[8px] border border-dashed border-[color:color-mix(in_srgb,var(--brand-primary)_30%,white)] bg-white px-4 text-xs font-semibold text-[color:var(--brand-primary)] disabled:opacity-50"
+                                  >
+                                    {uploadingId === r.key ? "Uploading..." : "Add file"}
+                                  </button>
+                                ) : null}
                               </div>
                             ) : (
-                              <div className="flex h-[50px] w-full min-w-0 max-w-[520px] md:w-[306px] md:min-w-[306px] items-center justify-between rounded-[8px] border border-dashed border-[color:color-mix(in_srgb,var(--brand-primary)_30%,white)] bg-[#F8FAFC] px-3 py-2">
-                                <span className="text-xs text-[#6B7280]">No Document</span>
+                              <div className="flex flex-col items-stretch gap-3 md:flex-row md:items-center md:justify-between md:gap-4">
+                                <div className="flex h-[50px] w-full min-w-0 max-w-[520px] md:w-[306px] md:min-w-[306px] items-center justify-between rounded-[8px] border border-dashed border-[color:color-mix(in_srgb,var(--brand-primary)_30%,white)] bg-[#F8FAFC] px-3 py-2">
+                                  <span className="text-xs text-[#6B7280]">No Document</span>
+                                  <button
+                                    type="button"
+                                    disabled={uploadingId === r.key}
+                                    onClick={() => openUploadPicker(r)}
+                                    className="inline-flex h-8 items-center justify-center rounded-md border border-[color:color-mix(in_srgb,var(--brand-primary)_30%,white)] bg-white px-4 text-xs font-semibold text-[color:var(--brand-primary)] disabled:opacity-50"
+                                  >
+                                    {uploadingId === r.key ? "Uploading..." : "Upload"}
+                                  </button>
+                                </div>
                                 <button
                                   type="button"
                                   disabled={uploadingId === r.key}
                                   onClick={() => openUploadPicker(r)}
-                                  className="inline-flex h-8 items-center justify-center rounded-md border border-[color:color-mix(in_srgb,var(--brand-primary)_30%,white)] bg-white px-4 text-xs font-semibold text-[color:var(--brand-primary)] disabled:opacity-50"
+                                  className="inline-flex h-8 items-center justify-center rounded-md bg-[color:var(--brand-primary)] px-5 text-xs font-semibold text-white hover:brightness-95 disabled:opacity-50"
                                 >
                                   {uploadingId === r.key ? "Uploading..." : "Upload"}
                                 </button>
                               </div>
                             )}
 
-                            {r.url ? (
-                              <DocumentReviewActions
-                                disabled={!r.submittedDocumentId && !r.legacyDocumentKey}
-                                loading={isReviewLoading({
-                                  submittedDocumentId: r.submittedDocumentId,
-                                  legacyDocumentKey: r.legacyDocumentKey,
-                                })}
-                                currentStatus={r.status}
-                                onApprove={() =>
-                                  void submitReview(
-                                    {
-                                      submittedDocumentId: r.submittedDocumentId,
-                                      legacyDocumentKey: r.legacyDocumentKey,
-                                    },
-                                    "approved"
-                                  )
-                                }
-                                onReject={() =>
-                                  void submitReview(
-                                    {
-                                      submittedDocumentId: r.submittedDocumentId,
-                                      legacyDocumentKey: r.legacyDocumentKey,
-                                    },
-                                    "rejected"
-                                  )
-                                }
-                                onRequestMore={() =>
-                                  void submitReview(
-                                    {
-                                      submittedDocumentId: r.submittedDocumentId,
-                                      legacyDocumentKey: r.legacyDocumentKey,
-                                    },
-                                    "needs_revision"
-                                  )
-                                }
-                              />
-                            ) : (
-                              <button
-                                type="button"
-                                disabled={uploadingId === r.key}
-                                onClick={() => openUploadPicker(r)}
-                                className="inline-flex h-8 items-center justify-center rounded-md bg-[color:var(--brand-primary)] px-5 text-xs font-semibold text-white hover:brightness-95 disabled:opacity-50"
-                              >
-                                {uploadingId === r.key ? "Uploading..." : "Upload"}
-                              </button>
-                            )}
+                            {r.files.length > 0 ? (
+                              <div className="flex justify-end">
+                                <DocumentReviewActions
+                                  disabled={!r.submittedDocumentId && !r.legacyDocumentKey}
+                                  loading={isReviewLoading({
+                                    submittedDocumentId: r.submittedDocumentId,
+                                    legacyDocumentKey: r.legacyDocumentKey,
+                                  })}
+                                  currentStatus={r.status}
+                                  onApprove={() =>
+                                    void submitReview(
+                                      {
+                                        submittedDocumentId: r.submittedDocumentId,
+                                        legacyDocumentKey: r.legacyDocumentKey,
+                                      },
+                                      "approved"
+                                    )
+                                  }
+                                  onReject={() =>
+                                    void submitReview(
+                                      {
+                                        submittedDocumentId: r.submittedDocumentId,
+                                        legacyDocumentKey: r.legacyDocumentKey,
+                                      },
+                                      "rejected"
+                                    )
+                                  }
+                                  onRequestMore={() =>
+                                    void submitReview(
+                                      {
+                                        submittedDocumentId: r.submittedDocumentId,
+                                        legacyDocumentKey: r.legacyDocumentKey,
+                                      },
+                                      "needs_revision"
+                                    )
+                                  }
+                                />
+                              </div>
+                            ) : null}
                           </div>
 
                           {r.url ? (

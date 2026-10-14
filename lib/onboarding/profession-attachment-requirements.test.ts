@@ -62,7 +62,17 @@ describe("applyProfessionDocumentsToAttachments", () => {
         },
       ],
       new Map([
-        ["bls", { id: "upload-1", signedUrl: "https://files/bls.pdf", originalFileName: "bls.pdf", status: "uploaded" }],
+        [
+          "bls",
+          [
+            {
+              id: "upload-1",
+              signedUrl: "https://files/bls.pdf",
+              originalFileName: "bls.pdf",
+              status: "uploaded",
+            },
+          ],
+        ],
       ]),
       legacy
     );

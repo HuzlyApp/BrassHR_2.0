@@ -145,12 +145,14 @@ export async function PATCH(req: NextRequest) {
     workerId?: string;
     fileName?: string;
     professionDocumentId?: string;
+    professionUploadId?: string;
     submittedDocumentId?: string;
   } | null;
 
   try {
     await renameWorkerDocumentFile(supabase, tenantId, body?.workerId?.trim() || "", {
       professionDocumentId: body?.professionDocumentId,
+      professionUploadId: body?.professionUploadId,
       submittedDocumentId: body?.submittedDocumentId,
       fileName: body?.fileName ?? "",
     });

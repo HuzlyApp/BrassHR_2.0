@@ -8,6 +8,8 @@ export type ProfessionAttachmentFile = {
   originalFileName: string | null;
   status: string | null;
   fileCount?: number;
+  issuedDate?: string | null;
+  expiryDate?: string | null;
 };
 
 function isResumeAttachmentRow(row: AdminAttachmentRequirement): boolean {
@@ -57,7 +59,7 @@ function legacyFileForDocument(
 export function applyProfessionDocumentsToAttachments(
   rows: AdminAttachmentRequirement[],
   documents: ProfessionUploadDocument[],
-  filesByDocumentId: Map<string, ProfessionAttachmentFile>,
+  filesByDocumentId: Map<string, ProfessionAttachmentFile[]>,
   legacy: LegacyDocumentUrls
 ): AdminAttachmentRequirement[] {
   const resumeRows = rows.filter(isResumeAttachmentRow);
@@ -70,10 +72,41 @@ export function applyProfessionDocumentsToAttachments(
   const professionRows: AdminAttachmentRequirement[] = [...documents]
     .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
     .map((doc, index) => {
-      const uploaded = filesByDocumentId.get(doc.id);
+      const uploads = filesByDocumentId.get(doc.id) ?? [];
+      const latest = uploads[uploads.length - 1];
       const mapped = previousByName.get(documentNameKey(doc.name));
       const legacyFile = legacyFileForDocument(doc.name, legacy);
-      const url = uploaded?.signedUrl || mapped?.url || legacyFile.url || null;
+      const files =
+        uploads.length > 0
+          ? uploads.map((upload) => ({
+              id: upload.id,
+              url: upload.signedUrl,
+              filename: upload.originalFileName?.trim() || fileNameFromUrl(upload.signedUrl),
+              status: upload.status,
+            }))
+          : mapped?.url
+            ? [
+                {
+                  id: mapped.submitted_document_id || `legacy-${doc.id}`,
+                  url: mapped.url,
+                  filename:
+                    mapped.filename && mapped.filename !== "—"
+                      ? mapped.filename
+                      : fileNameFromUrl(mapped.url),
+                  status: mapped.status,
+                },
+              ]
+            : legacyFile.url
+              ? [
+                  {
+                    id: `legacy-file-${doc.id}`,
+                    url: legacyFile.url,
+                    filename: fileNameFromUrl(legacyFile.url),
+                    status: "uploaded",
+                  },
+                ]
+              : [];
+      const url = files[0]?.url ?? null;
       return {
         id: `profession-doc-${doc.id}`,
         title: doc.name,
@@ -82,21 +115,18 @@ export function applyProfessionDocumentsToAttachments(
         step_type: "professional_license" as const,
         phase: "pre_hire" as const,
         required_document_id: doc.id,
-        submitted_document_id: uploaded?.signedUrl ? null : mapped?.submitted_document_id ?? null,
-        legacy_document_key: uploaded?.signedUrl ? null : mapped?.legacy_document_key ?? legacyFile.key,
-        status: uploaded?.status ?? mapped?.status ?? (url ? "uploaded" : null),
+        submitted_document_id: uploads.length ? null : mapped?.submitted_document_id ?? null,
+        legacy_document_key: uploads.length ? null : mapped?.legacy_document_key ?? legacyFile.key,
+        status: latest?.status ?? mapped?.status ?? (url ? "uploaded" : null),
         url,
-        filename: (() => {
-          const primary =
-            uploaded?.originalFileName?.trim() ||
-            (mapped?.filename && mapped.filename !== "—" ? mapped.filename : "") ||
-            (url ? fileNameFromUrl(url) : "—");
-          const extra = (uploaded?.fileCount ?? 1) > 1 ? ` (+${(uploaded?.fileCount ?? 1) - 1} more)` : "";
-          return primary === "—" ? primary : `${primary}${extra}`;
-        })(),
+        filename: files[0]?.filename ?? "—",
+        files,
         sort_order: resumeRows.length + index,
         is_required: doc.isRequired,
         document_kind: doc.documentKind,
+        has_expiration: doc.hasExpiration,
+        issued_date: latest?.issuedDate ?? null,
+        expiry_date: latest?.expiryDate ?? null,
       };
     });
 
