@@ -83,6 +83,78 @@ async function saveWorkflowCredentialUpload(input: {
   return NextResponse.json({ ok: true, path: objectPath, bucket: WORKER_REQUIRED_FILES_BUCKET });
 }
 
+async function saveProfessionDocumentUpload(input: {
+  supabase: SupabaseClient;
+  tenantId: string;
+  workerId: string;
+  professionDocumentId: string;
+  file: File;
+}): Promise<NextResponse | null> {
+  const { data: professionDoc, error } = await input.supabase
+    .from("tenant_profession_documents")
+    .select("id")
+    .eq("id", input.professionDocumentId)
+    .eq("tenant_id", input.tenantId)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (error || !professionDoc) return null;
+
+  if (!isAcceptedDocumentFileType(input.file, ["pdf", "png", "jpg", "jpeg", "webp"])) {
+    return NextResponse.json(
+      { error: "File type not allowed. Upload a PNG, JPG, WebP, or PDF." },
+      { status: 400 }
+    );
+  }
+  if (input.file.size > 10 * 1024 * 1024) {
+    return NextResponse.json({ error: "File exceeds 10MB limit" }, { status: 400 });
+  }
+
+  const buffer = Buffer.from(await input.file.arrayBuffer());
+  const objectPath = `${input.tenantId}/${input.workerId}/${input.professionDocumentId}/${randomUUID()}-${sanitizeFileName(input.file.name)}`;
+  const { error: uploadError } = await input.supabase.storage
+    .from(WORKER_REQUIRED_FILES_BUCKET)
+    .upload(objectPath, buffer, {
+      contentType: input.file.type || "application/octet-stream",
+      upsert: true,
+    });
+  if (uploadError) {
+    return NextResponse.json({ error: uploadError.message }, { status: 500 });
+  }
+
+  const row = {
+    tenant_id: input.tenantId,
+    worker_id: input.workerId,
+    profession_document_id: input.professionDocumentId,
+    file_url: objectPath,
+    original_file_name: input.file.name,
+    file_type: input.file.type || null,
+    file_size: input.file.size,
+    status: "uploaded",
+    uploaded_at: new Date().toISOString(),
+  };
+
+  const { data: existing, error: existingError } = await input.supabase
+    .from("worker_profession_document_uploads")
+    .select("id")
+    .eq("tenant_id", input.tenantId)
+    .eq("worker_id", input.workerId)
+    .eq("profession_document_id", input.professionDocumentId)
+    .maybeSingle();
+  if (existingError) {
+    return NextResponse.json({ error: existingError.message }, { status: 500 });
+  }
+
+  const write = existing?.id
+    ? input.supabase.from("worker_profession_document_uploads").update(row).eq("id", existing.id)
+    : input.supabase.from("worker_profession_document_uploads").insert(row);
+  const { error: writeError } = await write;
+  if (writeError) {
+    return NextResponse.json({ error: writeError.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true, path: objectPath, bucket: WORKER_REQUIRED_FILES_BUCKET });
+}
+
 export async function POST(req: NextRequest) {
   try {
     const limited = await enforceRateLimit(req, {
@@ -141,6 +213,15 @@ export async function POST(req: NextRequest) {
         validity: String(formData.get("validity") ?? ""),
       });
       if (workflowSaved) return workflowSaved;
+
+      const professionSaved = await saveProfessionDocumentUpload({
+        supabase,
+        tenantId: ctx.tenantId,
+        workerId: ctx.workerId,
+        professionDocumentId: requiredDocumentId,
+        file,
+      });
+      if (professionSaved) return professionSaved;
 
       console.warn("[onboarding/documents/upload] requirement missing", {
         requiredDocumentId,
@@ -240,6 +321,7 @@ export async function POST(req: NextRequest) {
       file_size: file.size,
       status: "uploaded",
       uploaded_at: new Date().toISOString(),
+      uploaded_by_user_id: null,
     };
 
     const { data: existing } = await supabase

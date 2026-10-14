@@ -108,10 +108,19 @@ const COPY: Record<StaffStepAction, ActionCopy> = {
   },
 };
 
+const ON_BEHALF_COMPLETE_COPY: ActionCopy = {
+  title: (step) => `Complete ${step} for the candidate?`,
+  description:
+    "Marks this step completed with the documents uploaded here and approves them. The candidate won't need to do this step in their portal.",
+  confirm: "Mark complete",
+  confirmClass: "shadow-sm hover:brightness-[0.97]",
+};
+
 export default function WorkflowStepStaffActionModal({
   action,
   variant = "default",
   optional = false,
+  onBehalf = false,
   stepTitle,
   submitting,
   error,
@@ -122,6 +131,8 @@ export default function WorkflowStepStaffActionModal({
   variant?: StaffStepVariant;
   /** Optional steps never block the candidate, so reject copy must not say they do. */
   optional?: boolean;
+  /** Staff completing a candidate upload step after uploading the documents themselves. */
+  onBehalf?: boolean;
   stepTitle: string;
   submitting: boolean;
   error: string | null;
@@ -150,7 +161,9 @@ export default function WorkflowStepStaffActionModal({
   }, [action]);
 
   const baseCopy = action
-    ? (variant === "default" ? undefined : VARIANT_COPY[variant][action]) ?? COPY[action]
+    ? onBehalf && action === "complete"
+      ? ON_BEHALF_COMPLETE_COPY
+      : (variant === "default" ? undefined : VARIANT_COPY[variant][action]) ?? COPY[action]
     : null;
   const copy =
     baseCopy && optional && action === "reject" && variant === "default"
@@ -230,7 +243,9 @@ export default function WorkflowStepStaffActionModal({
                       : "Why is this step rejected?"
                     : variant === "interview"
                       ? "Interview feedback, strengths, concerns, or next steps"
-                      : "Screening outcome, call summary, or anything the team should know"
+                      : onBehalf
+                        ? "For example: documents received from the candidate by email"
+                        : "Screening outcome, call summary, or anything the team should know"
                 }
                 className="mt-1 w-full resize-y rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-[color:var(--brand-primary)] focus:outline-none focus:ring-1 focus:ring-[color:var(--brand-primary)]"
               />

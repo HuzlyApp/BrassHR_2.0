@@ -26,6 +26,8 @@ export {
   listApplicationStatusStageNotes,
   findOrCreateApplicationStatusStageNote,
   listApplicationStatusStageButtons,
+  getApplicationStatusButtonLabels,
+  saveApplicationStatusButtonLabels,
   replaceGroupButtonLanes,
 } from "./service";
 export {
@@ -92,6 +94,8 @@ export {
   isStageStatusLane,
   normalizeStageStatusLane,
   applyStageButtonVisibility,
+  normalizeStageButtonLabel,
+  resolveStageButtonLabel,
   resolveConfiguredStageStatusLanes,
   resolveGroupStatusLanes,
   resolveStageStatusLanes,
@@ -101,7 +105,13 @@ export {
 } from "./stage-status-lanes";
 export type {
   SavedStageStatusLane,
+  StageActionButtonLane,
   StageButtonVisibility,
   StageLaneStatus,
   StageStatusLane,
+} from "./stage-status-lanes";
+export {
+  DEFAULT_ALTERNATE_BUTTON_LABEL,
+  DEFAULT_CLOSED_BUTTON_LABEL,
+  STAGE_BUTTON_LABEL_MAX,
 } from "./stage-status-lanes";

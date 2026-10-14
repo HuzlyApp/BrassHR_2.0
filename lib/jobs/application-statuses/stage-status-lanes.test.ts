@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   applyStageButtonVisibility,
   composeStatusChangeNote,
+  normalizeStageButtonLabel,
+  resolveStageButtonLabel,
   resolveConfiguredStageStatusLanes,
   resolveGroupStatusLanes,
   resolveStageStatusLanes,
@@ -164,6 +166,32 @@ describe("resolveGroupStatusLanes", () => {
       "Follow-up Needed",
     ]);
     expect(lanes.closed).toEqual([]);
+  });
+});
+
+describe("stage button labels", () => {
+  it("uses the built-in names until a tenant saves a rename", () => {
+    expect(resolveStageButtonLabel("alternate", null)).toBe("Follow Up needed");
+    expect(resolveStageButtonLabel("closed", "  ")).toBe("Close Application");
+    expect(resolveStageButtonLabel("alternate", "Needs a call")).toBe("Needs a call");
+    expect(resolveStageButtonLabel("closed", "  Withdraw  ")).toBe("Withdraw");
+  });
+
+  it("stores a blank or default name as unset", () => {
+    expect(normalizeStageButtonLabel("alternate", "Follow Up needed")).toEqual({
+      ok: true,
+      label: null,
+    });
+    expect(normalizeStageButtonLabel("closed", "   ")).toEqual({ ok: true, label: null });
+    expect(normalizeStageButtonLabel("closed", "End process")).toEqual({
+      ok: true,
+      label: "End process",
+    });
+  });
+
+  it("rejects a label that will not fit on the button", () => {
+    const result = normalizeStageButtonLabel("alternate", "A".repeat(61));
+    expect(result.ok).toBe(false);
   });
 });
 

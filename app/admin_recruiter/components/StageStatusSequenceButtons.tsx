@@ -10,6 +10,7 @@ import {
   resolveStageStatusLanes,
   selectWorkflowScopedLaneRows,
   applyStageButtonVisibility,
+  resolveStageButtonLabel,
   sequenceOrderedStatuses,
   type SavedStageStatusLane,
   type StageStatusLane,
@@ -37,6 +38,21 @@ type ButtonPref = {
   showClosed: boolean;
 };
 
+function readSharedButtonLabels(value: unknown): { alternate: string | null; closed: string | null } {
+  if (!value || typeof value !== "object") return { alternate: null, closed: null };
+  const record = value as { alternateLabel?: unknown; closedLabel?: unknown };
+  return {
+    alternate:
+      typeof record.alternateLabel === "string" && record.alternateLabel.trim()
+        ? record.alternateLabel.trim()
+        : null,
+    closed:
+      typeof record.closedLabel === "string" && record.closedLabel.trim()
+        ? record.closedLabel.trim()
+        : null,
+  };
+}
+
 export function StageStatusSequenceButtons({
   applicationId,
   stageName,
@@ -50,6 +66,10 @@ export function StageStatusSequenceButtons({
   const [noteRows, setNoteRows] = useState<NoteRow[]>([]);
   const [workflowName, setWorkflowName] = useState<string | null>(null);
   const [buttonPrefs, setButtonPrefs] = useState<ButtonPref[]>([]);
+  const [sharedButtonLabels, setSharedButtonLabels] = useState<{
+    alternate: string | null;
+    closed: string | null;
+  }>({ alternate: null, closed: null });
   const [workflowId, setWorkflowId] = useState<string | null>(null);
   const [statusId, setStatusId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -90,6 +110,7 @@ export function StageStatusSequenceButtons({
       const laneRows = Array.isArray(assignPayload.lanes) ? assignPayload.lanes : [];
       const codes = Array.isArray(assignPayload.reasonCodes) ? assignPayload.reasonCodes : [];
       const prefs = Array.isArray(assignPayload.buttonPrefs) ? assignPayload.buttonPrefs : [];
+      setSharedButtonLabels(readSharedButtonLabels(assignPayload.buttonLabels));
       const notes = Array.isArray(assignPayload.notes) ? assignPayload.notes : [];
       const flows = Array.isArray(assignPayload.workflows) ? assignPayload.workflows : [];
       const nextWorkflowId = typeof application.workflow_id === "string" ? application.workflow_id : null;
@@ -179,18 +200,20 @@ export function StageStatusSequenceButtons({
     void load();
   }, [load]);
 
+  const buttonPref = useMemo(() => {
+    const picked = selectWorkflowScopedLaneRows(buttonPrefs, workflowId);
+    return picked.source === "none" ? null : picked.rows[0];
+  }, [buttonPrefs, workflowId]);
+  const alternateLabel = resolveStageButtonLabel("alternate", sharedButtonLabels.alternate);
+  const closedLabel = resolveStageButtonLabel("closed", sharedButtonLabels.closed);
   const lanes = useMemo(() => {
     const picked = selectWorkflowScopedLaneRows(savedLanes, workflowId);
     const resolved =
       picked.source === "none"
         ? resolveStageStatusLanes(options, assignedGroupIds ?? [], [])
         : resolveConfiguredStageStatusLanes(options, picked.rows);
-    const pickedButtons = selectWorkflowScopedLaneRows(buttonPrefs, workflowId);
-    return applyStageButtonVisibility(
-      resolved,
-      pickedButtons.source === "none" ? null : pickedButtons.rows[0]
-    );
-  }, [assignedGroupIds, buttonPrefs, options, savedLanes, workflowId]);
+    return applyStageButtonVisibility(resolved, buttonPref);
+  }, [assignedGroupIds, buttonPref, options, savedLanes, workflowId]);
   const reasonCodes = useMemo(
     () => selectWorkflowScopedLaneRows(reasonRows, workflowId).rows.map((row) => row.code),
     [reasonRows, workflowId]
@@ -352,9 +375,9 @@ export function StageStatusSequenceButtons({
             type="button"
             disabled={Boolean(busyId)}
             onClick={() => setPending({ lane: "alternate", options: alternates })}
-            className="inline-flex h-9 items-center rounded-full border border-[#D0D5DD] bg-white px-4 text-sm font-semibold text-[#344054] transition hover:bg-[#F8FAFC] disabled:opacity-60"
+            className="inline-flex min-h-9 items-center rounded-full border border-[#D0D5DD] bg-white px-4 py-1.5 text-center text-sm font-semibold text-[#344054] transition hover:bg-[#F8FAFC] disabled:opacity-60"
           >
-            {busyId === alternates[0].id ? "Updating…" : "Follow Up needed"}
+            {busyId === alternates[0].id ? "Updating…" : alternateLabel}
           </button>
         ) : null}
         {closed[0] ? (
@@ -362,9 +385,9 @@ export function StageStatusSequenceButtons({
             type="button"
             disabled={Boolean(busyId)}
             onClick={() => setPending({ lane: "closed", options: closed })}
-            className="inline-flex h-9 items-center rounded-full border border-[#FECACA] bg-white px-4 text-sm font-semibold text-[#B42318] transition hover:bg-[#FEF2F2] disabled:opacity-60"
+            className="inline-flex min-h-9 items-center rounded-full border border-[#FECACA] bg-white px-4 py-1.5 text-center text-sm font-semibold text-[#B42318] transition hover:bg-[#FEF2F2] disabled:opacity-60"
           >
-            {busyId === closed[0].id ? "Updating…" : "Close Application"}
+            {busyId === closed[0].id ? "Updating…" : closedLabel}
           </button>
         ) : null}
       </div>
@@ -373,6 +396,8 @@ export function StageStatusSequenceButtons({
           lane={pending.lane}
           stageName={stageFilter}
           workflowLabel={workflowLabel}
+          alternateLabel={alternateLabel}
+          closedLabel={closedLabel}
           options={pending.options ?? []}
           reasonCodes={reasonCodes ?? []}
           notes={stageNotes}
@@ -421,6 +446,8 @@ function StatusChangeDialog({
   lane,
   stageName,
   workflowLabel,
+  alternateLabel,
+  closedLabel,
   options,
   reasonCodes,
   notes,
@@ -431,6 +458,8 @@ function StatusChangeDialog({
   lane: StageStatusLane;
   stageName: string;
   workflowLabel: string;
+  alternateLabel: string;
+  closedLabel: string;
   options: StatusOption[];
   reasonCodes: string[];
   notes: string[];
@@ -447,8 +476,7 @@ function StatusChangeDialog({
   const [selectedStatusId, setSelectedStatusId] = useState(statuses[0]?.id ?? "");
   const isAlternate = lane === "alternate";
   const picksFromList = lane === "closed";
-  const title =
-    lane === "closed" ? "Close Application" : isAlternate ? "Follow Up needed" : "Update status";
+  const title = lane === "closed" ? closedLabel : isAlternate ? alternateLabel : "Update status";
   const reasonPlan = catalogSavePlan(codes, selectedReason);
   const notePlan = catalogSavePlan(notes, note);
   const noteSuggestions = notes.filter((item) => {
@@ -479,7 +507,7 @@ function StatusChangeDialog({
           <div className="mt-4 space-y-4">
             {statuses.length > 1 ? (
               <label className="block text-sm font-medium text-[#344054]">
-                Follow Up needed
+                {alternateLabel}
                 <select
                   value={statusId}
                   onChange={(event) => setSelectedStatusId(event.target.value)}

@@ -22,7 +22,9 @@ import {
 } from "./stage-reason-codes";
 import {
   STAGE_STATUS_LANES,
+  normalizeStageButtonLabel,
   normalizeStageStatusLane,
+  type StageActionButtonLane,
   type StageStatusLane,
 } from "./stage-status-lanes";
 import {
@@ -1171,6 +1173,10 @@ export type ApplicationStatusStageButtonRecord = {
   workflowId: string | null;
   showAlternate: boolean;
   showClosed: boolean;
+  /** Null keeps the built-in "Follow Up needed" label. */
+  alternateLabel: string | null;
+  /** Null keeps the built-in "Close Application" label. */
+  closedLabel: string | null;
 };
 
 type StageButtonRow = {
@@ -1180,7 +1186,14 @@ type StageButtonRow = {
   workflow_id?: string | null;
   show_alternate: boolean;
   show_closed: boolean;
+  alternate_label?: string | null;
+  closed_label?: string | null;
 };
+
+const STAGE_BUTTON_COLUMNS =
+  "id, tenant_id, stage_name, workflow_id, show_alternate, show_closed, alternate_label, closed_label";
+const STAGE_BUTTON_COLUMNS_WITHOUT_LABELS =
+  "id, tenant_id, stage_name, workflow_id, show_alternate, show_closed";
 
 function mapStageButton(row: StageButtonRow): ApplicationStatusStageButtonRecord | null {
   if (!isAssignableStatusStageName(row.stage_name)) return null;
@@ -1191,27 +1204,53 @@ function mapStageButton(row: StageButtonRow): ApplicationStatusStageButtonRecord
     workflowId: row.workflow_id ?? null,
     showAlternate: row.show_alternate !== false,
     showClosed: row.show_closed !== false,
+    alternateLabel: row.alternate_label?.trim() || null,
+    closedLabel: row.closed_label?.trim() || null,
   };
 }
 
+function stageButtonErrorMessage(error: unknown): string {
+  return String((error as { message?: string }).message ?? error);
+}
+
 function isMissingStageButtonTable(error: unknown): boolean {
-  const message = String((error as { message?: string }).message ?? error);
+  const message = stageButtonErrorMessage(error);
+  if (/alternate_label|closed_label/i.test(message)) return false;
   return /application_status_stage_buttons|schema cache|Could not find/i.test(message);
+}
+
+function isMissingStageButtonLabelColumn(error: unknown): boolean {
+  return /alternate_label|closed_label/i.test(stageButtonErrorMessage(error));
+}
+
+function requireStageButtonLabel(
+  lane: StageActionButtonLane,
+  value: string | null | undefined
+): string | null {
+  const parsed = normalizeStageButtonLabel(lane, value);
+  if (!parsed.ok) throw new ApplicationStatusError(parsed.error, "VALIDATION");
+  return parsed.label;
 }
 
 export async function listApplicationStatusStageButtons(
   supabase: SupabaseClient,
   tenantId: string
 ): Promise<ApplicationStatusStageButtonRecord[]> {
-  const { data, error } = await supabase
+  const first = await supabase
     .from("application_status_stage_buttons")
-    .select("id, tenant_id, stage_name, workflow_id, show_alternate, show_closed")
+    .select(STAGE_BUTTON_COLUMNS)
     .eq("tenant_id", tenantId);
-  if (error) {
-    if (isMissingStageButtonTable(error)) return [];
-    throw error;
+  const query = first.error && isMissingStageButtonLabelColumn(first.error)
+    ? await supabase
+        .from("application_status_stage_buttons")
+        .select(STAGE_BUTTON_COLUMNS_WITHOUT_LABELS)
+        .eq("tenant_id", tenantId)
+    : first;
+  if (query.error) {
+    if (isMissingStageButtonTable(query.error)) return [];
+    throw query.error;
   }
-  return ((data ?? []) as StageButtonRow[])
+  return ((query.data ?? []) as StageButtonRow[])
     .map(mapStageButton)
     .filter((row): row is ApplicationStatusStageButtonRecord => row != null);
 }
@@ -1224,8 +1263,22 @@ async function replaceApplicationStatusStageButtons(
     workflowId: string | null;
     showAlternate: boolean;
     showClosed: boolean;
+    /** Undefined keeps the label already stored for this stage. */
+    alternateLabel?: string | null;
+    closedLabel?: string | null;
   }
 ): Promise<void> {
+  const current = (await listApplicationStatusStageButtons(supabase, input.tenantId)).find(
+    (row) => row.stageName === input.stageName && (row.workflowId ?? null) === input.workflowId
+  );
+  const alternateLabel =
+    input.alternateLabel === undefined
+      ? current?.alternateLabel ?? null
+      : requireStageButtonLabel("alternate", input.alternateLabel);
+  const closedLabel =
+    input.closedLabel === undefined
+      ? current?.closedLabel ?? null
+      : requireStageButtonLabel("closed", input.closedLabel);
   let deleteQuery = supabase
     .from("application_status_stage_buttons")
     .delete()
@@ -1239,17 +1292,102 @@ async function replaceApplicationStatusStageButtons(
     if (isMissingStageButtonTable(deleteError)) return;
     throw deleteError;
   }
-  const { error: insertError } = await supabase.from("application_status_stage_buttons").insert({
+  const row = {
     tenant_id: input.tenantId,
     stage_name: input.stageName,
     workflow_id: input.workflowId,
     show_alternate: input.showAlternate,
     show_closed: input.showClosed,
-  });
+    alternate_label: alternateLabel,
+    closed_label: closedLabel,
+  };
+  const { error: insertError } = await supabase.from("application_status_stage_buttons").insert(row);
+  if (insertError && isMissingStageButtonLabelColumn(insertError)) {
+    if (input.alternateLabel !== undefined || input.closedLabel !== undefined) {
+      throw new ApplicationStatusError(
+        "Button labels are not available until the stage button migration is applied.",
+        "VALIDATION"
+      );
+    }
+    const { alternate_label: _alternateLabel, closed_label: _closedLabel, ...withoutLabels } = row;
+    const retry = await supabase.from("application_status_stage_buttons").insert(withoutLabels);
+    if (retry.error) {
+      if (isMissingStageButtonTable(retry.error)) return;
+      throw retry.error;
+    }
+    return;
+  }
   if (insertError) {
     if (isMissingStageButtonTable(insertError)) return;
     throw insertError;
   }
+}
+
+export type ApplicationStatusButtonLabels = {
+  alternateLabel: string | null;
+  closedLabel: string | null;
+};
+
+function mapButtonLabels(row: {
+  alternate_label?: string | null;
+  closed_label?: string | null;
+} | null): ApplicationStatusButtonLabels {
+  return {
+    alternateLabel: row?.alternate_label?.trim() || null,
+    closedLabel: row?.closed_label?.trim() || null,
+  };
+}
+
+function isMissingButtonLabelTable(error: unknown): boolean {
+  const message = stageButtonErrorMessage(error);
+  return /application_status_button_labels|schema cache|Could not find/i.test(message);
+}
+
+/** One follow-up and close name for every stage in the tenant. */
+export async function getApplicationStatusButtonLabels(
+  supabase: SupabaseClient,
+  tenantId: string
+): Promise<ApplicationStatusButtonLabels> {
+  const { data, error } = await supabase
+    .from("application_status_button_labels")
+    .select("alternate_label, closed_label")
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+  if (error) {
+    if (isMissingButtonLabelTable(error)) return { alternateLabel: null, closedLabel: null };
+    throw error;
+  }
+  return mapButtonLabels(data);
+}
+
+export async function saveApplicationStatusButtonLabels(
+  supabase: SupabaseClient,
+  input: {
+    tenantId: string;
+    alternateLabel: string | null;
+    closedLabel: string | null;
+  }
+): Promise<ApplicationStatusButtonLabels> {
+  const alternateLabel = requireStageButtonLabel("alternate", input.alternateLabel);
+  const closedLabel = requireStageButtonLabel("closed", input.closedLabel);
+  const { error } = await supabase.from("application_status_button_labels").upsert(
+    {
+      tenant_id: input.tenantId,
+      alternate_label: alternateLabel,
+      closed_label: closedLabel,
+    },
+    { onConflict: "tenant_id" }
+  );
+  if (error) {
+    if (isMissingButtonLabelTable(error)) {
+      throw new ApplicationStatusError(
+        "Button labels are not available until the button label migration is applied.",
+        "VALIDATION"
+      );
+    }
+    throw error;
+  }
+  return { alternateLabel, closedLabel };
 }
 
 export type StageLanePlacement = {

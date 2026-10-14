@@ -111,6 +111,22 @@ export function isInternalLibraryStepId(libraryId: string | null | undefined): b
   return value !== "completion-milestone" && INTERNAL_LIBRARY_STEP_IDS.has(value);
 }
 
+export const COMPLETION_OWNER_OPTIONS = [
+  { value: "applicant", label: "Candidate" },
+  { value: "recruiter_or_hr", label: "Recruiter" },
+] as const;
+
+export type CompletionOwnerValue = (typeof COMPLETION_OWNER_OPTIONS)[number]["value"];
+
+/** Older values (worker, contractor, hr_admin, manager, system, …) fold into Candidate or Recruiter. */
+export function resolveCompletionOwner(
+  owner: string | null | undefined,
+  libraryId: string | null | undefined
+): CompletionOwnerValue {
+  if (isInternalLibraryStepId(libraryId)) return "recruiter_or_hr";
+  return isApplicantCompletionOwner(owner) ? "applicant" : "recruiter_or_hr";
+}
+
 export function isInternalLibraryOnboardingStep(step: TenantOnboardingStep): boolean {
   const libraryId = readWorkflowLibraryStepId(step);
   if (libraryId === "completion-milestone") {

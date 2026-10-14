@@ -218,12 +218,29 @@ async function loadApplicantConfigFromFlow(
 
   const withSkills = await attachPublishedSkillAssessmentToConfig(supabase, tenantId, fromFlow);
   let config = withSkills;
+  let attachedProfessionDocuments = false;
   try {
-    const { listFlowDocuments } = await import("@/lib/professions/service");
-    const documents = await listFlowDocuments(supabase, tenantId, flow.id);
-    config = attachWorkflowDocuments(withSkills, documents);
+    const { attachProfessionDocuments, listActiveProfessionDocuments, readFlowProfessionId } =
+      await import("@/lib/professions/profession-documents");
+    const professionId = await readFlowProfessionId(supabase, tenantId, flow.id);
+    if (professionId) {
+      const professionDocuments = await listActiveProfessionDocuments(supabase, tenantId, professionId);
+      if (professionDocuments.length) {
+        config = attachProfessionDocuments(withSkills, professionDocuments);
+        attachedProfessionDocuments = true;
+      }
+    }
   } catch {
     config = withSkills;
+  }
+  if (!attachedProfessionDocuments) {
+    try {
+      const { listFlowDocuments } = await import("@/lib/professions/service");
+      const documents = await listFlowDocuments(supabase, tenantId, flow.id);
+      config = attachWorkflowDocuments(withSkills, documents);
+    } catch {
+      config = withSkills;
+    }
   }
 
   return {

@@ -11,7 +11,9 @@ import {
   listApplicationStatusGroupStageAssignments,
   appendApplicationStatusStageReasonCode,
   findOrCreateApplicationStatusStageNote,
+  getApplicationStatusButtonLabels,
   listApplicationStatusStageButtons,
+  saveApplicationStatusButtonLabels,
   listApplicationStatusStageLanes,
   listApplicationStatusStageNotes,
   listApplicationStatusStageReasonCodes,
@@ -60,11 +62,12 @@ export async function GET() {
   try {
     const tenantId = await resolveStaffTenantId(supabase, auth);
     if (!tenantId) return NextResponse.json({ error: "No tenant selected" }, { status: 400 });
-    const [assignments, lanes, reasonCodes, buttonPrefs, notes, flowsResult] = await Promise.all([
+    const [assignments, lanes, reasonCodes, buttonPrefs, buttonLabels, notes, flowsResult] = await Promise.all([
       listApplicationStatusGroupStageAssignments(supabase, tenantId),
       listApplicationStatusStageLanes(supabase, tenantId),
       listApplicationStatusStageReasonCodes(supabase, tenantId),
       listApplicationStatusStageButtons(supabase, tenantId),
+      getApplicationStatusButtonLabels(supabase, tenantId),
       listApplicationStatusStageNotes(supabase, tenantId),
       supabase
         .from("onboarding_flows")
@@ -85,6 +88,7 @@ export async function GET() {
         lanes,
         reasonCodes,
         buttonPrefs,
+        buttonLabels,
         notes,
         workflows,
         canManage: auth.role === "admin" || auth.godAdmin,
@@ -103,6 +107,7 @@ export async function GET() {
  * - { action: "assign", stageName, groupId }
  * - { action: "unassign", stageName, groupId }
  * - { action: "setLanes", stageName, workflowId?, lanes: { happy_path, alternate, closed } }
+ * - { action: "setButtonLabels", alternateLabel, closedLabel }
  * - { action: "setReasonCodes", stageName, workflowId?, codes: string[] }
  * - { action: "addReasonCode", stageName, workflowId?, code }
  * - { action: "findOrCreateNote", stageName, workflowId?, note }
@@ -129,6 +134,8 @@ export async function PUT(req: NextRequest) {
       codes?: unknown;
       code?: unknown;
       note?: unknown;
+      alternateLabel?: unknown;
+      closedLabel?: unknown;
     } | null;
 
     const action = typeof body?.action === "string" ? body.action : "";
@@ -206,6 +213,26 @@ export async function PUT(req: NextRequest) {
         request: req,
       });
       return NextResponse.json({ note: saved.note, created: saved.created, notes });
+    }
+
+    if (action === "setButtonLabels") {
+      const alternateLabel = typeof body?.alternateLabel === "string" ? body.alternateLabel : null;
+      const closedLabel = typeof body?.closedLabel === "string" ? body.closedLabel : null;
+      const buttonLabels = await saveApplicationStatusButtonLabels(supabase, {
+        tenantId,
+        alternateLabel,
+        closedLabel,
+      });
+      await writeActivityLog({
+        actorUserId: auth.userId,
+        action: "application_status_button_labels.updated",
+        entityType: "tenant",
+        entityId: tenantId,
+        tenantId,
+        metadata: { alternateLabel, closedLabel },
+        request: req,
+      });
+      return NextResponse.json({ buttonLabels });
     }
 
     if (action === "setLanes") {

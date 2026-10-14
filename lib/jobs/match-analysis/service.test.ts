@@ -232,8 +232,7 @@ describe("generateMatchAnalysis", () => {
     const requestOpts = create.mock.calls[0]?.[1] as { timeout?: number } | undefined;
     expect(grokArgs.model).toBe("grok-4.6");
     expect(grokArgs.reasoning).toEqual({ effort: "low" });
-    expect(requestOpts?.timeout).toBeGreaterThanOrEqual(60_000);
-    expect(requestOpts?.timeout).toBeLessThanOrEqual(120_000);
+    expect(requestOpts?.timeout).toBe(120_000);
     expect(result.model).toBe("grok-4.6");
   });
 

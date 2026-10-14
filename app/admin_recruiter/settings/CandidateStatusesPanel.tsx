@@ -23,6 +23,9 @@ import {
   resolveStageStatusLanes,
   selectWorkflowScopedLaneRows,
   applyStageButtonVisibility,
+  DEFAULT_ALTERNATE_BUTTON_LABEL,
+  DEFAULT_CLOSED_BUTTON_LABEL,
+  resolveStageButtonLabel,
   type SavedStageStatusLane,
   type StageStatusLane,
 } from "@/lib/jobs/application-statuses/stage-status-lanes";
@@ -97,6 +100,26 @@ type StageButtonPref = {
   showAlternate: boolean;
   showClosed: boolean;
 };
+
+type SharedButtonLabels = {
+  alternate: string | null;
+  closed: string | null;
+};
+
+function readSharedButtonLabels(value: unknown): SharedButtonLabels {
+  if (!value || typeof value !== "object") return { alternate: null, closed: null };
+  const record = value as { alternateLabel?: unknown; closedLabel?: unknown };
+  return {
+    alternate:
+      typeof record.alternateLabel === "string" && record.alternateLabel.trim()
+        ? record.alternateLabel.trim()
+        : null,
+    closed:
+      typeof record.closedLabel === "string" && record.closedLabel.trim()
+        ? record.closedLabel.trim()
+        : null,
+  };
+}
 
 type StageNote = {
   id: string;
@@ -751,6 +774,14 @@ export default function CandidateStatusesPanel() {
   const [savedLanes, setSavedLanes] = useState<SavedLane[]>([]);
   const [reasonCodes, setReasonCodes] = useState<ReasonCodeRow[]>([]);
   const [buttonPrefs, setButtonPrefs] = useState<StageButtonPref[]>([]);
+  const [sharedButtonLabels, setSharedButtonLabels] = useState<SharedButtonLabels>({
+    alternate: null,
+    closed: null,
+  });
+  const [buttonLabelDraft, setButtonLabelDraft] = useState({
+    alternate: DEFAULT_ALTERNATE_BUTTON_LABEL,
+    closed: DEFAULT_CLOSED_BUTTON_LABEL,
+  });
   const [stageNotes, setStageNotes] = useState<StageNote[]>([]);
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
   const [workflowScopeId, setWorkflowScopeId] = useState("");
@@ -806,6 +837,12 @@ export default function CandidateStatusesPanel() {
         })
       );
       setButtonPrefs(mapButtonPrefs(assignPayload.buttonPrefs));
+      const loadedLabels = readSharedButtonLabels(assignPayload.buttonLabels);
+      setSharedButtonLabels(loadedLabels);
+      setButtonLabelDraft({
+        alternate: resolveStageButtonLabel("alternate", loadedLabels.alternate),
+        closed: resolveStageButtonLabel("closed", loadedLabels.closed),
+      });
       setStageNotes(mapStageNotes(assignPayload.notes));
       setWorkflows(
         ((assignPayload.workflows ?? []) as Array<Record<string, unknown>>).flatMap((row) => {
@@ -959,6 +996,34 @@ export default function CandidateStatusesPanel() {
     } catch (error) {
       flash("error", error instanceof Error ? error.message : "Failed to save status order");
       return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveSharedButtonLabels() {
+    setSaving(true);
+    try {
+      const response = await fetch("/api/admin/application-status-stage-assignments", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "setButtonLabels",
+          alternateLabel: buttonLabelDraft.alternate,
+          closedLabel: buttonLabelDraft.closed,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Failed to save button names");
+      const saved = readSharedButtonLabels(payload.buttonLabels);
+      setSharedButtonLabels(saved);
+      setButtonLabelDraft({
+        alternate: resolveStageButtonLabel("alternate", saved.alternate),
+        closed: resolveStageButtonLabel("closed", saved.closed),
+      });
+      flash("success", "Button names saved for every stage");
+    } catch (error) {
+      flash("error", error instanceof Error ? error.message : "Failed to save button names");
     } finally {
       setSaving(false);
     }
@@ -1300,10 +1365,8 @@ export default function CandidateStatusesPanel() {
       buttonPrefs.filter((row) => row.stageName === stage),
       workflowId
     );
-    const lanes = applyStageButtonVisibility(
-      rawLanes,
-      pickedButtons.source === "none" ? null : pickedButtons.rows[0]
-    );
+    const buttonPref = pickedButtons.source === "none" ? null : pickedButtons.rows[0];
+    const lanes = applyStageButtonVisibility(rawLanes, buttonPref);
     const scopedNotes = stageNotes.filter(
       (row) => row.stageName === stage && (row.workflowId ?? null) === (workflowId ?? null)
     );
@@ -1443,6 +1506,58 @@ export default function CandidateStatusesPanel() {
         </div>
       ) : (
         <div className="space-y-3">
+          <div className="rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-4 py-4">
+            <h3 className="text-sm font-semibold text-[#012352]">Application buttons</h3>
+            <p className="mt-1 text-xs leading-5 text-[#64748B]">
+              These names are used on every stage for this organization. Leave the original wording to keep the default.
+            </p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="block text-xs font-medium text-[#334155]" htmlFor="shared-alternate-button-label">
+                Follow-up button
+                <input
+                  id="shared-alternate-button-label"
+                  value={buttonLabelDraft.alternate}
+                  disabled={!canManage || saving}
+                  maxLength={60}
+                  onChange={(event) =>
+                    setButtonLabelDraft((current) => ({ ...current, alternate: event.target.value }))
+                  }
+                  className="mt-1 h-10 w-full rounded-lg border border-[#CBD5E1] bg-white px-3 text-sm font-normal disabled:bg-[#F1F5F9]"
+                />
+              </label>
+              <label className="block text-xs font-medium text-[#334155]" htmlFor="shared-closed-button-label">
+                Close button
+                <input
+                  id="shared-closed-button-label"
+                  value={buttonLabelDraft.closed}
+                  disabled={!canManage || saving}
+                  maxLength={60}
+                  onChange={(event) =>
+                    setButtonLabelDraft((current) => ({ ...current, closed: event.target.value }))
+                  }
+                  className="mt-1 h-10 w-full rounded-lg border border-[#CBD5E1] bg-white px-3 text-sm font-normal disabled:bg-[#F1F5F9]"
+                />
+              </label>
+            </div>
+            {canManage ? (
+              <button
+                type="button"
+                disabled={
+                  saving ||
+                  (buttonLabelDraft.alternate.trim() ===
+                    resolveStageButtonLabel("alternate", sharedButtonLabels.alternate) &&
+                    buttonLabelDraft.closed.trim() ===
+                      resolveStageButtonLabel("closed", sharedButtonLabels.closed))
+                }
+                onClick={() => void saveSharedButtonLabels()}
+                className="mt-3 inline-flex h-9 items-center rounded-lg bg-[#012352] px-4 text-sm font-medium text-white disabled:opacity-50"
+              >
+                Save button names
+              </button>
+            ) : (
+              <p className="mt-3 text-xs text-[#64748B]">Only administrators can rename these buttons.</p>
+            )}
+          </div>
           <CatalogSection
             title="Pre-Hire workflow status catalog"
             open={openCatalogs.has("prehire")}
