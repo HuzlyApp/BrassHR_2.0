@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
+import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import { requireApiSession } from "@/lib/auth/api-session"
 import { isStaffRole } from "@/lib/auth/app-role"
 import { canAccessWorkerRecord } from "@/lib/auth/worker-record-access"
@@ -31,8 +31,13 @@ function uploadResponse(result: StaffUploadResult) {
   return NextResponse.json({ ok: true, path: result.path, bucket: result.bucket })
 }
 
+type ProfessionDocumentExpiryRow = {
+  id: string
+  has_expiration: boolean | null
+}
+
 async function saveProfessionDocumentUpload(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClient,
   input: {
     tenantId: string
     workerId: string
@@ -42,7 +47,7 @@ async function saveProfessionDocumentUpload(
     expiryDate?: string
   }
 ): Promise<StaffUploadResult | null> {
-  const { data: professionDoc, error } = await supabase
+  const { data, error } = await supabase
     .from("tenant_profession_documents")
     .select("id, has_expiration")
     .eq("id", input.professionDocumentId)
@@ -50,6 +55,7 @@ async function saveProfessionDocumentUpload(
     .eq("is_active", true)
     .maybeSingle()
   if (error) throw error
+  const professionDoc = data as ProfessionDocumentExpiryRow | null
   if (!professionDoc) return null
 
   if (!isAcceptedDocumentFileType(input.file, ["pdf", "png", "jpg", "jpeg", "webp"])) {
@@ -65,8 +71,9 @@ async function saveProfessionDocumentUpload(
     MAX_PROFESSION_DOCUMENT_FILES,
   } = await import("@/lib/professions/profession-documents")
 
+  const hasExpiration = professionDoc.has_expiration === true
   const dateError = validateCredentialDates({
-    hasExpiration: professionDoc.has_expiration === true,
+    hasExpiration,
     issuedDate: input.issuedDate ?? null,
     expiryDate: input.expiryDate ?? null,
   })
@@ -107,11 +114,13 @@ async function saveProfessionDocumentUpload(
     file_type: input.file.type || null,
     file_size: input.file.size,
     status: "uploaded",
-    issued_date: professionDoc.has_expiration ? input.issuedDate || null : null,
-    expiry_date: professionDoc.has_expiration ? input.expiryDate || null : null,
+    issued_date: hasExpiration ? input.issuedDate || null : null,
+    expiry_date: hasExpiration ? input.expiryDate || null : null,
     uploaded_at: new Date().toISOString(),
   }
-  const { error: writeError } = await supabase.from("worker_profession_document_uploads").insert(row)
+  const { error: writeError } = await supabase
+    .from("worker_profession_document_uploads")
+    .insert(row as Record<string, unknown>)
   if (writeError) throw writeError
 
   return { ok: true, path: objectPath, bucket: WORKER_REQUIRED_FILES_BUCKET }

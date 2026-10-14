@@ -92,13 +92,14 @@ async function saveProfessionDocumentUpload(input: {
   issuedDate: string;
   expiryDate: string;
 }): Promise<NextResponse | null> {
-  const { data: professionDoc, error } = await input.supabase
+  const { data, error } = await input.supabase
     .from("tenant_profession_documents")
     .select("id, has_expiration")
     .eq("id", input.professionDocumentId)
     .eq("tenant_id", input.tenantId)
     .eq("is_active", true)
     .maybeSingle();
+  const professionDoc = data as { id: string; has_expiration?: boolean | null } | null;
   if (error || !professionDoc) return null;
 
   if (!isAcceptedDocumentFileType(input.file, ["pdf", "png", "jpg", "jpeg", "webp"])) {
@@ -117,8 +118,9 @@ async function saveProfessionDocumentUpload(input: {
     MAX_PROFESSION_DOCUMENT_FILES,
   } = await import("@/lib/professions/profession-documents");
 
+  const hasExpiration = professionDoc.has_expiration === true;
   const dateError = validateCredentialDates({
-    hasExpiration: professionDoc.has_expiration === true,
+    hasExpiration,
     issuedDate: input.issuedDate || null,
     expiryDate: input.expiryDate || null,
   });
@@ -160,14 +162,14 @@ async function saveProfessionDocumentUpload(input: {
     file_type: input.file.type || null,
     file_size: input.file.size,
     status: "uploaded",
-    issued_date: professionDoc.has_expiration ? input.issuedDate || null : null,
-    expiry_date: professionDoc.has_expiration ? input.expiryDate || null : null,
+    issued_date: hasExpiration ? input.issuedDate || null : null,
+    expiry_date: hasExpiration ? input.expiryDate || null : null,
     uploaded_at: new Date().toISOString(),
   };
 
   const { error: writeError } = await input.supabase
     .from("worker_profession_document_uploads")
-    .insert(row);
+    .insert(row as Record<string, unknown>);
   if (writeError) {
     return NextResponse.json({ error: writeError.message }, { status: 500 });
   }
