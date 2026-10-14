@@ -14,6 +14,12 @@ describe("workflowStepOwnershipCopy", () => {
     expect(copy.note).toBe("Read-only submission from the candidate.");
   });
 
+  it("tells staff they can upload on candidate steps with upload fields", () => {
+    const copy = workflowStepOwnershipCopy({ kind: "upload", staffCanAct: false, staffCanUpload: true });
+    expect(copy.badge).toBe("Candidate step");
+    expect(copy.note).toMatch(/upload them for the candidate/);
+  });
+
   it("uses recruiter wording when staff can act", () => {
     const copy = workflowStepOwnershipCopy({ kind: "resume", staffCanAct: true });
     expect(copy.stepFor).toBe("Recruiter step");

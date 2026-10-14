@@ -51,6 +51,16 @@ import {
   mapInstanceStepRecord,
   resolveStaffStepEligibility,
 } from "@/lib/onboarding/staff-workflow-step-review";
+import {
+  IDENTITY_UPLOAD_SLOTS,
+  buildStepDocumentUploads,
+  identityDocumentId,
+  loadIdentityDocumentRow,
+  loadStepSubmittedDocuments,
+  staffUploaderIdFromPath,
+  stepUploadRequirements,
+  type StepDocumentUploads,
+} from "@/lib/onboarding/staff-step-documents";
 import { filterResumesForApplication } from "@/lib/jobs/match-analysis/pick-resume-for-application";
 import { classifyResumeUploaderRole } from "@/lib/resume/resume-upload-limit";
 import { staffRoleLabel, type StaffConsoleRole } from "@/lib/admin/staff-directory-types";
@@ -126,6 +136,8 @@ export type WorkflowStepInspectionError = {
 
 export type InspectableDocument = {
   id: string;
+  /** Requirement or slot the file was uploaded for, e.g. "Nursing License". */
+  documentName: string | null;
   originalFileName: string | null;
   documentType: string | null;
   fileSize: number | null;
@@ -166,6 +178,8 @@ export type WorkflowStepInspection = {
   /** Compliance check / facility approval result for those step types. */
   checkResult: StepCheckResult | null;
   documents: InspectableDocument[];
+  /** Upload fields on this step; staff can fill them for the candidate. Null when the step has none. */
+  documentUploads: StepDocumentUploads | null;
   form: {
     questions: Array<{
       label: string;
@@ -314,6 +328,15 @@ export function candidateWaitingMessage(
   return `${progress} This is a candidate step: the candidate ${where} in their application portal once they reach it, so there's nothing for staff to mark here. Their response will appear here when they submit it.`;
 }
 
+/** Candidate upload step with nothing submitted yet: staff can also upload the files themselves. */
+export function candidateUploadWaitingMessage(status: OnboardingStepStatus): string {
+  const progress =
+    status === "in_progress"
+      ? "The candidate has opened this step but hasn't finished it yet."
+      : "Waiting for the candidate.";
+  return `${progress} The candidate can upload these documents in their application portal, or you can upload them below for the candidate (for example, files they sent you by email) and mark the step complete.`;
+}
+
 /** Filters post-hire direct deposit submission fields so recruiter view only sees the authorization confirmation checkbox. */
 export function filterDirectDepositInspectionFields(
   fields: Array<{ label: string; value: string }>
@@ -433,13 +456,6 @@ async function signedOrUnavailable(
   return { url, unavailable: !url };
 }
 
-const IDENTITY_DOCUMENT_SLOTS = [
-  { column: "ssn_url", label: "SSN card (front)" },
-  { column: "ssn_back_url", label: "SSN card (back)" },
-  { column: "drivers_license_url", label: "Driver's license (front)" },
-  { column: "drivers_license_back_url", label: "Driver's license (back)" },
-] as const;
-
 const UPLOAD_NAME_PREFIX_RE =
   /^\d+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-/i;
 
@@ -455,37 +471,47 @@ export function storedFileName(stored: string): string {
   return name.replace(UPLOAD_NAME_PREFIX_RE, "") || name;
 }
 
+/** "Name (Admin|Recruiter)" when staff uploaded the file for the candidate, else "Name (Applicant)". */
+function documentUploaderLabel(
+  staffUserId: string | null,
+  candidateName: string,
+  staffById: Map<string, StaffMember>
+): string {
+  if (!staffUserId) return candidateUploaderLabel(candidateName);
+  const staff = staffById.get(staffUserId);
+  return staff ? staffMemberLabel(staff) : "Team member (Staff)";
+}
+
 /** SSN / ID uploads live on the worker's `worker_documents` row, not per required document. */
-async function loadIdentityDocuments(
+async function identityDocuments(
   supabase: SupabaseClient,
-  params: { tenantId: string; workerId: string; uploadedBy: string }
+  params: {
+    row: Record<string, unknown> | null;
+    workerId: string;
+    candidateName: string;
+    uploaderById: Map<string, StaffMember>;
+  }
 ): Promise<{ documents: InspectableDocument[]; complete: boolean }> {
-  const { data, error } = await supabase
-    .from("worker_documents")
-    .select("*")
-    .eq("worker_id", params.workerId)
-    .limit(1);
-  if (error) {
-    console.error("[candidate-workflow-step-inspection] identity documents unavailable", error);
-    return { documents: [], complete: false };
-  }
-  const row = ((data ?? []) as Array<Record<string, unknown>>)[0];
-  if (!row || (asText(row.tenant_id) && asText(row.tenant_id) !== params.tenantId)) {
-    return { documents: [], complete: false };
-  }
+  const { row } = params;
+  if (!row) return { documents: [], complete: false };
 
   const documents: InspectableDocument[] = [];
-  for (const slot of IDENTITY_DOCUMENT_SLOTS) {
+  for (const slot of IDENTITY_UPLOAD_SLOTS) {
     const stored = asText(row[slot.column]);
     if (!stored) continue;
     const signed = await signedOrUnavailable(supabase, stored, WORKER_REQUIRED_FILES_BUCKET);
     documents.push({
-      id: `${String(row.id ?? params.workerId)}:${slot.column}`,
+      id: identityDocumentId(row, params.workerId, slot.column),
+      documentName: slot.title,
       originalFileName: storedFileName(stored),
-      documentType: slot.label,
+      documentType: slot.title,
       fileSize: null,
       uploadedAt: asText(row.updated_at),
-      uploadedBy: params.uploadedBy,
+      uploadedBy: documentUploaderLabel(
+        staffUploaderIdFromPath(stored),
+        params.candidateName,
+        params.uploaderById
+      ),
       verificationStatus: null,
       previewUrl: signed.url,
       downloadUrl: signed.url,
@@ -641,34 +667,37 @@ export async function loadCandidateWorkflowStepInspection(
     usesESign,
   });
 
-  const requiredDocIds = [
-    ...new Set(
-      (config?.requiredDocuments ?? [])
-        .filter((doc) => doc.onboarding_step_id === mappedTenantStepId)
-        .map((doc) => doc.id)
-    ),
-  ];
+  const requiredDocTitleById = new Map(
+    (config?.requiredDocuments ?? [])
+      .filter((doc) => doc.onboarding_step_id === mappedTenantStepId)
+      .map((doc) => [doc.id, doc.title])
+  );
+  const uploadRequirements = stepUploadRequirements(config, mappedTenantStepId);
+  const isIdentityStep = mapped.stepType === SSN_IDENTITY_STEP_TYPE;
 
-  const submittedRows =
-    requiredDocIds.length > 0
-      ? (
-          await supabase
-            .from("worker_submitted_documents")
-            .select(
-              "id, required_document_id, file_url, original_file_name, file_type, file_size, status, uploaded_at, reviewed_at, reviewed_by, review_notes"
-            )
-            .eq("tenant_id", tenantId)
-            .eq("worker_id", workerId)
-            .in("required_document_id", requiredDocIds)
-            .order("uploaded_at", { ascending: false })
-        ).data ?? []
-      : [];
+  const [submittedRows, identityRow] = await Promise.all([
+    loadStepSubmittedDocuments(supabase, {
+      tenantId,
+      workerId,
+      requiredDocumentIds: [...requiredDocTitleById.keys()],
+    }),
+    isIdentityStep
+      ? loadIdentityDocumentRow(supabase, { tenantId, workerId }).catch((error) => {
+          console.error("[candidate-workflow-step-inspection] identity documents unavailable", error);
+          return null;
+        })
+      : Promise.resolve(null),
+  ]);
 
   const candidateName = [asText(worker.first_name), asText(worker.last_name)]
     .filter(Boolean)
     .join(" ");
+  const uploaderById = await loadStaffMembers(supabase, tenantId, [
+    ...submittedRows.map((row) => asText(row.uploaded_by_user_id) ?? ""),
+    ...IDENTITY_UPLOAD_SLOTS.map((slot) => staffUploaderIdFromPath(asText(identityRow?.[slot.column])) ?? ""),
+  ]);
   const documents: InspectableDocument[] = [];
-  for (const row of submittedRows as Array<Record<string, unknown>>) {
+  for (const row of submittedRows) {
     const signed = await signedOrUnavailable(
       supabase,
       asText(row.file_url),
@@ -676,11 +705,12 @@ export async function loadCandidateWorkflowStepInspection(
     );
     documents.push({
       id: String(row.id),
+      documentName: requiredDocTitleById.get(String(row.required_document_id)) ?? null,
       originalFileName: asText(row.original_file_name),
       documentType: asText(row.file_type),
       fileSize: typeof row.file_size === "number" ? row.file_size : null,
       uploadedAt: asText(row.uploaded_at),
-      uploadedBy: candidateUploaderLabel(candidateName),
+      uploadedBy: documentUploaderLabel(asText(row.uploaded_by_user_id), candidateName, uploaderById),
       verificationStatus: asText(row.status),
       previewUrl: signed.url,
       downloadUrl: signed.url,
@@ -718,6 +748,7 @@ export async function loadCandidateWorkflowStepInspection(
       const signed = await signedOrUnavailable(supabase, stored, WORKER_RESUMES_BUCKET);
       documents.push({
         id: String(row.id),
+        documentName: "Resume",
         originalFileName: asText(row.original_file_name) ?? asText(row.file_name),
         documentType: asText(row.file_type) ?? "resume",
         fileSize: typeof row.file_size_bytes === "number" ? row.file_size_bytes : null,
@@ -754,11 +785,12 @@ export async function loadCandidateWorkflowStepInspection(
   }
 
   // Identity uploads have no review status of their own; they only lift an untouched step to Submitted.
-  if (mapped.stepType === SSN_IDENTITY_STEP_TYPE) {
-    const identity = await loadIdentityDocuments(supabase, {
-      tenantId,
+  if (isIdentityStep) {
+    const identity = await identityDocuments(supabase, {
+      row: identityRow,
       workerId,
-      uploadedBy: candidateUploaderLabel(candidateName),
+      candidateName,
+      uploaderById,
     });
     documents.push(...identity.documents);
     mapped.displayStatus = enrichAssignedStepsDisplayFromEvidence({
@@ -766,6 +798,20 @@ export async function loadCandidateWorkflowStepInspection(
       hasIdentityDocuments: identity.complete,
     })[0].displayStatus;
   }
+
+  const documentUploads = buildStepDocumentUploads({
+    workerId,
+    stepType: mapped.stepType,
+    requirements: uploadRequirements,
+    submittedRows: submittedRows.map((row) => ({
+      id: String(row.id),
+      required_document_id: asText(row.required_document_id),
+      status: asText(row.status),
+    })),
+    identityRow,
+    candidateOwned: !staffAction.allowed && Boolean(mappedTenantStepId),
+    stepStatus: mapped.status,
+  });
 
   let enrollment: WorkflowStepInspection["enrollment"] = null;
   if (isEnrollmentDecisionStepType(mapped.stepType)) {
@@ -1227,7 +1273,9 @@ export async function loadCandidateWorkflowStepInspection(
     !candidateHasSubmitted &&
     (mapped.status === "pending" || mapped.status === "in_progress")
   ) {
-    emptyState = candidateWaitingMessage(kind, mapped.status, hasPostHireScreen ? mapped.title : null);
+    emptyState = documentUploads.canUpload
+      ? candidateUploadWaitingMessage(mapped.status)
+      : candidateWaitingMessage(kind, mapped.status, hasPostHireScreen ? mapped.title : null);
   } else if (!progress && documents.length === 0 && mapped.status === "pending") {
     emptyState = "No submission received for this step.";
   } else if (mapped.status === "completed" && documents.length === 0 && !form && !assessment && !agreement) {
@@ -1290,6 +1338,7 @@ export async function loadCandidateWorkflowStepInspection(
     staffReview,
     checkResult,
     documents,
+    documentUploads: documentUploads.slots.length ? documentUploads : null,
     form,
     assessment,
     references,
