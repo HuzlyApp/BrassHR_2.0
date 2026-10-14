@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseUrl } from "@/lib/supabase-env";
 import {
   readOnboardingTenantSlugFromRequest,
@@ -24,7 +24,7 @@ function sanitizeFileName(name: string): string {
 }
 
 async function saveWorkflowCredentialUpload(input: {
-  supabase: ReturnType<typeof createClient>;
+  supabase: SupabaseClient;
   tenantId: string;
   workerId: string;
   requiredDocumentId: string;
