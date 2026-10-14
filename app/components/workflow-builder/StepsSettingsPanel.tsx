@@ -15,6 +15,11 @@ import {
   WORKFLOW_PROVIDER_OPTIONS,
 } from "@/lib/onboarding/normalize-workflow-settings";
 import { isFirmaAttachableWorkflowStepId } from "@/lib/onboarding/firma-step-settings";
+import {
+  COMPLETION_OWNER_OPTIONS,
+  isInternalLibraryStepId,
+  resolveCompletionOwner,
+} from "@/lib/onboarding/workflow-settings";
 import { postHireScreenKindForStepId } from "@/lib/onboarding/post-hire-step-screens";
 import { FirmaTemplateSelect } from "@/app/components/onboarding/FirmaTemplateSelect";
 import { resolveHireLibraryIconPath } from "./hire-library-icons";
@@ -180,6 +185,7 @@ function SettingsBody({ node, onUpdate, onSaveStep, onCloneWorkflow, readOnly = 
     typeof (settings as { stageName?: unknown }).stageName === "string"
       ? (settings as { stageName?: string }).stageName
       : null;
+  const ownerLocked = isInternalLibraryStepId(node.data.stepId);
   const themeColor = resolveCanvasStepThemeColor(node.data.stepId, stageName);
   const iconPath = resolveHireLibraryIconPath(node.data.stepId);
 
@@ -337,11 +343,20 @@ function SettingsBody({ node, onUpdate, onSaveStep, onCloneWorkflow, readOnly = 
             });
           }}
         />
-        <TextField
+        <SelectField
           label="Completion owner"
-          value={settings.completionOwner ?? ""}
-          onChange={(v) => patchSettings({ completionOwner: v }, { skipHistory: true })}
-          onCommit={(v) => patchSettings({ completionOwner: v })}
+          value={resolveCompletionOwner(settings.completionOwner, node.data.stepId)}
+          options={COMPLETION_OWNER_OPTIONS.map((option) => option.value)}
+          optionLabels={Object.fromEntries(
+            COMPLETION_OWNER_OPTIONS.map((option) => [option.value, option.label])
+          )}
+          disabled={ownerLocked}
+          hint={
+            ownerLocked
+              ? "This step is always completed by the recruiter."
+              : "Candidate steps appear in the candidate portal. Recruiter steps appear only for staff."
+          }
+          onChange={(v) => patchSettings({ completionOwner: v })}
         />
         <ToggleRow
           label="Conditional step"
