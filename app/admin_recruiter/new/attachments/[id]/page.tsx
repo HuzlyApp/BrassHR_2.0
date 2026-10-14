@@ -67,6 +67,7 @@ type SettingsDocument = {
   name: string;
   documentKind: "certificate" | "license";
   isRequired: boolean;
+  hasExpiration: boolean;
 };
 
 type SettingsProfession = {
@@ -78,6 +79,7 @@ type SettingsProfession = {
 type SettingsCatalog = {
   canManage: boolean;
   workerProfessionId: string | null;
+  savedProfessionId: string | null;
   professions: SettingsProfession[];
 };
 
@@ -142,6 +144,7 @@ export default function NewApplicantAttachmentsFilledPage() {
   const [newDocumentName, setNewDocumentName] = useState("");
   const [newDocumentKind, setNewDocumentKind] = useState<"certificate" | "license">("certificate");
   const [newDocumentRequired, setNewDocumentRequired] = useState(true);
+  const [newDocumentHasExpiration, setNewDocumentHasExpiration] = useState(true);
   const [savingDocuments, setSavingDocuments] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -182,7 +185,7 @@ export default function NewApplicantAttachmentsFilledPage() {
     const payload = (await response.json()) as SettingsCatalog & { error?: string };
     if (!response.ok) throw new Error(payload.error || "Could not load document settings");
     setSettings(payload);
-    setProfessionId((current) => current || payload.workerProfessionId || "");
+    setProfessionId(payload.savedProfessionId || payload.workerProfessionId || "");
   }, [applicantId]);
 
   useEffect(() => {
@@ -193,10 +196,17 @@ export default function NewApplicantAttachmentsFilledPage() {
   }, [fetchApplicant, loadSettings]);
 
   const selectedProfession = settings?.professions.find((profession) => profession.id === professionId) ?? null;
+  const professionLocked = Boolean(settings?.savedProfessionId);
 
   async function saveProfessionDocuments(
     nextProfessionId: string,
-    documents: Array<{ id?: string; name: string; documentKind: "certificate" | "license"; isRequired: boolean }>
+    documents: Array<{
+      id?: string;
+      name: string;
+      documentKind: "certificate" | "license";
+      isRequired: boolean;
+      hasExpiration: boolean;
+    }>
   ) {
     if (!applicantId || !nextProfessionId) return;
     setSavingDocuments(true);
@@ -219,6 +229,7 @@ export default function NewApplicantAttachmentsFilledPage() {
   }
 
   async function connectProfession(nextProfessionId: string) {
+    if (settings?.savedProfessionId) return;
     setProfessionId(nextProfessionId);
     if (!nextProfessionId || !settings?.canManage) return;
     const documents = settings.professions.find((profession) => profession.id === nextProfessionId)?.documents ?? [];
@@ -229,6 +240,7 @@ export default function NewApplicantAttachmentsFilledPage() {
         name: document.name,
         documentKind: document.documentKind,
         isRequired: document.isRequired,
+        hasExpiration: document.hasExpiration === true,
       }))
     );
   }
@@ -244,6 +256,7 @@ export default function NewApplicantAttachmentsFilledPage() {
         name: document.id === row.requiredDocumentId ? name : document.name,
         documentKind: document.documentKind,
         isRequired: document.isRequired,
+        hasExpiration: document.hasExpiration === true,
       }))
     );
   }
@@ -291,49 +304,84 @@ export default function NewApplicantAttachmentsFilledPage() {
         name: document.name,
         documentKind: document.documentKind,
         isRequired: document.isRequired,
+        hasExpiration: document.hasExpiration === true,
       })),
-      { name, documentKind: newDocumentKind, isRequired: newDocumentRequired },
+      {
+        name,
+        documentKind: newDocumentKind,
+        isRequired: newDocumentRequired,
+        hasExpiration: newDocumentHasExpiration,
+      },
     ]);
     setNewDocumentName("");
     setNewDocumentKind("certificate");
     setNewDocumentRequired(true);
+    setNewDocumentHasExpiration(true);
   }
 
   const openUploadPicker = (row: AttachmentRow) => {
     setUploadError(null);
     setPendingUploadRow(row);
+    const input = fileInputRef.current;
+    if (input) {
+      const settingsDoc = selectedProfession?.documents.find(
+        (document) => document.id === row.requiredDocumentId
+      );
+      input.multiple = Boolean(settingsDoc) && !isResumeAttachmentRow(row);
+    }
     fileInputRef.current?.click();
   };
 
-  const handleFileSelected = async (file: File | undefined) => {
+  const handleFileSelected = async (fileList: FileList | null) => {
     const row = pendingUploadRow;
     setPendingUploadRow(null);
-    if (!file || !row || !applicantId) return;
+    const files = Array.from(fileList ?? []);
+    if (!files.length || !row || !applicantId) return;
+
+    const settingsDoc = selectedProfession?.documents.find(
+      (document) => document.id === row.requiredDocumentId
+    );
+    const needsExpiry = settingsDoc?.hasExpiration === true;
+    let issuedDate = "";
+    let expiryDate = "";
+    if (needsExpiry) {
+      issuedDate = window.prompt(`Issued date for ${row.title} (YYYY-MM-DD)`)?.trim() || "";
+      expiryDate = window.prompt(`Expiry date for ${row.title} (YYYY-MM-DD)`)?.trim() || "";
+      if (!issuedDate || !expiryDate) {
+        setUploadError("Issued date and expiry date are required for this document.");
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      }
+    }
 
     setUploadingId(row.key);
     setUploadError(null);
 
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("workerId", applicantId);
-      fd.append("documentTitle", row.title);
+      for (const file of files.slice(0, 5)) {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("workerId", applicantId);
+        fd.append("documentTitle", row.title);
 
-      if (isResumeAttachmentRow(row)) {
-        fd.append("attachmentKind", "resume");
-      } else if (row.requiredDocumentId) {
-        fd.append("requiredDocumentId", row.requiredDocumentId);
-      } else {
-        throw new Error(`Upload is not configured for "${row.title}".`);
-      }
+        if (isResumeAttachmentRow(row)) {
+          fd.append("attachmentKind", "resume");
+        } else if (row.requiredDocumentId) {
+          fd.append("requiredDocumentId", row.requiredDocumentId);
+        } else {
+          throw new Error(`Upload is not configured for "${row.title}".`);
+        }
+        if (issuedDate) fd.append("issuedDate", issuedDate);
+        if (expiryDate) fd.append("expiryDate", expiryDate);
 
-      const res = await fetch("/api/admin/worker-attachment-upload", {
-        method: "POST",
-        body: fd,
-      });
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        throw new Error(json.error || "Upload failed");
+        const res = await fetch("/api/admin/worker-attachment-upload", {
+          method: "POST",
+          body: fd,
+        });
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) {
+          throw new Error(json.error || "Upload failed");
+        }
       }
 
       setScanById((prev) => {
@@ -347,7 +395,10 @@ export default function NewApplicantAttachmentsFilledPage() {
       setUploadError(msg);
     } finally {
       setUploadingId(null);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+        fileInputRef.current.multiple = false;
+      }
     }
   };
 
@@ -576,8 +627,7 @@ export default function NewApplicantAttachmentsFilledPage() {
               className="hidden"
               accept=".pdf,.png,.jpg,.jpeg,.docx,application/pdf,image/png,image/jpeg"
               onChange={(e) => {
-                const file = e.target.files?.[0];
-                void handleFileSelected(file);
+                void handleFileSelected(e.target.files);
               }}
             />
 
@@ -659,24 +709,30 @@ export default function NewApplicantAttachmentsFilledPage() {
                   </div>
 
                   {settings ? (
-                    <label className="mb-4 block max-w-sm">
+                    <div className="mb-4 block max-w-sm">
                       <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-[#64748B]">
                         Profession
                       </span>
-                      <select
-                        value={professionId}
-                        disabled={!settings.canManage || savingDocuments}
-                        onChange={(event) => void connectProfession(event.target.value)}
-                        className="h-9 w-full rounded-lg border border-[#CBD5E1] bg-white px-3 text-sm text-[#0F172A] disabled:bg-[#F8FAFC]"
-                      >
-                        <option value="">Select profession</option>
-                        {settings.professions.map((profession) => (
-                          <option key={profession.id} value={profession.id}>
-                            {profession.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                      {professionLocked ? (
+                        <p className="flex h-9 items-center rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm font-medium text-[#0F172A]">
+                          {selectedProfession?.name || "Saved profession"}
+                        </p>
+                      ) : (
+                        <select
+                          value={professionId}
+                          disabled={!settings.canManage || savingDocuments}
+                          onChange={(event) => void connectProfession(event.target.value)}
+                          className="h-9 w-full rounded-lg border border-[#CBD5E1] bg-white px-3 text-sm text-[#0F172A] disabled:bg-[#F8FAFC]"
+                        >
+                          <option value="">Select profession</option>
+                          {settings.professions.map((profession) => (
+                            <option key={profession.id} value={profession.id}>
+                              {profession.name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
                   ) : null}
 
                   <div className="space-y-3">
@@ -857,7 +913,7 @@ export default function NewApplicantAttachmentsFilledPage() {
 
                   {settings?.canManage ? (
                     <form
-                      className="mt-4 grid gap-2 rounded-md border border-dashed border-[#CBD5E1] bg-[#F8FAFC] p-3 sm:grid-cols-[minmax(0,1fr)_160px_auto_auto] sm:items-center"
+                      className="mt-4 grid gap-2 rounded-md border border-dashed border-[#CBD5E1] bg-[#F8FAFC] p-3 sm:grid-cols-[minmax(0,1fr)_140px_auto_auto_auto] sm:items-center"
                       onSubmit={(event) => {
                         event.preventDefault();
                         void addDocument();
@@ -885,6 +941,18 @@ export default function NewApplicantAttachmentsFilledPage() {
                           className="h-4 w-4 rounded border-[#CBD5E1]"
                         />
                         {newDocumentRequired ? "Required" : "Optional"}
+                      </label>
+                      <label className="inline-flex items-center gap-2 text-sm text-[#0F172A]">
+                        <span className="text-[#64748B]">Expiry</span>
+                        <select
+                          value={newDocumentHasExpiration ? "yes" : "no"}
+                          onChange={(event) => setNewDocumentHasExpiration(event.target.value === "yes")}
+                          className="h-9 rounded-lg border border-[#CBD5E1] bg-white px-2 text-sm"
+                          aria-label="Requires expiry date"
+                        >
+                          <option value="yes">Yes</option>
+                          <option value="no">No</option>
+                        </select>
                       </label>
                       <button
                         type="submit"

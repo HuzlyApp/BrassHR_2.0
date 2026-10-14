@@ -36,9 +36,30 @@ describe("applyProfessionDocumentsToAttachments", () => {
         row({ id: "authorization", title: "Authorization", step_type: "authorizations", url: legacy.authorization_document_url }),
       ],
       [
-        { id: "lic", name: "Nursing license", documentKind: "license", isRequired: true, sortOrder: 10 },
-        { id: "bls", name: "BLS", documentKind: "certificate", isRequired: true, sortOrder: 30 },
-        { id: "acls", name: "ACLS", documentKind: "certificate", isRequired: false, sortOrder: 40 },
+        {
+          id: "lic",
+          name: "Nursing license",
+          documentKind: "license",
+          isRequired: true,
+          hasExpiration: true,
+          sortOrder: 10,
+        },
+        {
+          id: "bls",
+          name: "BLS",
+          documentKind: "certificate",
+          isRequired: true,
+          hasExpiration: true,
+          sortOrder: 30,
+        },
+        {
+          id: "acls",
+          name: "ACLS",
+          documentKind: "certificate",
+          isRequired: false,
+          hasExpiration: true,
+          sortOrder: 40,
+        },
       ],
       new Map([
         ["bls", { id: "upload-1", signedUrl: "https://files/bls.pdf", originalFileName: "bls.pdf", status: "uploaded" }],
@@ -78,7 +99,14 @@ describe("applyProfessionDocumentsToAttachments", () => {
         row({ id: "ssn", title: "SSN Card", step_type: "authorizations" }),
       ],
       [
-        { id: "lic", name: "Nursing license", documentKind: "license", isRequired: true, sortOrder: 10 },
+        {
+          id: "lic",
+          name: "Nursing license",
+          documentKind: "license",
+          isRequired: true,
+          hasExpiration: true,
+          sortOrder: 10,
+        },
       ],
       new Map(),
       legacy

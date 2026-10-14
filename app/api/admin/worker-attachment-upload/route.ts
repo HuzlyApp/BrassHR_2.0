@@ -33,11 +33,18 @@ function uploadResponse(result: StaffUploadResult) {
 
 async function saveProfessionDocumentUpload(
   supabase: ReturnType<typeof createClient>,
-  input: { tenantId: string; workerId: string; professionDocumentId: string; file: File }
+  input: {
+    tenantId: string
+    workerId: string
+    professionDocumentId: string
+    file: File
+    issuedDate?: string
+    expiryDate?: string
+  }
 ): Promise<StaffUploadResult | null> {
   const { data: professionDoc, error } = await supabase
     .from("tenant_profession_documents")
-    .select("id")
+    .select("id, has_expiration")
     .eq("id", input.professionDocumentId)
     .eq("tenant_id", input.tenantId)
     .eq("is_active", true)
@@ -50,6 +57,35 @@ async function saveProfessionDocumentUpload(
   }
   if (input.file.size > 10 * 1024 * 1024) {
     return { ok: false, status: 400, error: "File exceeds 10MB limit" }
+  }
+
+  const { validateCredentialDates } = await import("@/lib/professions/catalog")
+  const {
+    countWorkerProfessionDocumentFiles,
+    MAX_PROFESSION_DOCUMENT_FILES,
+  } = await import("@/lib/professions/profession-documents")
+
+  const dateError = validateCredentialDates({
+    hasExpiration: professionDoc.has_expiration === true,
+    issuedDate: input.issuedDate ?? null,
+    expiryDate: input.expiryDate ?? null,
+  })
+  if (dateError) {
+    return { ok: false, status: 400, error: dateError }
+  }
+
+  const existingCount = await countWorkerProfessionDocumentFiles(
+    supabase,
+    input.tenantId,
+    input.workerId,
+    input.professionDocumentId
+  )
+  if (existingCount >= MAX_PROFESSION_DOCUMENT_FILES) {
+    return {
+      ok: false,
+      status: 400,
+      error: `You can upload at most ${MAX_PROFESSION_DOCUMENT_FILES} files for this document.`,
+    }
   }
 
   const buffer = Buffer.from(await input.file.arrayBuffer())
@@ -71,21 +107,11 @@ async function saveProfessionDocumentUpload(
     file_type: input.file.type || null,
     file_size: input.file.size,
     status: "uploaded",
+    issued_date: professionDoc.has_expiration ? input.issuedDate || null : null,
+    expiry_date: professionDoc.has_expiration ? input.expiryDate || null : null,
     uploaded_at: new Date().toISOString(),
   }
-  const { data: existing, error: existingError } = await supabase
-    .from("worker_profession_document_uploads")
-    .select("id")
-    .eq("tenant_id", input.tenantId)
-    .eq("worker_id", input.workerId)
-    .eq("profession_document_id", input.professionDocumentId)
-    .maybeSingle()
-  if (existingError) throw existingError
-
-  const write = existing?.id
-    ? supabase.from("worker_profession_document_uploads").update(row).eq("id", existing.id)
-    : supabase.from("worker_profession_document_uploads").insert(row)
-  const { error: writeError } = await write
+  const { error: writeError } = await supabase.from("worker_profession_document_uploads").insert(row)
   if (writeError) throw writeError
 
   return { ok: true, path: objectPath, bucket: WORKER_REQUIRED_FILES_BUCKET }
@@ -226,6 +252,8 @@ export async function POST(req: NextRequest) {
         workerId,
         professionDocumentId: requiredDocumentId,
         file,
+        issuedDate: String(formData.get("issuedDate") ?? "").trim() || undefined,
+        expiryDate: String(formData.get("expiryDate") ?? "").trim() || undefined,
       })
       if (professionSaved) return uploadResponse(professionSaved)
     }

@@ -11,6 +11,7 @@ type DocumentDraft = {
   name: string;
   documentKind: DocumentKind;
   isRequired: boolean;
+  hasExpiration: boolean;
   sortOrder: number;
 };
 
@@ -34,6 +35,7 @@ function newDocument(): DocumentDraft {
     name: "",
     documentKind: "certificate",
     isRequired: true,
+    hasExpiration: true,
     sortOrder: 0,
   };
 }
@@ -54,8 +56,12 @@ export default function ProfessionDocumentsPanel() {
     const nextDrafts: Record<string, DocumentDraft[]> = {};
     const nextSaved: Record<string, string> = {};
     for (const profession of rows) {
-      nextDrafts[profession.id] = profession.documents.map((doc) => ({ ...doc }));
-      nextSaved[profession.id] = JSON.stringify(profession.documents);
+      const documents = profession.documents.map((doc) => ({
+        ...doc,
+        hasExpiration: doc.hasExpiration === true,
+      }));
+      nextDrafts[profession.id] = documents;
+      nextSaved[profession.id] = JSON.stringify(documents);
     }
     setCanManage(payload.canManage);
     setIndustryLabel(payload.industryLabel);
@@ -128,12 +134,16 @@ export default function ProfessionDocumentsPanel() {
             name: doc.name,
             documentKind: doc.documentKind,
             isRequired: doc.isRequired,
+            hasExpiration: doc.hasExpiration,
           })),
         }),
       });
       const payload = (await response.json()) as { error?: string; documents?: DocumentDraft[] };
       if (!response.ok) throw new Error(payload.error || "Could not save documents");
-      const next = payload.documents ?? [];
+      const next = (payload.documents ?? []).map((doc) => ({
+        ...doc,
+        hasExpiration: doc.hasExpiration === true,
+      }));
       setDrafts((current) => ({ ...current, [selectedId]: next }));
       setSaved((current) => ({ ...current, [selectedId]: JSON.stringify(next) }));
       toast.success("Upload documents saved");
@@ -161,8 +171,9 @@ export default function ProfessionDocumentsPanel() {
         <div>
           <h3 className="text-base font-semibold text-[#0F172A]">Upload documents</h3>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-[#64748B]">
-            Choose the certificates and licenses each profession uploads. Mark each one required or optional.
-            This list is for your organization
+            Choose the certificates and licenses each profession uploads. Mark each one required or optional,
+            and whether an expiry date is required on upload. Applicants can attach up to 5 files per
+            document. This list is for your organization
             {industryLabel ? ` in ${industryLabel}` : ""}.
           </p>
         </div>
@@ -210,7 +221,7 @@ export default function ProfessionDocumentsPanel() {
                   {documents.map((doc) => (
                     <li
                       key={doc.id}
-                      className="grid gap-2 rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] p-3 sm:grid-cols-[minmax(0,1fr)_160px_auto_auto] sm:items-center"
+                      className="grid gap-2 rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] p-3 sm:grid-cols-[minmax(0,1fr)_140px_auto_auto_auto] sm:items-center"
                     >
                       <label className="block">
                         <span className="sr-only">Document name</span>
@@ -245,6 +256,21 @@ export default function ProfessionDocumentsPanel() {
                           className="h-4 w-4 rounded border-[#CBD5E1]"
                         />
                         {doc.isRequired ? "Required" : "Optional"}
+                      </label>
+                      <label className="inline-flex items-center gap-2 text-sm text-[#0F172A]">
+                        <span className="text-[#64748B]">Expiry</span>
+                        <select
+                          value={doc.hasExpiration ? "yes" : "no"}
+                          disabled={!canManage}
+                          onChange={(event) =>
+                            updateDocument(doc.id, { hasExpiration: event.target.value === "yes" })
+                          }
+                          className="h-9 rounded-lg border border-[#CBD5E1] bg-white px-2 text-sm text-[#0F172A] disabled:bg-[#F1F5F9]"
+                          aria-label={`${doc.name || "Document"} requires expiry date`}
+                        >
+                          <option value="yes">Yes</option>
+                          <option value="no">No</option>
+                        </select>
                       </label>
                       <button
                         type="button"

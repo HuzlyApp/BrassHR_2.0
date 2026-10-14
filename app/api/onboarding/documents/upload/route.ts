@@ -89,10 +89,12 @@ async function saveProfessionDocumentUpload(input: {
   workerId: string;
   professionDocumentId: string;
   file: File;
+  issuedDate: string;
+  expiryDate: string;
 }): Promise<NextResponse | null> {
   const { data: professionDoc, error } = await input.supabase
     .from("tenant_profession_documents")
-    .select("id")
+    .select("id, has_expiration")
     .eq("id", input.professionDocumentId)
     .eq("tenant_id", input.tenantId)
     .eq("is_active", true)
@@ -107,6 +109,34 @@ async function saveProfessionDocumentUpload(input: {
   }
   if (input.file.size > 10 * 1024 * 1024) {
     return NextResponse.json({ error: "File exceeds 10MB limit" }, { status: 400 });
+  }
+
+  const { validateCredentialDates } = await import("@/lib/professions/catalog");
+  const {
+    countWorkerProfessionDocumentFiles,
+    MAX_PROFESSION_DOCUMENT_FILES,
+  } = await import("@/lib/professions/profession-documents");
+
+  const dateError = validateCredentialDates({
+    hasExpiration: professionDoc.has_expiration === true,
+    issuedDate: input.issuedDate || null,
+    expiryDate: input.expiryDate || null,
+  });
+  if (dateError) {
+    return NextResponse.json({ error: dateError }, { status: 400 });
+  }
+
+  const existingCount = await countWorkerProfessionDocumentFiles(
+    input.supabase,
+    input.tenantId,
+    input.workerId,
+    input.professionDocumentId
+  );
+  if (existingCount >= MAX_PROFESSION_DOCUMENT_FILES) {
+    return NextResponse.json(
+      { error: `You can upload at most ${MAX_PROFESSION_DOCUMENT_FILES} files for this document.` },
+      { status: 400 }
+    );
   }
 
   const buffer = Buffer.from(await input.file.arrayBuffer());
@@ -130,24 +160,14 @@ async function saveProfessionDocumentUpload(input: {
     file_type: input.file.type || null,
     file_size: input.file.size,
     status: "uploaded",
+    issued_date: professionDoc.has_expiration ? input.issuedDate || null : null,
+    expiry_date: professionDoc.has_expiration ? input.expiryDate || null : null,
     uploaded_at: new Date().toISOString(),
   };
 
-  const { data: existing, error: existingError } = await input.supabase
+  const { error: writeError } = await input.supabase
     .from("worker_profession_document_uploads")
-    .select("id")
-    .eq("tenant_id", input.tenantId)
-    .eq("worker_id", input.workerId)
-    .eq("profession_document_id", input.professionDocumentId)
-    .maybeSingle();
-  if (existingError) {
-    return NextResponse.json({ error: existingError.message }, { status: 500 });
-  }
-
-  const write = existing?.id
-    ? input.supabase.from("worker_profession_document_uploads").update(row).eq("id", existing.id)
-    : input.supabase.from("worker_profession_document_uploads").insert(row);
-  const { error: writeError } = await write;
+    .insert(row);
   if (writeError) {
     return NextResponse.json({ error: writeError.message }, { status: 500 });
   }
@@ -220,6 +240,8 @@ export async function POST(req: NextRequest) {
         workerId: ctx.workerId,
         professionDocumentId: requiredDocumentId,
         file,
+        issuedDate: String(formData.get("issuedDate") ?? ""),
+        expiryDate: String(formData.get("expiryDate") ?? ""),
       });
       if (professionSaved) return professionSaved;
 
