@@ -78,6 +78,8 @@ export type CandidateWorkflowPhaseView = {
   hiredAt: string | null;
   hiredBy: string | null;
   postHireVisible: boolean;
+  /** False when the assigned workflow has no post-hire steps, so staff UI hides Post-Hire entirely. */
+  workflowHasPostHireSteps: boolean;
   postHireUnlocked: boolean;
   postHireLocked: boolean;
   postHireSuspended: boolean;
@@ -498,6 +500,7 @@ export async function loadCandidateWorkflowPhaseView(
     hiredAt: hireGate.hiredAt,
     hiredBy: hireGate.hiredBy,
     postHireVisible,
+    workflowHasPostHireSteps: postHireSteps.length > 0,
     postHireUnlocked: effectivePostHireUnlocked,
     postHireLocked: !postHireVisible,
     postHireSuspended,

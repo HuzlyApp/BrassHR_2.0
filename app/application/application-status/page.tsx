@@ -1,6 +1,6 @@
 "use client";
 
-import { applicationPath } from "@/lib/tenant/with-tenant";
+import { applicationPath, currentApplicationJobToken } from "@/lib/tenant/with-tenant";
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
@@ -98,17 +98,18 @@ export default function ApplicationStatusPage() {
 
       try {
         const tenant = searchParams.get("tenant")?.trim() || "";
+        const completionQuery = new URLSearchParams({ applicantId });
+        if (tenant) completionQuery.set("tenant", tenant);
+        const jobToken = searchParams.get("job_token")?.trim() || currentApplicationJobToken();
+        if (jobToken) completionQuery.set("job_token", jobToken);
+        const applicationId = searchParams.get("applicationId")?.trim();
+        if (applicationId) completionQuery.set("applicationId", applicationId);
         const [statusRes, compRes] = await Promise.allSettled([
           fetch(
             `/api/onboarding/application-status?applicantId=${encodeURIComponent(applicantId)}`,
             { cache: "no-store" }
           ),
-          fetch(
-            `/api/onboarding/completion-status?applicantId=${encodeURIComponent(applicantId)}${
-              tenant ? `&tenant=${encodeURIComponent(tenant)}` : ""
-            }`,
-            { cache: "no-store" }
-          ),
+          fetch(`/api/onboarding/completion-status?${completionQuery}`, { cache: "no-store" }),
         ]);
 
         if (!alive) return;
@@ -165,7 +166,9 @@ export default function ApplicationStatusPage() {
 
   const showPostHireCompleted =
     isExplicitPostHire ||
-    (!isExplicitPreHire && completionResult?.allComplete === true);
+    (!isExplicitPreHire &&
+      completionResult?.allComplete === true &&
+      completionResult.hasPostHireSteps);
 
   const showPreHireCompleted =
     isExplicitPreHire ||

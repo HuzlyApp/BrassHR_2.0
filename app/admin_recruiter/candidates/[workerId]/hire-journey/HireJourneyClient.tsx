@@ -140,9 +140,11 @@ export default function HireJourneyClient({ workerId }: { workerId: string }) {
   const primaryApplication = profile?.applications?.[0] ?? null;
   const postHireVisible = Boolean(view?.postHireVisible);
   const postHireBlock = view?.postHire ?? null;
+  const workflowHasPostHire = view ? view.workflowHasPostHireSteps : true;
+  const activeTab: HireTab = workflowHasPostHire ? tab : "pre_hire";
 
   function selectTab(next: HireTab) {
-    if (next === "post_hire" && !postHireVisible && !loading) {
+    if (next === "post_hire" && (!workflowHasPostHire || (!postHireVisible && !loading))) {
       return;
     }
     setTab(next);
@@ -151,6 +153,7 @@ export default function HireJourneyClient({ workerId }: { workerId: string }) {
   return (
     <div className="admin-recruiter-page-pad bg-[#F5F6F8]">
       <div className="admin-recruiter-content-width space-y-4">
+        {workflowHasPostHire ? (
         <div className="flex w-full justify-center">
           <div
             className="inline-flex rounded-full border border-[#E5E7EB] bg-white p-1 shadow-sm"
@@ -163,7 +166,7 @@ export default function HireJourneyClient({ workerId }: { workerId: string }) {
                 { id: "post_hire" as const, label: "Post Hire" },
               ] as const
             ).map((item) => {
-              const active = tab === item.id;
+              const active = activeTab === item.id;
               const postLocked = item.id === "post_hire" && !postHireVisible && !loading;
               return (
                 <button
@@ -189,8 +192,9 @@ export default function HireJourneyClient({ workerId }: { workerId: string }) {
             })}
           </div>
         </div>
+        ) : null}
 
-        {tab === "post_hire" ? (
+        {activeTab === "post_hire" ? (
           !postHireVisible ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-6 text-sm text-amber-800">
               {POST_HIRE_LOCKED_TAB_MESSAGE}

@@ -10,6 +10,7 @@ function view(partial: Partial<CandidateWorkflowPhaseView> = {}): CandidateWorkf
     hiredAt: null,
     hiredBy: null,
     postHireVisible: false,
+    workflowHasPostHireSteps: true,
     postHireUnlocked: false,
     postHireLocked: true,
     postHireSuspended: false,
