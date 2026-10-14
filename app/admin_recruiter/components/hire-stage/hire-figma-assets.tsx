@@ -12,6 +12,7 @@ export const PRE_HIRE_UI_ICONS = {
   calendarDate: "/icons/Hire-icons/pre-hire-icons/calendar-date.svg",
   taskIncomplete: "/icons/Hire-icons/pre-hire-icons/task-incomplete.svg",
   pendingClock: "/icons/Hire-icons/pre-hire-icons/pending-clock.svg",
+  inProgressClock: "/iconoven_pending-clock.svg",
   stageLocked: "/icons/Hire-icons/pre-hire-icons/stage-locked.svg",
 } as const;
 
