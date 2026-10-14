@@ -57,6 +57,8 @@ import OfferAcceptanceSection from "./OfferAcceptanceSection";
 import RecruiterScreeningAiSection from "./RecruiterScreeningAiSection";
 import SkillAssessmentResults from "./SkillAssessmentResults";
 import WorkflowStepStaffActionModal from "./WorkflowStepStaffActionModal";
+import StepDocumentUploadsSection from "./StepDocumentUploadsSection";
+import type { StepUploadSlot } from "@/lib/onboarding/staff-step-documents";
 import { CandidateApplicationStatusControl } from "./CandidateApplicationStatusControl";
 import { StageStatusSequenceButtons } from "./StageStatusSequenceButtons";
 import { StageContextNotesSection } from "./StageContextNotesSection";
@@ -384,6 +386,9 @@ export default function CandidateWorkflowStepModal({
   const title = inspection?.step.title ?? "Step details";
   const stepId = inspection?.step.id ?? null;
   const [pendingAction, setPendingAction] = useState<StaffStepAction | null>(null);
+  const [pendingOnBehalf, setPendingOnBehalf] = useState(false);
+  const [uploadingKey, setUploadingKey] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: "success" | "warning"; message: string } | null>(null);
@@ -394,6 +399,9 @@ export default function CandidateWorkflowStepModal({
   useEffect(() => {
     setActiveInspectionOverride(null);
     setPendingAction(null);
+    setPendingOnBehalf(false);
+    setUploadingKey(null);
+    setUploadError(null);
     setActionError(null);
     setNotice(null);
     setResyncNotice(null);
@@ -485,10 +493,22 @@ export default function CandidateWorkflowStepModal({
       interviewState.key !== "completed" &&
       interviewState.key !== "rejected"
   );
+  const documentUploads = currentInspection?.documentUploads ?? null;
+  const candidateUploadStep = Boolean(documentUploads && !staffAction?.allowed);
+  const canCompleteForCandidate = Boolean(workerId && documentUploads?.canCompleteForCandidate);
+  const slotDocumentIds = useMemo(
+    () => new Set((documentUploads?.slots ?? []).flatMap((slot) => (slot.documentId ? [slot.documentId] : []))),
+    [documentUploads]
+  );
+  const otherDocuments = useMemo(
+    () => (inspection?.documents ?? []).filter((doc) => !slotDocumentIds.has(doc.id)),
+    [inspection?.documents, slotDocumentIds]
+  );
   const ownership = workflowStepOwnershipCopy({
     kind: currentInspection?.kind,
     staffCanAct: Boolean(staffAction?.allowed),
     displayStatus: currentInspection?.step.displayStatus,
+    staffCanUpload: candidateUploadStep && Boolean(documentUploads?.canUpload),
   });
   const stepSideLabel = ownership.badge;
   const screeningApplicationId =
@@ -523,7 +543,38 @@ export default function CandidateWorkflowStepModal({
           CANDIDATE_EMAIL_STATUSES.has(inspection.step.displayStatus)))
   );
   const showFooter =
-    !loading && !error && (canSchedule || (canAct && staffAction) || canEmailCandidate);
+    !loading &&
+    !error &&
+    (canSchedule || (canAct && staffAction) || canEmailCandidate || canCompleteForCandidate);
+
+  async function uploadStepDocument(slot: StepUploadSlot, file: File) {
+    if (!workerId || !stepId || uploadingKey) return;
+    setUploadingKey(slot.key);
+    setUploadError(null);
+    setNotice(null);
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      body.append("slotKey", slot.key);
+      const res = await fetch(
+        `/api/admin/candidates/${encodeURIComponent(workerId)}/workflow-steps/${encodeURIComponent(stepId)}/documents`,
+        { method: "POST", credentials: "include", body }
+      );
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        inspection?: WorkflowStepInspection | null;
+      };
+      if (!res.ok) throw new Error(json.error || "Failed to upload the document.");
+      if (json.inspection) setActiveInspectionOverride(json.inspection);
+      setNotice({ tone: "success", message: `${slot.title} uploaded for the candidate.` });
+      await onStepUpdated?.();
+      if (onStepUpdated) setActiveInspectionOverride(null);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Failed to upload the document.");
+    } finally {
+      setUploadingKey(null);
+    }
+  }
 
   async function sendCandidateEmail() {
     if (!workerId || !stepId) return;
@@ -573,6 +624,7 @@ export default function CandidateWorkflowStepModal({
             note: input.note || null,
             notifyCandidate: input.notifyCandidate,
             clientOrigin: window.location.origin,
+            ...(pendingOnBehalf ? { onBehalfOfCandidate: true } : {}),
           }),
         }
       );
@@ -582,9 +634,17 @@ export default function CandidateWorkflowStepModal({
         applicationStatus?: { statusName: string } | null;
       };
       if (!res.ok) throw new Error(json.error || "Failed to update this step.");
+      const onBehalf = pendingOnBehalf;
       setPendingAction(null);
-      const resultNotice =
-        action === "reject" && variant === "default" && inspection && !inspection.step.required
+      setPendingOnBehalf(false);
+      const resultNotice = onBehalf
+        ? {
+            tone: "success" as const,
+            message: json.email?.sent
+              ? `Step completed for the candidate. The candidate was emailed a link to "${json.email.nextStepTitle ?? "their next step"}".`
+              : "Step completed for the candidate with the uploaded documents.",
+          }
+        : action === "reject" && variant === "default" && inspection && !inspection.step.required
           ? { tone: "success" as const, message: "Step rejected. It's optional, so it doesn't block the candidate's next stage." }
           : action === "complete" && variant === "interview" && !json.email
             ? { tone: "success" as const, message: "Interview marked as completed." }
@@ -596,6 +656,7 @@ export default function CandidateWorkflowStepModal({
           : resultNotice
       );
       await onStepUpdated?.();
+      if (onStepUpdated) setActiveInspectionOverride(null);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to update this step.");
     } finally {
@@ -761,6 +822,18 @@ export default function CandidateWorkflowStepModal({
                   </p>
                 ) : null}
 
+                {documentUploads ? (
+                  <StepDocumentUploadsSection
+                    uploads={documentUploads}
+                    documents={inspection.documents}
+                    candidateStep={candidateUploadStep}
+                    canEdit={Boolean(workerId)}
+                    uploadingKey={uploadingKey}
+                    error={uploadError}
+                    onUpload={(slot, file) => void uploadStepDocument(slot, file)}
+                  />
+                ) : null}
+
                 {interviews ? (
                   <Section title="Interviews" count={activeInterviewCount}>
                     {interviewsNewestFirst.length ? (
@@ -904,14 +977,17 @@ export default function CandidateWorkflowStepModal({
                   </Section>
                 ) : null}
 
-                {inspection.documents.length > 0 ? (
-                  <Section title="Uploaded documents" count={inspection.documents.length}>
+                {otherDocuments.length > 0 ? (
+                  <Section title="Uploaded documents" count={otherDocuments.length}>
                     <ul className="space-y-3">
-                      {inspection.documents.map((doc) => (
+                      {otherDocuments.map((doc) => (
                         <li key={doc.id} className="rounded-lg border border-slate-200 px-3 py-2">
                           <p className="break-words text-sm font-medium text-slate-900">
-                            {doc.originalFileName || "Uploaded file"}
+                            {doc.documentName || doc.originalFileName || "Uploaded file"}
                           </p>
+                          {doc.documentName && doc.originalFileName ? (
+                            <p className="break-words text-xs text-slate-600">{doc.originalFileName}</p>
+                          ) : null}
                           <dl className="mt-2 grid grid-cols-1 gap-1 text-xs text-slate-600 sm:grid-cols-2">
                             <div>Type: {doc.documentType || "—"}</div>
                             <div>Size: {formatBytes(doc.fileSize)}</div>
@@ -1258,6 +1334,21 @@ export default function CandidateWorkflowStepModal({
                     {activeInterviewCount > 0 ? "Schedule Another Interview" : "Schedule Interview"}
                   </button>
                 ) : null}
+                {canCompleteForCandidate ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActionError(null);
+                      setPendingOnBehalf(true);
+                      setPendingAction("complete");
+                    }}
+                    disabled={submitting || uploadingKey != null}
+                    className="rounded-lg px-4 py-2 text-sm font-semibold shadow-sm transition hover:brightness-[0.97] disabled:opacity-50"
+                    style={{ background: "var(--step-modal-cta)", color: "var(--step-modal-on-primary)" }}
+                  >
+                    Mark as complete
+                  </button>
+                ) : null}
                 {(canAct ? staffAction?.actions ?? [] : []).map((action) => (
                   <button
                     key={action}
@@ -1297,11 +1388,13 @@ export default function CandidateWorkflowStepModal({
         action={pendingAction}
         variant={variant}
         optional={inspection ? !inspection.step.required : false}
+        onBehalf={pendingOnBehalf}
         stepTitle={title}
         submitting={submitting}
         error={actionError}
         onCancel={() => {
           setPendingAction(null);
+          setPendingOnBehalf(false);
           setActionError(null);
         }}
         onConfirm={(input) => void submitAction(input)}

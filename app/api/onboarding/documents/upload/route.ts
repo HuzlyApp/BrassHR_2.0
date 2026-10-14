@@ -240,6 +240,7 @@ export async function POST(req: NextRequest) {
       file_size: file.size,
       status: "uploaded",
       uploaded_at: new Date().toISOString(),
+      uploaded_by_user_id: null,
     };
 
     const { data: existing } = await supabase

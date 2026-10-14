@@ -45,6 +45,10 @@ import {
   staffStepVariantForLibraryId,
   type StaffStepVariant,
 } from "@/lib/onboarding/staff-step-review-shared";
+import {
+  approveStepDocumentsOnCompletion,
+  loadStepDocumentUploads,
+} from "@/lib/onboarding/staff-step-documents";
 import { getEnabledTenantSteps } from "@/lib/onboarding/tenant-step-navigation";
 import type {
   OnboardingStepStatus,
@@ -768,6 +772,8 @@ export async function applyStaffWorkflowStepAction(
     notifyCandidate: boolean;
     origin: string | null;
     request?: Request;
+    /** Staff completing a candidate's upload step after collecting the documents themselves. */
+    onBehalfOfCandidate?: boolean;
   }
 ): Promise<StaffStepActionResult> {
   const { workerId, tenantId, action } = params;
@@ -784,7 +790,9 @@ export async function applyStaffWorkflowStepAction(
   if (!ctx.ok) return ctx;
 
   const initial = staffEligibilityFor(ctx);
-  if (!initial.allowed) return notStaffOwned(initial);
+  const onBehalf = !initial.allowed && params.onBehalfOfCandidate === true && action === "complete";
+  if (!initial.allowed && !onBehalf) return notStaffOwned(initial);
+  if (onBehalf && !ctx.mapped.tenantStepId) return notStaffOwned(initial);
 
   // Unlinked internal steps still gate the candidate on the job workflow's step, so mirror there.
   const tenantStepId =
@@ -812,7 +820,35 @@ export async function applyStaffWorkflowStepAction(
     toAssignedStepRecordInput(ctx.record),
     progressRow ?? undefined
   ).status;
-  if (!allowedStaffActions(currentStatus, initial.variant).includes(action)) {
+  let onBehalfDocumentIds: string[] = [];
+  if (onBehalf) {
+    const uploads = await loadStepDocumentUploads(supabase, {
+      tenantId,
+      workerId,
+      tenantStepId: ctx.mapped.tenantStepId,
+      stepType: ctx.mapped.stepType,
+      config: ctx.config,
+      candidateOwned: true,
+      stepStatus: currentStatus,
+    });
+    if (!uploads.canCompleteForCandidate) {
+      return {
+        ok: false,
+        status: 409,
+        code: "DOCUMENTS_MISSING",
+        error: uploads.missingRequired.length
+          ? `Upload ${uploads.missingRequired.join(", ")} before completing this step.`
+          : uploads.slots.length === 0
+            ? "This step has no documents staff can upload, so the candidate completes it."
+            : uploads.canUpload
+              ? "Upload at least one document before completing this step."
+              : "This step is already completed. Refresh to see the latest status.",
+      };
+    }
+    onBehalfDocumentIds = uploads.slots.flatMap((slot) =>
+      slot.requiredDocumentId ? [slot.requiredDocumentId] : []
+    );
+  } else if (!allowedStaffActions(currentStatus, initial.variant).includes(action)) {
     return {
       ok: false,
       status: 409,
@@ -850,6 +886,20 @@ export async function applyStaffWorkflowStepAction(
     }
   }
 
+  if (onBehalf) {
+    try {
+      await approveStepDocumentsOnCompletion(supabase, {
+        tenantId,
+        workerId,
+        requiredDocumentIds: onBehalfDocumentIds,
+        reviewerUserId: params.actor.userId,
+        reviewedAt: now,
+      });
+    } catch (approveError) {
+      console.error("[staff-workflow-step-review] document approval failed", approveError);
+    }
+  }
+
   await writeActivityLog({
     actorUserId: params.actor.userId,
     action: `workflow_step.staff_${action}`,
@@ -864,6 +914,7 @@ export async function applyStaffWorkflowStepAction(
       previous_status: currentStatus,
       status: nextStatus,
       note,
+      ...(onBehalf ? { on_behalf_of_candidate: true } : {}),
     },
     request: params.request,
   });

@@ -12,6 +12,8 @@ export function workflowStepOwnershipCopy(params: {
   kind: string | null | undefined;
   staffCanAct: boolean;
   displayStatus?: string | null;
+  /** Candidate step with upload fields staff can fill for the candidate. */
+  staffCanUpload?: boolean;
 }): WorkflowStepOwnershipCopy {
   if (params.staffCanAct) {
     return {
@@ -27,6 +29,13 @@ export function workflowStepOwnershipCopy(params: {
       badge: "Candidate or recruiter step",
       stepFor: "Candidate or recruiter can upload resume",
       note: "Read-only. The resume can be uploaded by the candidate or by a recruiter.",
+    };
+  }
+  if (params.staffCanUpload) {
+    return {
+      badge: "Candidate step",
+      stepFor: "Candidate step (recruiter can upload)",
+      note: "The candidate uploads these documents, or you can upload them for the candidate and mark the step complete.",
     };
   }
   return {
