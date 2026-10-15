@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadTenantOnboardingConfig } from "@/lib/onboarding/load-tenant-config";
 import { isValidStep1Email } from "@/lib/onboardingStep1Validation";
+import { isTenantStepBlocking } from "@/lib/onboarding/reference-verification";
 import type { StepProgressRow } from "@/lib/onboarding/types";
 
 export type CompletionValidationResult =
@@ -21,7 +22,7 @@ export async function validateWorkerOnboardingComplete(
   const progressByStep = new Map(stepProgress.map((s) => [s.onboarding_step_id, s]));
   const missing: { stepKey: string; reason: string }[] = [];
 
-  const requiredSteps = config.steps.filter((s) => s.is_enabled && s.is_required);
+  const requiredSteps = config.steps.filter((s) => s.is_enabled && isTenantStepBlocking(s));
 
   for (const step of requiredSteps) {
     const prog = progressByStep.get(step.id);

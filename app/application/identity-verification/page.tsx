@@ -215,17 +215,13 @@ export default function IdentityVerificationPage() {
   const anyUploading =
     Object.values(identity).some((slot) => slot?.uploading) ||
     Object.values(extra).some((slot) => slot?.uploading)
-  const requiredMet =
-    IDENTITY_DOCUMENT_FIELDS.filter((field) => field.required).every(
-      (field) => identity[field.column] && !identity[field.column]?.uploading
-    ) &&
-    configuredDocs
-      .filter((doc) => doc.is_required)
-      .every((doc) => extra[doc.id] && !extra[doc.id]?.uploading)
+  const anyUploaded =
+    Object.values(identity).some((slot) => slot && !slot.uploading) ||
+    Object.values(extra).some((slot) => slot && !slot.uploading)
 
   const handleContinue = async () => {
-    if (!requiredMet) {
-      setError("Please upload all required documents before continuing.")
+    if (anyUploading) {
+      setError("Please wait for uploads to finish.")
       return
     }
     if (!standalone) {
@@ -235,7 +231,12 @@ export default function IdentityVerificationPage() {
     setSaving(true)
     setError(null)
     try {
-      await persistStepProgress(nav.updateStepStatus, step?.step_key, "completed", completingRef)
+      await persistStepProgress(
+        nav.updateStepStatus,
+        step?.step_key,
+        anyUploaded ? "completed" : "skipped",
+        completingRef
+      )
       nav.goNext()
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong")
@@ -334,6 +335,9 @@ export default function IdentityVerificationPage() {
             ))}
 
             <p className="text-[11px] text-slate-400">Only PNG, JPG, or PDF files</p>
+            <p className="text-[11px] text-slate-500">
+              You can continue now and come back to upload any missing documents later.
+            </p>
           </div>
 
           <div className={APPLICANT_ACTION_ROW}>
@@ -348,7 +352,7 @@ export default function IdentityVerificationPage() {
             <button
               type="button"
               onClick={() => void handleContinue()}
-              disabled={saving || anyUploading || !requiredMet}
+              disabled={saving || anyUploading}
               className="group inline-flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-md bg-[color:var(--brand-primary)] px-3 py-2.5 text-[11px] font-medium leading-5 text-white transition hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-50 max-[399px]:px-3 sm:w-auto sm:gap-2 sm:px-6 sm:py-2 sm:text-[12px]"
             >
               {saving ? "Saving…" : "Save & Continue"}

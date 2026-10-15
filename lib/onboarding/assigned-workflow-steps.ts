@@ -415,12 +415,14 @@ function tenantWorkflowStepId(step: TenantOnboardingStep): string | null {
  * Order: explicit settings id → workflow_node_id → step-{key} → unique library id + phase → unique type + phase.
  *
  * Exact links also consider disabled tenant steps: job workflows keep writing progress to steps
- * that a later publish of a different flow disabled. Heuristic fallbacks stay on enabled steps.
+ * that a later publish of a different flow disabled. Heuristic fallbacks stay on enabled steps,
+ * except a disabled step with the same library id that the candidate has progress on.
  */
 export function matchTenantStepForAssignedRecord(
   record: AssignedStepRecordInput,
   tenantSteps: TenantOnboardingStep[],
-  usedIds: Set<string>
+  usedIds: Set<string>,
+  hasProgress?: (tenantStepId: string) => boolean
 ): TenantOnboardingStep | null {
   const unused = tenantSteps.filter((step) => !usedIds.has(step.id));
   const available = unused.filter((step) => step.is_enabled !== false);
@@ -445,6 +447,16 @@ export function matchTenantStepForAssignedRecord(
   const libraryId = asText(record.step_type);
   const phase = parseAssignedStepPhase(record);
   if (libraryId) {
+    if (hasProgress) {
+      const withProgress = exactCandidates.filter(
+        (step) => tenantWorkflowStepId(step) === libraryId && hasProgress(step.id)
+      );
+      const enabledWithProgress = withProgress.filter((step) => step.is_enabled !== false);
+      if (enabledWithProgress.length === 1) return enabledWithProgress[0];
+      if (!enabledWithProgress.length && withProgress.length) {
+        return [...withProgress].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))[0];
+      }
+    }
     const byLibrary = available.filter((step) => tenantWorkflowStepId(step) === libraryId);
     if (byLibrary.length === 1) return byLibrary[0];
     const byLibraryPhase = byLibrary.filter((step) => readStepLifecyclePhase(step) === phase);
@@ -455,9 +467,11 @@ export function matchTenantStepForAssignedRecord(
   }
 
   const onboardingType = workflowStepIdToOnboardingType(libraryId ?? "");
-  const byTypePhase = available.filter(
-    (step) => step.step_type === onboardingType && readStepLifecyclePhase(step) === phase
-  );
+  const byTypePhase = available.filter((step) => {
+    if (step.step_type !== onboardingType || readStepLifecyclePhase(step) !== phase) return false;
+    const stepLibraryId = tenantWorkflowStepId(step);
+    return !libraryId || !stepLibraryId || stepLibraryId === libraryId;
+  });
   if (byTypePhase.length === 1) return byTypePhase[0];
   return null;
 }
@@ -560,7 +574,9 @@ export function mapAssignedStepRecords(params: {
 }): MappedAssignedStep[] {
   const usedIds = new Set<string>();
   return params.records.map((record) => {
-    let matched = matchTenantStepForAssignedRecord(record, params.tenantSteps, usedIds);
+    let matched = matchTenantStepForAssignedRecord(record, params.tenantSteps, usedIds, (id) =>
+      params.progressByStepId.has(id)
+    );
     let progress = matched ? params.progressByStepId.get(matched.id) : undefined;
 
     if (!progress && isParameterizedJobApplicationStepType(record.step_type)) {

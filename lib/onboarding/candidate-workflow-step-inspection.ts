@@ -159,6 +159,8 @@ export type CandidateStepReview = {
   verifiedBy: string | null;
   /** The candidate submitted the step and no recruiter has marked it complete yet. */
   canVerify: boolean;
+  /** The candidate hasn't completed the step, so a recruiter can complete it on their behalf. */
+  canComplete: boolean;
 };
 
 export const CANDIDATE_STEP_AWAITING_REVIEW_MESSAGE =
@@ -339,7 +341,7 @@ export function candidateWaitingMessage(
     status === "in_progress"
       ? "The candidate has opened this step but hasn't finished it yet."
       : "Waiting for the candidate.";
-  return `${progress} This is a candidate step: the candidate ${where} in their application portal once they reach it, so there's nothing for staff to mark here. Their response will appear here when they submit it.`;
+  return `${progress} This is a candidate step: the candidate ${where} in their application portal once they reach it, and their response will appear here when they submit it. Use Send Email to remind them, or Mark as complete to complete it on their behalf.`;
 }
 
 /** Candidate upload step with nothing submitted yet: staff can also upload the files themselves. */
@@ -1341,6 +1343,7 @@ export async function loadCandidateWorkflowStepInspection(
           ? reviewerLabel(verifiedByUserId, mapped.verifiedByName, reviewerById)
           : null,
         canVerify,
+        canComplete: mapped.status !== "completed" && !mapped.verifiedAt,
       }
     : null;
   // A recruiter verifying a candidate step doesn't make them its completer; completing it

@@ -792,9 +792,12 @@ export async function applyStaffWorkflowStepAction(
   if (!ctx.ok) return ctx;
 
   const initial = staffEligibilityFor(ctx);
-  const onBehalf = !initial.allowed && params.onBehalfOfCandidate === true && action === "complete";
+  const onBehalf =
+    !initial.allowed &&
+    ctx.mapped.candidateOwned === true &&
+    params.onBehalfOfCandidate === true &&
+    action === "complete";
   if (!initial.allowed && !onBehalf) return notStaffOwned(initial);
-  if (onBehalf && !ctx.mapped.tenantStepId) return notStaffOwned(initial);
 
   // Unlinked internal steps still gate the candidate on the job workflow's step, so mirror there.
   const tenantStepId =
@@ -824,6 +827,14 @@ export async function applyStaffWorkflowStepAction(
   ).status;
   let onBehalfDocumentIds: string[] = [];
   if (onBehalf) {
+    if (currentStatus === "completed") {
+      return {
+        ok: false,
+        status: 409,
+        code: "INVALID_TRANSITION",
+        error: "This step is already completed. Refresh to see the latest status.",
+      };
+    }
     const uploads = await loadStepDocumentUploads(supabase, {
       tenantId,
       workerId,
@@ -833,20 +844,6 @@ export async function applyStaffWorkflowStepAction(
       candidateOwned: true,
       stepStatus: currentStatus,
     });
-    if (!uploads.canCompleteForCandidate) {
-      return {
-        ok: false,
-        status: 409,
-        code: "DOCUMENTS_MISSING",
-        error: uploads.missingRequired.length
-          ? `Upload ${uploads.missingRequired.join(", ")} before completing this step.`
-          : uploads.slots.length === 0
-            ? "This step has no documents staff can upload, so the candidate completes it."
-            : uploads.canUpload
-              ? "Upload at least one document before completing this step."
-              : "This step is already completed. Refresh to see the latest status.",
-      };
-    }
     onBehalfDocumentIds = uploads.slots.flatMap((slot) =>
       slot.requiredDocumentId ? [slot.requiredDocumentId] : []
     );

@@ -1,6 +1,7 @@
 import { routeForApplicantStep } from "@/lib/onboarding/resolve-applicant-step-route";
 import { readStepLifecyclePhase } from "@/lib/onboarding/workflow-phase";
 import { buildProgressStatusMaps } from "@/lib/onboarding/compute-max-allowed-from-progress";
+import { isTenantStepBlocking } from "@/lib/onboarding/reference-verification";
 import type {
   TenantOnboardingStep,
   WorkerOnboardingProgressPayload,
@@ -87,7 +88,7 @@ export function evaluateWorkflowCompletion(params: {
       phase,
       status,
       isComplete,
-      isRequired: step.is_required !== false,
+      isRequired: isTenantStepBlocking(step),
     };
   };
 

@@ -202,7 +202,8 @@ export default function StepDocumentUploadsSection({
       ) : null}
       {candidateStep && canUpload && uploads.missingRequired.length > 0 ? (
         <p className="mt-3 text-xs text-slate-600">
-          To mark this step complete for the candidate, upload: {uploads.missingRequired.join(", ")}.
+          {`Not uploaded yet: ${uploads.missingRequired.join(", ")}.`}
+          {uploads.uploadsOptional ? " The candidate can upload these later." : null}
         </p>
       ) : null}
     </section>

@@ -111,7 +111,7 @@ const COPY: Record<StaffStepAction, ActionCopy> = {
 const ON_BEHALF_COMPLETE_COPY: ActionCopy = {
   title: (step) => `Complete ${step} for the candidate?`,
   description:
-    "Marks this step completed with the documents uploaded here and approves them. The candidate won't need to do this step in their portal.",
+    "Marks this step completed under your name and approves any documents uploaded for it. The candidate won't need to do this step in their portal.",
   confirm: "Mark complete",
   confirmClass: "shadow-sm hover:brightness-[0.97]",
 };
@@ -257,7 +257,7 @@ export default function WorkflowStepStaffActionModal({
                     : variant === "interview"
                       ? "Interview feedback, strengths, concerns, or next steps"
                       : onBehalf
-                        ? "For example: documents received from the candidate by email"
+                        ? "For example: confirmed with the candidate by phone, documents received by email"
                         : verifySubmission
                           ? "For example: reviewed answers, documents look valid"
                           : "Screening outcome, call summary, or anything the team should know"

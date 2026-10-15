@@ -130,17 +130,6 @@ export default function Step2License() {
     ? configuredDocs.some((d) => (dynamicFiles[d.id] ?? []).some((slot) => Boolean(slot.name)))
     : Boolean(files.license || files.tb || files.cpr);
 
-  const requiredUploadsMet = useTenantRequirements
-    ? configuredDocs.length === 0
-      ? true
-      : configuredDocs
-          .filter((d) => d.is_required)
-          .every((d) => {
-            const slots = dynamicFiles[d.id] ?? [];
-            return slots.some((slot) => Boolean(slot.name) && !slot.uploading);
-          })
-    : hasAnyUpload;
-
   const anyUploading = useTenantRequirements
     ? Object.values(dynamicFiles).some((slots) => slots.some((f) => f.uploading))
     : Object.values(files).some((f) => f?.uploading);
@@ -689,15 +678,6 @@ export default function Step2License() {
   };
 
   const goNext = async () => {
-    if (useTenantRequirements) {
-      if (!requiredUploadsMet) {
-        setError("Please upload all required documents before continuing.");
-        return;
-      }
-    } else if (!hasAnyUpload) {
-      setError("Please upload at least one required document before continuing.");
-      return;
-    }
     if (anyUploading) {
       setError("Please wait for uploads to finish.");
       return;
@@ -707,7 +687,7 @@ export default function Step2License() {
     setError(null);
     try {
       const applicantId = await resolveApplicantId();
-      if (applicantId && useLegacyFallback) {
+      if (applicantId && useLegacyFallback && hasAnyUpload) {
         const body: Record<string, string> = { applicantId };
         if (files.license?.url) body.nursing_license_url = files.license.url;
         if (files.tb?.url) body.tb_test_url = files.tb.url;
@@ -728,7 +708,7 @@ export default function Step2License() {
         await persistStepProgress(
           onboarding?.updateStepStatus,
           licenseStep.step_key,
-          "completed",
+          hasAnyUpload ? "completed" : "skipped",
           completingRef
         );
       }
@@ -814,6 +794,9 @@ export default function Step2License() {
           <p className="mt-3 text-[10px] font-normal leading-4 text-slate-500">
             Only support png, jpg or pdf files
           </p>
+          <p className="mt-1 text-[10px] font-normal leading-4 text-slate-500">
+            You can continue now and come back to upload any missing documents later.
+          </p>
 
           <div className={APPLICANT_ACTION_ROW}>
             <button
@@ -826,9 +809,7 @@ export default function Step2License() {
             <button
               type="button"
               onClick={() => void goNext()}
-              disabled={
-                !(useTenantRequirements ? requiredUploadsMet : hasAnyUpload) || anyUploading || saving
-              }
+              disabled={anyUploading || saving}
               className="group inline-flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-md bg-[color:var(--brand-primary)] px-3 py-2.5 text-[11px] font-medium leading-5 text-white transition hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-50 max-[399px]:px-3 sm:w-auto sm:gap-2 sm:px-6 sm:py-2 sm:text-[12px]"
             >
               {saving ? "Saving…" : "Save & Continue"}

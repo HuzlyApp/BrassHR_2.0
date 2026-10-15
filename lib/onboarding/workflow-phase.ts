@@ -90,38 +90,29 @@ export function isPreHireWorkflowStep(params: {
     return true;
   }
 
-  // Agreement eSign / Authorizations
+  // Agreement eSign (Welcome Packet & eSign follows its configured phase)
   if (
     key === "employee-agreement" ||
-    key === "welcome-packet-esign" ||
     id === "employee-agreement" ||
-    id === "welcome-packet-esign" ||
     title.includes("agreement esign") ||
     title.includes("employment agreement")
   ) {
     return true;
   }
 
-  // Form I-9 Section 1 / Right to Work employee attestation & verification
+  // Form I-9 Section 1 employee attestation (I-9 / Right to Work Verification follows its configured phase)
   if (
     key === "i9-section-1" ||
     key === "i-9-section-1" ||
-    key === "i9-right-to-work-verification" ||
     key.includes("i9-section-1") ||
     key.includes("i-9-section-1") ||
     id === "i9-section-1" ||
     id === "i-9-section-1" ||
-    id === "i9-right-to-work-verification" ||
     id.includes("i9-section-1") ||
     id.includes("i-9-section-1") ||
     title.includes("i-9 section 1") ||
     title.includes("i9 section 1") ||
     title.includes("form i-9 section 1") ||
-    title.includes("i-9 / right to work") ||
-    title.includes("i9 / right to work") ||
-    title.includes("right to work verification") ||
-    title.includes("right to work") ||
-    title.includes("right-to-work") ||
     title.includes("section 1") ||
     title.includes("section-1") ||
     (title.includes("i-9") && title.includes("section 1")) ||

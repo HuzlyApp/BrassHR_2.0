@@ -1,3 +1,4 @@
+import { isTenantStepBlocking } from "@/lib/onboarding/reference-verification";
 import type { TenantOnboardingStep, StepProgressRow } from "@/lib/onboarding/types";
 
 /** Step keys that were not completed or skipped at submission time. */
@@ -12,7 +13,7 @@ export function computeIncompleteStepKeys(
   const incomplete: string[] = [];
   for (const step of enabledSteps) {
     if (!step.is_enabled || step.step_type === "review_submit") continue;
-    if (step.is_required === false) continue;
+    if (!isTenantStepBlocking(step)) continue;
     const status = statusByStepId.get(step.id) ?? "pending";
     if (status !== "completed" && status !== "skipped") {
       incomplete.push(step.step_key);

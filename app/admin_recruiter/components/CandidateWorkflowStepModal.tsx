@@ -494,9 +494,13 @@ export default function CandidateWorkflowStepModal({
   );
   const documentUploads = currentInspection?.documentUploads ?? null;
   const candidateUploadStep = Boolean(documentUploads && !staffAction?.allowed);
-  const canCompleteForCandidate = Boolean(workerId && documentUploads?.canCompleteForCandidate);
   const candidateReview = currentInspection?.candidateReview ?? null;
   const canVerifyCandidate = Boolean(workerId && candidateReview?.canVerify);
+  const canCompleteForCandidate = Boolean(
+    workerId &&
+      !canVerifyCandidate &&
+      (candidateReview?.canComplete || documentUploads?.canCompleteForCandidate)
+  );
   // The candidate re-submitted after an earlier verification, so that verification no longer applies.
   const staleCandidateVerification = Boolean(
     candidateReview && !candidateReview.verified && staffReview?.decision === "complete"
@@ -660,7 +664,7 @@ export default function CandidateWorkflowStepModal({
             tone: "success" as const,
             message: json.email?.sent
               ? `Step completed for the candidate. The candidate was emailed a link to "${json.email.nextStepTitle ?? "their next step"}".`
-              : "Step completed for the candidate with the uploaded documents.",
+              : "Step marked as complete for the candidate.",
           }
         : action === "reject" && variant === "default" && inspection && !inspection.step.required
           ? { tone: "success" as const, message: "Step rejected. It's optional, so it doesn't block the candidate's next stage." }
@@ -1376,9 +1380,10 @@ export default function CandidateWorkflowStepModal({
                       setPendingAction("complete");
                     }}
                     disabled={submitting || uploadingKey != null}
-                    className="rounded-lg px-4 py-2 text-sm font-semibold shadow-sm transition hover:brightness-[0.97] disabled:opacity-50"
+                    className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold shadow-sm transition hover:brightness-[0.97] disabled:opacity-50"
                     style={{ background: "var(--step-modal-cta)", color: "var(--step-modal-on-primary)" }}
                   >
+                    <CheckCircle2 className="h-4 w-4" aria-hidden />
                     Mark as complete
                   </button>
                 ) : null}

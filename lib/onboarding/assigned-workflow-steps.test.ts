@@ -324,6 +324,56 @@ describe("assigned workflow steps", () => {
     expect(matched).toBeNull();
   });
 
+  it("links a record to the disabled library step the candidate worked on, not another upload step", () => {
+    const ssnWithProgress = tenantStep({
+      id: "tenant-ssn",
+      step_key: "document_upload",
+      title: "SSN / Identity Verification",
+      step_type: "document_upload",
+      is_enabled: false,
+      sort_order: 40,
+      metadata: { workflow_node_id: "node-a", workflow_step_id: "ssn-identity-verification" },
+    });
+    const otherSsn = tenantStep({
+      id: "tenant-ssn-other",
+      step_key: "custom_question_31",
+      title: "SSN & Driver's License",
+      step_type: "document_upload",
+      is_enabled: false,
+      sort_order: 10,
+      metadata: { workflow_node_id: "node-b", workflow_step_id: "ssn-identity-verification" },
+    });
+    const documents = tenantStep({
+      id: "tenant-docs",
+      step_key: "document_upload_2",
+      title: "Required Candidate Documentation",
+      step_type: "document_upload",
+      metadata: { workflow_step_id: "document-upload" },
+    });
+    const [mapped] = mapAssignedStepRecords({
+      records: [
+        {
+          id: "rec-ssn",
+          snapshot_step_id: "w2-figma-17",
+          title: "SSN / Identity Verification",
+          step_type: "ssn-identity-verification",
+          is_required: true,
+          position: 7,
+          phase: "pre_hire",
+          status: "completed",
+          settings: {},
+        },
+      ],
+      tenantSteps: [otherSsn, documents, ssnWithProgress],
+      progressByStepId: new Map([
+        ["tenant-ssn", { onboarding_step_id: "tenant-ssn", status: "completed", data: {} }],
+        ["tenant-docs", { onboarding_step_id: "tenant-docs", status: "pending", data: {} }],
+      ]),
+    });
+    expect(mapped?.tenantStepId).toBe("tenant-ssn");
+    expect(mapped?.status).toBe("completed");
+  });
+
   it("uses workflow instance progress, not a similarly named document", () => {
     const resume = tenantStep({
       id: "tenant-resume",
