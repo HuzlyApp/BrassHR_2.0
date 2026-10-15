@@ -116,11 +116,20 @@ const ON_BEHALF_COMPLETE_COPY: ActionCopy = {
   confirmClass: "shadow-sm hover:brightness-[0.97]",
 };
 
+const VERIFY_SUBMISSION_COPY: ActionCopy = {
+  title: (step) => `Mark ${step} as complete?`,
+  description:
+    "Confirms you reviewed the candidate's submission and it checks out. The step changes from Submitted to Completed. The candidate's progress isn't affected.",
+  confirm: "Mark as complete",
+  confirmClass: "shadow-sm hover:brightness-[0.97]",
+};
+
 export default function WorkflowStepStaffActionModal({
   action,
   variant = "default",
   optional = false,
   onBehalf = false,
+  verifySubmission = false,
   stepTitle,
   submitting,
   error,
@@ -133,6 +142,8 @@ export default function WorkflowStepStaffActionModal({
   optional?: boolean;
   /** Staff completing a candidate upload step after uploading the documents themselves. */
   onBehalf?: boolean;
+  /** Recruiter verifying a candidate step the candidate already submitted. */
+  verifySubmission?: boolean;
   stepTitle: string;
   submitting: boolean;
   error: string | null;
@@ -161,9 +172,11 @@ export default function WorkflowStepStaffActionModal({
   }, [action]);
 
   const baseCopy = action
-    ? onBehalf && action === "complete"
-      ? ON_BEHALF_COMPLETE_COPY
-      : (variant === "default" ? undefined : VARIANT_COPY[variant][action]) ?? COPY[action]
+    ? verifySubmission && action === "complete"
+      ? VERIFY_SUBMISSION_COPY
+      : onBehalf && action === "complete"
+        ? ON_BEHALF_COMPLETE_COPY
+        : (variant === "default" ? undefined : VARIANT_COPY[variant][action]) ?? COPY[action]
     : null;
   const copy =
     baseCopy && optional && action === "reject" && variant === "default"
@@ -173,7 +186,7 @@ export default function WorkflowStepStaffActionModal({
             "The step is marked as rejected. It's optional, so the candidate can still move to the next stage. Add the reason for the record.",
         }
       : baseCopy;
-  const showNotify = action === "complete";
+  const showNotify = action === "complete" && !verifySubmission;
   const noteRequired = action === "reject";
   const canSubmit = !submitting && (!noteRequired || note.trim().length > 0);
 
@@ -245,7 +258,9 @@ export default function WorkflowStepStaffActionModal({
                       ? "Interview feedback, strengths, concerns, or next steps"
                       : onBehalf
                         ? "For example: documents received from the candidate by email"
-                        : "Screening outcome, call summary, or anything the team should know"
+                        : verifySubmission
+                          ? "For example: reviewed answers, documents look valid"
+                          : "Screening outcome, call summary, or anything the team should know"
                 }
                 className="mt-1 w-full resize-y rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-[color:var(--brand-primary)] focus:outline-none focus:ring-1 focus:ring-[color:var(--brand-primary)]"
               />

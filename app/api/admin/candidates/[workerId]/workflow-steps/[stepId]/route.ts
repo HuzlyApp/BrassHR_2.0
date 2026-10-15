@@ -5,6 +5,7 @@ import {
   type CandidateStepRouteContext,
 } from "@/lib/admin/candidate-step-request";
 import { sendCandidateStepEmail } from "@/lib/onboarding/candidate-step-email";
+import { verifyCandidateStepSubmission } from "@/lib/onboarding/candidate-step-verification";
 import { loadCandidateWorkflowStepInspection } from "@/lib/onboarding/candidate-workflow-step-inspection";
 import {
   STAFF_REVIEW_NOTE_MAX_LENGTH,
@@ -21,6 +22,8 @@ const actionBodySchema = z.object({
   notifyCandidate: z.boolean().optional(),
   clientOrigin: z.string().trim().optional(),
   onBehalfOfCandidate: z.boolean().optional(),
+  /** Recruiter verifying a candidate step the candidate already submitted. */
+  verifyCandidateSubmission: z.boolean().optional(),
 });
 
 /** Staff email asking the candidate to complete one of their own steps. */
@@ -60,6 +63,7 @@ export async function GET(_req: Request, context: CandidateStepRouteContext) {
 /**
  * POST — staff complete / reject / reopen an internal (recruiter, HR, manager) workflow step,
  * complete a candidate upload step on the candidate's behalf (`onBehalfOfCandidate`),
+ * verify a candidate step the candidate submitted (`verifyCandidateSubmission`),
  * or `send_email` to ask the candidate to complete one of their own steps.
  */
 export async function POST(req: Request, context: CandidateStepRouteContext) {
@@ -95,6 +99,30 @@ export async function POST(req: Request, context: CandidateStepRouteContext) {
       );
     }
     const body = parsed.data;
+
+    if (body.verifyCandidateSubmission === true) {
+      if (body.action !== "complete") {
+        return NextResponse.json(
+          { error: "Candidate submissions can only be marked complete.", code: "VALIDATION_ERROR" },
+          { status: 400 }
+        );
+      }
+      const verified = await verifyCandidateStepSubmission(resolved.supabase, {
+        workerId: resolved.workerId,
+        tenantId: resolved.tenantId,
+        stepRecordId: resolved.stepId,
+        note: body.note ?? null,
+        actor: { userId: resolved.auth.userId, email: resolved.auth.email },
+        request: req,
+      });
+      if (!verified.ok) {
+        return NextResponse.json(
+          { error: verified.error, code: verified.code ?? null },
+          { status: verified.status }
+        );
+      }
+      return NextResponse.json(verified);
+    }
 
     const result = await applyStaffWorkflowStepAction(resolved.supabase, {
       workerId: resolved.workerId,

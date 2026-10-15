@@ -385,6 +385,7 @@ export default function CandidateWorkflowStepModal({
   const stepId = inspection?.step.id ?? null;
   const [pendingAction, setPendingAction] = useState<StaffStepAction | null>(null);
   const [pendingOnBehalf, setPendingOnBehalf] = useState(false);
+  const [pendingVerify, setPendingVerify] = useState(false);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -397,6 +398,7 @@ export default function CandidateWorkflowStepModal({
     setActiveInspectionOverride(null);
     setPendingAction(null);
     setPendingOnBehalf(false);
+    setPendingVerify(false);
     setUploadingKey(null);
     setUploadError(null);
     setActionError(null);
@@ -493,6 +495,12 @@ export default function CandidateWorkflowStepModal({
   const documentUploads = currentInspection?.documentUploads ?? null;
   const candidateUploadStep = Boolean(documentUploads && !staffAction?.allowed);
   const canCompleteForCandidate = Boolean(workerId && documentUploads?.canCompleteForCandidate);
+  const candidateReview = currentInspection?.candidateReview ?? null;
+  const canVerifyCandidate = Boolean(workerId && candidateReview?.canVerify);
+  // The candidate re-submitted after an earlier verification, so that verification no longer applies.
+  const staleCandidateVerification = Boolean(
+    candidateReview && !candidateReview.verified && staffReview?.decision === "complete"
+  );
   const slotDocumentIds = useMemo(
     () => new Set((documentUploads?.slots ?? []).flatMap((slot) => (slot.documentId ? [slot.documentId] : []))),
     [documentUploads]
@@ -506,6 +514,7 @@ export default function CandidateWorkflowStepModal({
     staffCanAct: Boolean(staffAction?.allowed),
     displayStatus: currentInspection?.step.displayStatus,
     staffCanUpload: candidateUploadStep && Boolean(documentUploads?.canUpload),
+    candidateReview: candidateReview?.verified ? "verified" : candidateReview?.canVerify ? "awaiting" : null,
   });
   const stepSideLabel = ownership.badge;
   const screeningApplicationId =
@@ -542,7 +551,11 @@ export default function CandidateWorkflowStepModal({
   const showFooter =
     !loading &&
     !error &&
-    (canSchedule || (canAct && staffAction) || canEmailCandidate || canCompleteForCandidate);
+    (canSchedule ||
+      (canAct && staffAction) ||
+      canEmailCandidate ||
+      canCompleteForCandidate ||
+      canVerifyCandidate);
 
   async function uploadStepDocument(slot: StepUploadSlot, file: File) {
     if (!workerId || !stepId || uploadingKey) return;
@@ -622,6 +635,7 @@ export default function CandidateWorkflowStepModal({
             notifyCandidate: input.notifyCandidate,
             clientOrigin: window.location.origin,
             ...(pendingOnBehalf ? { onBehalfOfCandidate: true } : {}),
+            ...(pendingVerify ? { verifyCandidateSubmission: true } : {}),
           }),
         }
       );
@@ -632,9 +646,16 @@ export default function CandidateWorkflowStepModal({
       };
       if (!res.ok) throw new Error(json.error || "Failed to update this step.");
       const onBehalf = pendingOnBehalf;
+      const verified = pendingVerify;
       setPendingAction(null);
       setPendingOnBehalf(false);
-      const resultNotice = onBehalf
+      setPendingVerify(false);
+      const resultNotice = verified
+        ? {
+            tone: "success" as const,
+            message: "Candidate submission verified. The step is now marked Completed.",
+          }
+        : onBehalf
         ? {
             tone: "success" as const,
             message: json.email?.sent
@@ -899,7 +920,20 @@ export default function CandidateWorkflowStepModal({
                     <Meta label="Step for" value={ownership.stepFor} />
                     <Meta label="Workflow" value={inspection.workflowName} />
                     <Meta label="Workflow version" value={inspection.workflowVersion} />
-                    {inspection.reviewable ? (
+                    {candidateReview ? (
+                      <>
+                        <Meta
+                          label="Verified by"
+                          value={
+                            candidateReview.verifiedBy ??
+                            (candidateReview.canVerify ? "Awaiting recruiter review" : null)
+                          }
+                        />
+                        {candidateReview.verifiedAt ? (
+                          <Meta label="Verified on" value={formatDateTime(candidateReview.verifiedAt)} />
+                        ) : null}
+                      </>
+                    ) : inspection.reviewable ? (
                       <Meta label="Approved or rejected by" value={inspection.approvedOrRejectedBy} />
                     ) : null}
                   </dl>
@@ -920,8 +954,16 @@ export default function CandidateWorkflowStepModal({
                 </Section>
                 */}
 
-                {staffReview ? (
-                  <Section title={variant === "interview" ? "Interview outcome" : "Internal review"}>
+                {staffReview && !staleCandidateVerification ? (
+                  <Section
+                    title={
+                      variant === "interview"
+                        ? "Interview outcome"
+                        : candidateReview
+                          ? "Recruiter verification"
+                          : "Internal review"
+                    }
+                  >
                     <dl className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                       <Meta
                         label="Decision"
@@ -929,7 +971,7 @@ export default function CandidateWorkflowStepModal({
                           isDecisionVariant(variant) && staffReview.decision !== "reopen"
                             ? decisionLabel(variant, staffReview.decision)
                             : staffReview.decision === "complete"
-                              ? "Completed"
+                              ? candidateReview ? "Verified · Completed" : "Completed"
                               : staffReview.decision === "reject"
                                 ? "Rejected"
                                 : titleCase(staffReview.decision)
@@ -1309,6 +1351,22 @@ export default function CandidateWorkflowStepModal({
                     {activeInterviewCount > 0 ? "Schedule Another Interview" : "Schedule Interview"}
                   </button>
                 ) : null}
+                {canVerifyCandidate ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActionError(null);
+                      setPendingVerify(true);
+                      setPendingAction("complete");
+                    }}
+                    disabled={submitting}
+                    className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold shadow-sm transition hover:brightness-[0.97] disabled:opacity-50"
+                    style={{ background: "var(--step-modal-cta)", color: "var(--step-modal-on-primary)" }}
+                  >
+                    <CheckCircle2 className="h-4 w-4" aria-hidden />
+                    Mark as complete
+                  </button>
+                ) : null}
                 {canCompleteForCandidate ? (
                   <button
                     type="button"
@@ -1364,12 +1422,14 @@ export default function CandidateWorkflowStepModal({
         variant={variant}
         optional={inspection ? !inspection.step.required : false}
         onBehalf={pendingOnBehalf}
+        verifySubmission={pendingVerify}
         stepTitle={title}
         submitting={submitting}
         error={actionError}
         onCancel={() => {
           setPendingAction(null);
           setPendingOnBehalf(false);
+          setPendingVerify(false);
           setActionError(null);
         }}
         onConfirm={(input) => void submitAction(input)}

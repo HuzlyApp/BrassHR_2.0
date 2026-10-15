@@ -23,6 +23,7 @@ import {
   POST_HIRE_NOT_AVAILABLE_MESSAGE,
   SSN_IDENTITY_STEP_TYPE,
   STEP_COMPLETED_WITHOUT_DOCUMENT_MESSAGE,
+  candidateReviewDisplayStatus,
   displayStatusLabel,
   enrichAssignedStepsDisplayFromEvidence,
   hasRequiredIdentityDocuments,
@@ -152,6 +153,17 @@ export type InspectableDocument = {
   reviewNotes: string | null;
 };
 
+export type CandidateStepReview = {
+  verified: boolean;
+  verifiedAt: string | null;
+  verifiedBy: string | null;
+  /** The candidate submitted the step and no recruiter has marked it complete yet. */
+  canVerify: boolean;
+};
+
+export const CANDIDATE_STEP_AWAITING_REVIEW_MESSAGE =
+  "The candidate submitted this step. Review their submission below, then click Mark as complete to verify it.";
+
 export type WorkflowStepInspection = {
   ok: true;
   kind: WorkflowStepInspectionKind;
@@ -175,6 +187,8 @@ export type WorkflowStepInspection = {
   /** Whether staff can complete / reject / reopen this step from the drawer. */
   staffAction: StaffStepActionEligibility;
   staffReview: StaffStepReview | null;
+  /** Recruiter verification of a candidate step's submission. Null on recruiter steps. */
+  candidateReview: CandidateStepReview | null;
   /** Compliance check / facility approval result for those step types. */
   checkResult: StepCheckResult | null;
   documents: InspectableDocument[];
@@ -798,6 +812,7 @@ export async function loadCandidateWorkflowStepInspection(
       hasIdentityDocuments: identity.complete,
     })[0].displayStatus;
   }
+  mapped.displayStatus = candidateReviewDisplayStatus(mapped);
 
   const documentUploads = buildStepDocumentUploads({
     workerId,
@@ -1056,6 +1071,7 @@ export async function loadCandidateWorkflowStepInspection(
       isFirmaSigningComplete(firmaStatus) ||
       mapped.displayStatus === "completed" ||
       mapped.displayStatus === "approved" ||
+      (mapped.displayStatus === "submitted" && mapped.status === "completed") ||
       progressData.firma_signed === true ||
       progressData.authorization_agreed === true;
 
@@ -1290,6 +1306,17 @@ export async function loadCandidateWorkflowStepInspection(
     emptyState = ASSESSMENT_COMPLETED_WITHOUT_ANSWERS_MESSAGE;
   }
 
+  const candidateStep = !staffAction.allowed && mapped.candidateOwned === true;
+  const canVerify =
+    candidateStep &&
+    mapped.status === "completed" &&
+    !mapped.verifiedAt &&
+    mapped.displayStatus === "submitted";
+  if (canVerify && (emptyState == null || emptyState === STEP_COMPLETED_WITHOUT_DOCUMENT_MESSAGE)) {
+    emptyState = CANDIDATE_STEP_AWAITING_REVIEW_MESSAGE;
+  }
+
+  const verifiedByUserId = mapped.verifiedAt ? asText(record.status_changed_by) : null;
   const reviewable = kind !== "resume";
   const reviewerById = await loadStaffMembers(
     supabase,
@@ -1297,6 +1324,7 @@ export async function loadCandidateWorkflowStepInspection(
     [
       ...documents.map((doc) => doc.reviewedBy ?? ""),
       staffDecision?.reviewedByUserId ?? "",
+      verifiedByUserId ?? "",
     ]
   );
   for (const doc of documents) {
@@ -1305,6 +1333,21 @@ export async function loadCandidateWorkflowStepInspection(
   const staffDecisionBy = staffDecision
     ? reviewerLabel(staffDecision.reviewedByUserId, staffDecision.reviewedByName, reviewerById)
     : null;
+  const candidateReview: CandidateStepReview | null = candidateStep
+    ? {
+        verified: Boolean(mapped.verifiedAt),
+        verifiedAt: mapped.verifiedAt ?? null,
+        verifiedBy: mapped.verifiedAt
+          ? reviewerLabel(verifiedByUserId, mapped.verifiedByName, reviewerById)
+          : null,
+        canVerify,
+      }
+    : null;
+  // A recruiter verifying a candidate step doesn't make them its completer; completing it
+  // on the candidate's behalf (recorded on the progress row too) does.
+  const completedByStaff = staffAction.allowed
+    ? staffDecision?.decision === "complete"
+    : progressReview?.decision === "complete";
 
   return {
     ok: true,
@@ -1320,7 +1363,7 @@ export async function loadCandidateWorkflowStepInspection(
     completedAt: mapped.completedAt,
     approvedOrRejectedAt: latestDoc?.approvedOrRejectedAt ?? staffDecision?.reviewedAt ?? null,
     completedBy:
-      staffDecision?.decision === "complete"
+      completedByStaff
         ? staffDecisionBy ?? staffAction.ownerLabel
         : staffAction.allowed
           ? null
@@ -1336,6 +1379,7 @@ export async function loadCandidateWorkflowStepInspection(
     emptyState,
     staffAction,
     staffReview,
+    candidateReview,
     checkResult,
     documents,
     documentUploads: documentUploads.slots.length ? documentUploads : null,

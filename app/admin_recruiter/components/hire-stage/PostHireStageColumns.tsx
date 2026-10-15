@@ -48,9 +48,14 @@ function isStepDone(step: CandidateWorkflowStepView): boolean {
 }
 
 function stepSubtitle(step: CandidateWorkflowStepView, done: boolean, hasPill: boolean): string {
+  const prefix =
+    step.displayStatus === "submitted"
+      ? "Submitted"
+      : isReferenceVerificationStep(step)
+        ? "Verified"
+        : "Completed";
   const status = done
-    ? formatShortDate(step.completedAt, isReferenceVerificationStep(step) ? "Verified" : "Completed") ??
-      stepDisplayStatusLabel(step)
+    ? formatShortDate(step.completedAt, prefix) ?? (hasPill ? null : stepDisplayStatusLabel(step))
     : hasPill
       ? null
       : stepDisplayStatusLabel(step);

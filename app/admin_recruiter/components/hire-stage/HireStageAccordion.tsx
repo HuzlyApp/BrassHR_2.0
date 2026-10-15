@@ -309,7 +309,11 @@ export function HireStageAccordion({
                   const completedLabel = done
                     ? formatCompletedOn(
                         step.completedAt,
-                        isReferenceVerificationStep(step) ? "Verified" : "Completed"
+                        step.displayStatus === "submitted"
+                          ? "Submitted"
+                          : isReferenceVerificationStep(step)
+                            ? "Verified"
+                            : "Completed"
                       )
                     : null;
                   const subtitle = [
