@@ -68,13 +68,16 @@ export {
   AI_MATCH_STATUS_STAGES,
   AI_MATCH_STAGE_BY_STEP_ID,
   DEFAULT_GROUP_PRE_HIRE_STAGES,
-  DEFAULT_GROUP_AI_MATCH_STAGES,
   isPreHireStatusStageName,
   isAiMatchStatusStageName,
   isAssignableStatusStageName,
   aiMatchStatusStageName,
   isAssignableCatalogGroupKey,
 } from "./stage-assignments";
+export {
+  resolvePreHireStageNameFromStatusLanes,
+  resolvePreHireStatusStageForActions,
+} from "./resolve-pre-hire-stage";
 export type {
   PreHireStatusStageName,
   AiMatchStatusStageName,

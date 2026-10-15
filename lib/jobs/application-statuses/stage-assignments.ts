@@ -4,8 +4,9 @@
  * Closed is shared on every stage and is not stored as a per-stage assignment.
  * Assigning a group never changes status system keys or auto-moves candidates.
  *
- * AI analysis steps use their own stage names so they do not collide with the
- * Pre-Hire stage also named "Submission".
+ * Candidate status actions (Pre-Hire board and AI Analysis "This Job") use only
+ * Pre-Hire stage names. AI Analysis progression steps keep separate labels for
+ * step notes / UI — they are not a status catalog.
  */
 
 import { PRE_HIRE_FIGMA_STAGES } from "@/lib/onboarding/hire-stage-groups";
@@ -19,7 +20,10 @@ export const PRE_HIRE_STATUS_STAGE_NAMES = PRE_HIRE_FIGMA_STAGES;
 
 export type PreHireStatusStageName = (typeof PRE_HIRE_STATUS_STAGE_NAMES)[number];
 
-/** Settings + AI analysis status menus. Distinct from Pre-Hire "Submission". */
+/**
+ * AI Analysis progression labels (notes / UI only).
+ * Not used for status catalog lanes, reason codes, or action buttons.
+ */
 export const AI_MATCH_STATUS_STAGES = [
   "Step 1 · Quick Match",
   "Step 2 · Verifications",
@@ -40,7 +44,8 @@ export const AI_MATCH_STAGE_BY_STEP_ID = {
 
 export type AiMatchProgressionStepId = keyof typeof AI_MATCH_STAGE_BY_STEP_ID;
 
-export type StatusStageName = PreHireStatusStageName | AiMatchStatusStageName;
+/** Stages that may own Primary / Alternate / Closing status configuration. */
+export type StatusStageName = PreHireStatusStageName;
 
 export type ApplicationStatusGroupStageAssignmentRecord = {
   id: string;
@@ -65,18 +70,6 @@ export const DEFAULT_GROUP_PRE_HIRE_STAGES: Record<
   hire: ["Offer & Agreement", "Approvals"],
 };
 
-/** Default AI analysis steps for each catalog group (Closed is shared, not listed). */
-export const DEFAULT_GROUP_AI_MATCH_STAGES: Record<
-  Exclude<ApplicationStatusGroupKey, "closed">,
-  AiMatchStatusStageName[]
-> = {
-  start: ["Step 1 · Quick Match"],
-  interview: ["Step 2 · Verifications", "Step 3 · Follow-Up"],
-  msp: ["Step 4 · Deep Match"],
-  client: ["Step 5 · Submission"],
-  hire: ["Step 5 · Submission"],
-};
-
 export function isPreHireStatusStageName(value: string): value is PreHireStatusStageName {
   return (PRE_HIRE_STATUS_STAGE_NAMES as readonly string[]).includes(value);
 }
@@ -85,10 +78,12 @@ export function isAiMatchStatusStageName(value: string): value is AiMatchStatusS
   return (AI_MATCH_STATUS_STAGES as readonly string[]).includes(value);
 }
 
+/** Status catalog / lane assignment stages — Pre-Hire only. */
 export function isAssignableStatusStageName(value: string): value is StatusStageName {
-  return isPreHireStatusStageName(value) || isAiMatchStatusStageName(value);
+  return isPreHireStatusStageName(value);
 }
 
+/** Map an AI progression step id to its display / note context key. */
 export function aiMatchStatusStageName(stepId: string): AiMatchStatusStageName | null {
   if (Object.prototype.hasOwnProperty.call(AI_MATCH_STAGE_BY_STEP_ID, stepId)) {
     return AI_MATCH_STAGE_BY_STEP_ID[stepId as AiMatchProgressionStepId];

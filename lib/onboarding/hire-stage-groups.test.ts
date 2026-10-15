@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CandidateWorkflowStepView } from "@/lib/onboarding/candidate-workflow-phase-view";
 import {
+  currentPreHireStatusStageName,
   groupStepsIntoHireStages,
   hireStageLabelForStep,
   hireStageProgressMeta,
@@ -329,6 +330,32 @@ describe("groupStepsIntoHireStages", () => {
       "pre_hire"
     );
     expect(groups[0]?.name).toBe("Screening");
+  });
+});
+
+describe("currentPreHireStatusStageName", () => {
+  it("returns the current Pre-Hire board stage for status actions", () => {
+    const groups = groupStepsIntoHireStages(
+      [
+        step({
+          id: "a",
+          title: "Resume",
+          stepType: "resume-basic-profile",
+          settings: { stageName: "Intake" },
+          displayStatus: "completed",
+          completedAt: "2026-01-01T00:00:00Z",
+        }),
+        step({
+          id: "b",
+          title: "Screening",
+          stepType: "recruiter-screening",
+          settings: { stageName: "Screening" },
+          displayStatus: "in_progress",
+        }),
+      ],
+      "pre_hire"
+    );
+    expect(currentPreHireStatusStageName(groups)).toBe("Screening");
   });
 });
 
