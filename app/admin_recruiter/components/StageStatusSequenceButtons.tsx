@@ -24,6 +24,11 @@ import {
 type StageStatusSequenceButtonsProps = {
   applicationId: string;
   stageName: string;
+  /**
+   * When true, shows “Application status” with the current status name above the
+   * action buttons (hire-journey stage panels).
+   */
+  showCurrentStatus?: boolean;
   onStatusChanged?: (next: { statusName: string; statusId: string }) => void;
   /** Return true when the caller handled a closed status itself. */
   onException?: (status: StatusOption, note: string) => Promise<boolean>;
@@ -56,6 +61,7 @@ function readSharedButtonLabels(value: unknown): { alternate: string | null; clo
 export function StageStatusSequenceButtons({
   applicationId,
   stageName,
+  showCurrentStatus = false,
   onStatusChanged,
   onException,
 }: StageStatusSequenceButtonsProps) {
@@ -72,6 +78,7 @@ export function StageStatusSequenceButtons({
   }>({ alternate: null, closed: null });
   const [workflowId, setWorkflowId] = useState<string | null>(null);
   const [statusId, setStatusId] = useState<string | null>(null);
+  const [statusName, setStatusName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pending, setPending] = useState<{
@@ -116,6 +123,7 @@ export function StageStatusSequenceButtons({
       const nextWorkflowId = typeof application.workflow_id === "string" ? application.workflow_id : null;
       setOptions(nextOptions);
       setStatusId(resolved.statusId);
+      setStatusName(resolved.statusName);
       setWorkflowId(nextWorkflowId);
       const matchedFlow = flows.find(
         (row: { id?: unknown; name?: unknown }) => row.id === nextWorkflowId && typeof row.name === "string"
@@ -191,6 +199,8 @@ export function StageStatusSequenceButtons({
       console.error(error);
       setOptions([]);
       setAssignedGroupIds([]);
+      setStatusId(null);
+      setStatusName(null);
     } finally {
       setLoading(false);
     }
@@ -244,6 +254,7 @@ export function StageStatusSequenceButtons({
         const handled = await onException(option, note ?? "");
         if (handled) {
           setStatusId(option.id);
+          setStatusName(option.name);
           onStatusChanged?.({ statusName: option.name, statusId: option.id });
           return;
         }
@@ -265,6 +276,7 @@ export function StageStatusSequenceButtons({
       const nextName = String(payload.application?.statusName ?? option.name);
       const nextId = String(payload.application?.statusId ?? option.id);
       setStatusId(nextId);
+      setStatusName(nextName);
       toast.success(payload.unchanged ? "Status unchanged" : `Status updated to ${nextName}`);
       onStatusChanged?.({ statusName: nextName, statusId: nextId });
     } catch (error) {
@@ -342,19 +354,42 @@ export function StageStatusSequenceButtons({
   }
 
   if (!stageFilter) return null;
+
+  const statusHeader = showCurrentStatus ? (
+    <div className="mb-2 flex flex-wrap items-center gap-2">
+      <p className="text-xs font-medium text-[#64748B]">Application status</p>
+      {loading ? (
+        <span className="text-sm text-[#98A2B3]">Loading…</span>
+      ) : statusName ? (
+        <span className="text-sm font-semibold text-[#101828]">{statusName}</span>
+      ) : (
+        <span className="text-sm text-[#98A2B3]">No status set</span>
+      )}
+    </div>
+  ) : null;
+
   if (loading || assignedGroupIds == null) {
-    return <p className="text-sm text-[#98A2B3]">Loading statuses…</p>;
+    return (
+      <>
+        {statusHeader}
+        {!showCurrentStatus ? <p className="text-sm text-[#98A2B3]">Loading statuses…</p> : null}
+      </>
+    );
   }
   if (!nextHappyPath && alternates.length === 0 && closed.length === 0) {
     return (
-      <p className="text-sm text-[#98A2B3]">
-        No statuses on this stage yet. Add a primary, alternate, or closing status in Settings.
-      </p>
+      <>
+        {statusHeader}
+        <p className="text-sm text-[#98A2B3]">
+          No statuses on this stage yet. Add a primary, alternate, or closing status in Settings.
+        </p>
+      </>
     );
   }
 
   return (
     <>
+      {statusHeader}
       <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Stage status actions">
         {lanes.happy_path.length > 0 ? (
           <button

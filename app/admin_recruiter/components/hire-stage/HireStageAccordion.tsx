@@ -292,10 +292,10 @@ export function HireStageAccordion({
                 applicationId &&
                 isPreHireStatusStageName(stage.name) ? (
                   <div className="px-4 pb-3 sm:px-5">
-                    <p className="mb-2 text-xs font-medium text-[#64748B]">Application status</p>
                     <StageStatusSequenceButtons
                       applicationId={applicationId}
                       stageName={stage.name}
+                      showCurrentStatus
                       onStatusChanged={() => onStatusChanged?.()}
                     />
                   </div>
