@@ -334,6 +334,7 @@ export default function CandidatesPage() {
   const loadAbortRef = useRef<AbortController | null>(null);
   const {
     kpiCards,
+    loading: kpiLoading,
     refresh: refreshKpis,
   } = useCandidateKpiMetrics();
   const [advancedSearchOpen, setAdvancedSearchOpen] = useState(false);
@@ -1646,6 +1647,7 @@ export default function CandidatesPage() {
         jobRoleOptions={jobRoleOptions}
         locationOptions={locationOptions}
         kpiCards={kpiCards}
+        kpiLoading={kpiLoading}
         layoutVariant="all-candidates"
         simplifiedToolbarFilters
         skillsFilter={skillsFilter}
