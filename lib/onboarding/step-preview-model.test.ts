@@ -8,8 +8,10 @@ import {
 import {
   buildStepPreviewModel,
   coercePreviewState,
+  mapProfessionDocumentsToPreview,
   previewAudienceLabel,
   resolveStepPreviewKind,
+  stepPreviewUsesProfessionDocuments,
 } from "@/lib/onboarding/step-preview-model";
 import type { TenantOnboardingStep } from "@/lib/onboarding/types";
 
@@ -202,5 +204,43 @@ describe("coercePreviewState", () => {
   it("falls back to the first available state", () => {
     expect(coercePreviewState("filled", ["default", "pending_approval"])).toBe("default");
     expect(coercePreviewState("approved", ["default", "approved"])).toBe("approved");
+  });
+});
+
+describe("stepPreviewUsesProfessionDocuments", () => {
+  it("matches credential and certification library steps", () => {
+    expect(stepPreviewUsesProfessionDocuments("credential-license-verification", "professional_license")).toBe(
+      true
+    );
+    expect(stepPreviewUsesProfessionDocuments("certification-upload", "professional_license")).toBe(true);
+    expect(stepPreviewUsesProfessionDocuments("document-upload", "document_upload")).toBe(false);
+  });
+});
+
+describe("mapProfessionDocumentsToPreview", () => {
+  it("maps Settings profession docs like applicant attach", () => {
+    expect(
+      mapProfessionDocumentsToPreview([
+        {
+          id: "doc-cpr",
+          name: "CPR",
+          documentKind: "certificate",
+          isRequired: false,
+          hasExpiration: true,
+          sortOrder: 20,
+        },
+        {
+          id: "doc-license",
+          name: "Nursing License",
+          documentKind: "license",
+          isRequired: true,
+          hasExpiration: true,
+          sortOrder: 10,
+        },
+      ])
+    ).toEqual([
+      { title: "Nursing License", description: "License", is_required: true },
+      { title: "CPR", description: "Certificate", is_required: false },
+    ]);
   });
 });

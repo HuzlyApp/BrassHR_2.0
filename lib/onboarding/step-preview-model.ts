@@ -25,6 +25,10 @@ import {
   type EmploymentLifecyclePhase,
 } from "@/lib/onboarding/workflow-phase-groups";
 import { stepUsesFirmaSigning } from "@/lib/onboarding/firma-step-settings";
+import {
+  professionDocumentKindLabel,
+  type ProfessionUploadDocument,
+} from "@/lib/professions/profession-documents";
 
 export const STEP_PREVIEW_SAMPLE = {
   firstName: "Jane",
@@ -286,6 +290,32 @@ function documentsForDraft(draft: OnboardingStepDraft | undefined): StepPreviewD
       is_required: doc.is_required !== false,
     }))
     .filter((doc) => doc.title);
+}
+
+/** Credential / license steps that use Settings → profession document catalogs at runtime. */
+export function stepPreviewUsesProfessionDocuments(
+  libraryId: string,
+  stepType: string
+): boolean {
+  return (
+    stepType === "professional_license" ||
+    libraryId === "credential-license-verification" ||
+    libraryId === "certification-upload"
+  );
+}
+
+/** Map Settings profession docs the same way applicant load attaches them. */
+export function mapProfessionDocumentsToPreview(
+  documents: ProfessionUploadDocument[]
+): StepPreviewDocument[] {
+  return [...documents]
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+    .map((doc) => ({
+      title: doc.name,
+      description: professionDocumentKindLabel(doc.documentKind),
+      is_required: doc.isRequired !== false,
+    }))
+    .filter((doc) => doc.title.trim());
 }
 
 export function buildStepPreviewModel(

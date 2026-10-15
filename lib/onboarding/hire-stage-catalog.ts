@@ -86,6 +86,58 @@ export const PRE_HIRE_FIGMA_STAGES = [
   "Approvals",
 ] as const;
 
+/**
+ * Preferred step order within each Pre-Hire stage group (Steps Library / Figma).
+ * Steps that belong to a group follow this sequence inside that group.
+ */
+export const PRE_HIRE_STAGE_STEP_ORDER: Record<
+  (typeof PRE_HIRE_FIGMA_STAGES)[number],
+  readonly string[]
+> = {
+  Intake: [
+    "resume-basic-profile",
+    "parameterized-job-application",
+    "collect-extra-files",
+    "collect-references",
+    "references-collection",
+    "custom-form",
+    "custom-application-form",
+    "document-upload",
+  ],
+  Screening: [
+    "recruiter-screening",
+    "skill-qualification-assessment",
+    "reference-verification",
+  ],
+  Interview: [
+    "interview-qualification",
+    "internal-select",
+    "client-review",
+    "candidate-selection",
+  ],
+  Submission: ["release-to-client", "submit-to-msp"],
+  Compliance: [
+    "background-check",
+    "drug-test-screening",
+    "oig-exclusion-check",
+    "credential-license-verification",
+    "ssn-identity-verification",
+    "adverse-action-process",
+  ],
+  "Offer & Agreement": [
+    "pay-rate-hire-date",
+    "pay-and-start-date",
+    "employee-agreement",
+    "agreement-esign",
+    "offer-acceptance",
+    "offer-accepted",
+    "pay-rate-accepted",
+    "i9-right-to-work-verification",
+    "i9-section-1",
+  ],
+  Approvals: ["manager-facility-approval", "hr-final-approval", "completion-milestone"],
+};
+
 /** Align with Figma Post-hire board (Payroll · Access · Training · Welcome). */
 export const POST_HIRE_FIGMA_STAGES = [
   "Payroll & Tax",

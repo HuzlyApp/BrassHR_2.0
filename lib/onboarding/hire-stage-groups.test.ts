@@ -123,6 +123,50 @@ describe("groupStepsIntoHireStages", () => {
     ]);
   });
 
+  it("orders stage groups Intake → Screening and sorts steps inside each group by library sequence", () => {
+    const groups = groupStepsIntoHireStages(
+      [
+        step({
+          id: "rv",
+          title: "Reference Verification",
+          stepKey: "reference-verification",
+        }),
+        step({
+          id: "refs",
+          title: "Collect References",
+          stepKey: "collect-references",
+        }),
+        step({
+          id: "skill",
+          title: "Skill / Qualification Assessment",
+          stepKey: "skill-qualification-assessment",
+        }),
+        step({
+          id: "files",
+          title: "Collect Extra Files",
+          stepKey: "collect-extra-files",
+        }),
+        step({
+          id: "screen",
+          title: "Recruiter Screening",
+          stepKey: "recruiter-screening",
+        }),
+      ],
+      "pre_hire"
+    );
+
+    expect(groups.map((g) => g.name)).toEqual(["Intake", "Screening"]);
+    expect(groups[0]?.steps.map((s) => s.stepKey)).toEqual([
+      "collect-extra-files",
+      "collect-references",
+    ]);
+    expect(groups[1]?.steps.map((s) => s.stepKey)).toEqual([
+      "recruiter-screening",
+      "skill-qualification-assessment",
+      "reference-verification",
+    ]);
+  });
+
   it("unlocks Interview once Screening's required steps are done, even if optional Reference Verification is rejected", () => {
     const groups = groupStepsIntoHireStages(
       [

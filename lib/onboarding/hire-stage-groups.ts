@@ -5,6 +5,7 @@ import {
   hireStageForStepKey,
   POST_HIRE_FIGMA_STAGES,
   PRE_HIRE_FIGMA_STAGES,
+  PRE_HIRE_STAGE_STEP_ORDER,
   type HireLifecycle,
 } from "@/lib/onboarding/hire-stage-catalog";
 import { isInterviewStep } from "@/lib/onboarding/interview-step";
@@ -332,6 +333,42 @@ function stageSortIndex(name: string, lifecycle: HireStageLifecycle): number {
   return idx >= 0 ? idx : canonical.length + 1;
 }
 
+function stepKeysForRank(step: CandidateWorkflowStepView): string[] {
+  return [step.stepKey, step.stepType, step.snapshotStepId]
+    .map((value) => String(value ?? "").trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/** Rank inside a stage group from Steps Library order; unknown keys stay last. */
+function stageStepRank(step: CandidateWorkflowStepView, stageName: string): number {
+  const order =
+    PRE_HIRE_STAGE_STEP_ORDER[stageName as keyof typeof PRE_HIRE_STAGE_STEP_ORDER] ?? [];
+  if (!order.length) return Number.MAX_SAFE_INTEGER;
+  const keys = stepKeysForRank(step);
+  let best = Number.MAX_SAFE_INTEGER;
+  for (const key of keys) {
+    const idx = order.indexOf(key);
+    if (idx >= 0 && idx < best) best = idx;
+  }
+  return best;
+}
+
+/**
+ * Keep steps that belong to a stage group in that group's library sequence
+ * (e.g. Screening: Recruiter Screening → Skill → Reference Verification).
+ */
+function sortStepsForHireStage(
+  steps: CandidateWorkflowStepView[],
+  stageName: string,
+  lifecycle: HireStageLifecycle
+): CandidateWorkflowStepView[] {
+  if (lifecycle !== "pre_hire" || steps.length < 2) return steps;
+  return [...steps]
+    .map((step, index) => ({ step, index, rank: stageStepRank(step, stageName) }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((entry) => entry.step);
+}
+
 /** "2 Completed", "1 Submitted": Submitted steps count as done but still await recruiter review. */
 function doneLabels(steps: CandidateWorkflowStepView[], completedCount: number): string[] {
   const submitted = steps.filter((step) => step.displayStatus === "submitted").length;
@@ -394,7 +431,7 @@ export function groupStepsIntoHireStages(
   });
 
   const groups: HireStageGroup[] = orderedNames.map((name, index) => {
-    const stageSteps = buckets.get(name) ?? [];
+    const stageSteps = sortStepsForHireStage(buckets.get(name) ?? [], name, lifecycle);
     const stats = summarizeStage(stageSteps);
     return {
       id: `stage-${index}-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
@@ -446,11 +483,7 @@ export function groupStepsIntoHireStages(
   return groups;
 }
 
-const SCREENING_SUBSTEP_ORDER = [
-  RECRUITER_SCREENING_STEP_TYPE,
-  "skill-qualification-assessment",
-  "reference-verification",
-] as const;
+const SCREENING_SUBSTEP_ORDER = PRE_HIRE_STAGE_STEP_ORDER.Screening;
 
 function stepLibraryKeys(step: CandidateWorkflowStepView): string[] {
   return [step.stepType, step.stepKey, step.snapshotStepId]

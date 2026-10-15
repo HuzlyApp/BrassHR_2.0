@@ -17,6 +17,7 @@ import {
 } from "@/lib/onboarding/workflow-settings";
 import {
   STEP_PREVIEW_SAMPLE,
+  stepPreviewUsesProfessionDocuments,
   type StepPreviewModel,
   type StepPreviewState,
 } from "@/lib/onboarding/step-preview-model";
@@ -413,35 +414,42 @@ function ApprovalBody({ model, previewState }: { model: StepPreviewModel; previe
 
 function DocumentUploadBody({ model, previewState }: { model: StepPreviewModel; previewState: StepPreviewState }) {
   const branding = useTenantBranding();
-  const docs = model.requiredDocuments.length
-    ? model.requiredDocuments
-    : [{ title: "Required document", description: "", is_required: model.step.is_required }];
+  const docs = model.requiredDocuments;
   const uploaded = filled(previewState);
   return (
     <>
       <PreviewPageHeader title={model.step.title} description={model.step.description} />
       <div className="mt-4 space-y-3">
-        {docs.map((doc) => (
-          <div
-            key={doc.title}
-            className="flex items-center justify-between gap-3 rounded-xl border px-3 py-3"
-            style={{ borderColor: branding.primaryHex }}
-          >
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium" style={{ color: branding.primaryHex }}>
-                {doc.title}
-              </p>
-              <p className="text-[10px] text-slate-500">
-                {doc.is_required ? "Required" : "Optional"}
-                {uploaded ? " · uploaded" : ""}
-              </p>
+        {docs.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-slate-300 bg-white/60 px-3 py-4 text-center text-sm text-slate-500">
+            {stepPreviewUsesProfessionDocuments(model.libraryId, model.step.step_type)
+              ? "No documents configured for this profession."
+              : "No documents required for this step."}
+          </p>
+        ) : (
+          docs.map((doc, index) => (
+            <div
+              key={`${doc.title}-${index}`}
+              className="flex items-center justify-between gap-3 rounded-xl border px-3 py-3"
+              style={{ borderColor: branding.primaryHex }}
+            >
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium" style={{ color: branding.primaryHex }}>
+                  {doc.title}
+                </p>
+                <p className="text-[10px] text-slate-500">
+                  {doc.description ? `${doc.description} · ` : ""}
+                  {doc.is_required ? "Required" : "Optional"}
+                  {uploaded ? " · uploaded" : ""}
+                </p>
+              </div>
+              <span className="inline-flex items-center gap-1 text-xs font-semibold" style={{ color: branding.primaryHex }}>
+                <Upload className="h-3.5 w-3.5" />
+                {uploaded ? "Replace" : "Upload"}
+              </span>
             </div>
-            <span className="inline-flex items-center gap-1 text-xs font-semibold" style={{ color: branding.primaryHex }}>
-              <Upload className="h-3.5 w-3.5" />
-              {uploaded ? "Replace" : "Upload"}
-            </span>
-          </div>
-        ))}
+          ))
+        )}
       </div>
       {showError(previewState) ? (
         <p className="mt-3 text-sm text-rose-600">Upload all required documents to continue.</p>
