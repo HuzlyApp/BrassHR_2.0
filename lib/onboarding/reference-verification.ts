@@ -11,8 +11,28 @@ export const ALWAYS_OPTIONAL_STEP_LIBRARY_IDS: ReadonlySet<string> = new Set([
   "internal-select",
 ]);
 
+/**
+ * Candidate document steps: the candidate may continue without uploading and add the files later
+ * (applicant portal Documents tab), so the step never blocks later steps or Hire Journey stages.
+ */
+export const UPLOAD_LATER_STEP_LIBRARY_IDS: ReadonlySet<string> = new Set([
+  "ssn-identity-verification",
+  "credential-license-verification",
+  "document-upload",
+  "certification-upload",
+]);
+
 function normalize(value: unknown): string {
   return String(value ?? "").trim().toLowerCase().replaceAll("_", "-");
+}
+
+export function isUploadLaterStep(step: { stepType?: string | null }): boolean {
+  return UPLOAD_LATER_STEP_LIBRARY_IDS.has(normalize(step.stepType));
+}
+
+function isOptionalLibraryId(libraryId: unknown): boolean {
+  const id = normalize(libraryId);
+  return ALWAYS_OPTIONAL_STEP_LIBRARY_IDS.has(id) || UPLOAD_LATER_STEP_LIBRARY_IDS.has(id);
 }
 
 /** Assigned step records / mapped steps carry the library id as `step_type`. */
@@ -26,12 +46,9 @@ export function isReferenceVerificationTenantStep(step: Pick<TenantOnboardingSte
 }
 
 export function isAlwaysOptionalStep(step: { stepType?: string | null }): boolean {
-  return ALWAYS_OPTIONAL_STEP_LIBRARY_IDS.has(normalize(step.stepType));
+  return isOptionalLibraryId(step.stepType);
 }
 
 export function isTenantStepBlocking(step: Pick<TenantOnboardingStep, "is_required" | "metadata">): boolean {
-  return (
-    step.is_required !== false &&
-    !ALWAYS_OPTIONAL_STEP_LIBRARY_IDS.has(normalize(step.metadata?.workflow_step_id))
-  );
+  return step.is_required !== false && !isOptionalLibraryId(step.metadata?.workflow_step_id);
 }

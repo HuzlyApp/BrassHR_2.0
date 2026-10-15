@@ -182,7 +182,13 @@ describe("workflow phase helpers", () => {
       readStepLifecyclePhase(
         step("doc-rtw", "I-9 / Right to Work Verification", "post_hire")
       )
-    ).toBe("pre_hire");
+    ).toBe("post_hire");
+
+    expect(
+      readStepLifecyclePhase(
+        step("welcome-packet-esign", "Welcome Packet & eSign", "post_hire")
+      )
+    ).toBe("post_hire");
 
     expect(
       readStepLifecyclePhase(

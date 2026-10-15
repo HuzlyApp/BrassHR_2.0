@@ -39,12 +39,12 @@ function formatCompletedOn(value: string | null | undefined, prefix = "Completed
   return `${prefix} on ${mm}/${dd}/${yyyy}`;
 }
 
+/** Skipped steps were never done, so they keep the in-progress icon. */
 function isStepDone(step: CandidateWorkflowStepView): boolean {
   return (
     step.displayStatus === "completed" ||
     step.displayStatus === "approved" ||
     step.displayStatus === "submitted" ||
-    step.displayStatus === "skipped" ||
     step.displayStatus === "not_applicable"
   );
 }
@@ -309,7 +309,11 @@ export function HireStageAccordion({
                   const completedLabel = done
                     ? formatCompletedOn(
                         step.completedAt,
-                        isReferenceVerificationStep(step) ? "Verified" : "Completed"
+                        step.displayStatus === "submitted"
+                          ? "Submitted"
+                          : isReferenceVerificationStep(step)
+                            ? "Verified"
+                            : "Completed"
                       )
                     : null;
                   const subtitle = [

@@ -48,9 +48,14 @@ function isStepDone(step: CandidateWorkflowStepView): boolean {
 }
 
 function stepSubtitle(step: CandidateWorkflowStepView, done: boolean, hasPill: boolean): string {
+  const prefix =
+    step.displayStatus === "submitted"
+      ? "Submitted"
+      : isReferenceVerificationStep(step)
+        ? "Verified"
+        : "Completed";
   const status = done
-    ? formatShortDate(step.completedAt, isReferenceVerificationStep(step) ? "Verified" : "Completed") ??
-      stepDisplayStatusLabel(step)
+    ? formatShortDate(step.completedAt, prefix) ?? (hasPill ? null : stepDisplayStatusLabel(step))
     : hasPill
       ? null
       : stepDisplayStatusLabel(step);
@@ -229,7 +234,8 @@ function PostTaskCard({
   refreshingId: string | null;
   onRefreshStep?: (stepId: string) => void;
 }) {
-  const done = isStepDone(step);
+  // Skipped steps were never done, so they keep the in-progress icon.
+  const done = isStepDone(step) && step.displayStatus !== "skipped";
   const pill = stepStatusPill(step);
   const rejected = step.displayStatus === "rejected" || step.displayStatus === "blocked";
   const settled = done || rejected || stepDecision(step) != null;

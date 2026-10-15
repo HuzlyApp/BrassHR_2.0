@@ -98,7 +98,7 @@ describe("buildProgressStatusMaps", () => {
 });
 
 describe("computeMaxAllowedStepIndexFromProgress", () => {
-  it("allows profile review when resume step is completed in DB", () => {
+  it("unlocks past the upload-later credential step once the resume step is completed in DB", () => {
     const steps = legacySteps();
     const progress: WorkerOnboardingProgressPayload = {
       progressId: "p1",
@@ -113,7 +113,8 @@ describe("computeMaxAllowedStepIndexFromProgress", () => {
       ],
     };
 
-    expect(computeMaxAllowedStepIndexFromProgress(steps, progress)).toBe(2);
+    expect(steps[1]!.metadata?.workflow_step_id).toBe("credential-license-verification");
+    expect(computeMaxAllowedStepIndexFromProgress(steps, progress)).toBe(3);
   });
 
   it("does not treat missing progress as fully unlocked", () => {

@@ -605,7 +605,7 @@ async function notifyCandidateNextStep(
   }
 }
 
-async function buildStaffReview(
+export async function buildStaffReview(
   supabase: SupabaseClient,
   params: {
     action: StaffStepAction;
@@ -653,19 +653,21 @@ function withStaffReview(
 }
 
 /** The step record is the source of truth for staff decisions; every change is also appended to the event log. */
-async function writeStepRecordDecision(
+export async function writeStepRecordDecision(
   supabase: SupabaseClient,
   params: {
-    ctx: StaffStepContext;
+    recordId: string;
+    instanceId: string;
     tenantId: string;
     action: StaffStepAction;
     previousStatus: string;
     nextStatus: OnboardingStepStatus;
     review: StaffStepReview;
+    /** Keeps the candidate's own completion time when staff only verify the step. */
+    completedAt?: string | null;
   }
 ): Promise<void> {
-  const { ctx, tenantId, review, nextStatus } = params;
-  const recordId = String(ctx.record.id);
+  const { recordId, tenantId, review, nextStatus } = params;
   // Actor ids reference public.users; an auth user without a profile row is stored by name only.
   const isMissingUser = (error: { code?: string } | null) => error?.code === "23503";
 
@@ -674,7 +676,7 @@ async function writeStepRecordDecision(
       .from("applicant_workflow_step_records")
       .update({
         status: nextStatus,
-        completed_at: nextStatus === "completed" ? review.reviewedAt : null,
+        completed_at: nextStatus === "completed" ? params.completedAt ?? review.reviewedAt : null,
         completed_by: nextStatus === "completed" ? actorId : null,
         status_changed_at: review.reviewedAt,
         status_changed_by: actorId,
@@ -692,7 +694,7 @@ async function writeStepRecordDecision(
   const insertEvent = (actorId: string | null) =>
     supabase.from("applicant_workflow_step_events").insert({
       tenant_id: tenantId,
-      workflow_instance_id: String(ctx.instance.id),
+      workflow_instance_id: params.instanceId,
       step_record_id: recordId,
       action: params.action,
       from_status: params.previousStatus,
@@ -790,9 +792,12 @@ export async function applyStaffWorkflowStepAction(
   if (!ctx.ok) return ctx;
 
   const initial = staffEligibilityFor(ctx);
-  const onBehalf = !initial.allowed && params.onBehalfOfCandidate === true && action === "complete";
+  const onBehalf =
+    !initial.allowed &&
+    ctx.mapped.candidateOwned === true &&
+    params.onBehalfOfCandidate === true &&
+    action === "complete";
   if (!initial.allowed && !onBehalf) return notStaffOwned(initial);
-  if (onBehalf && !ctx.mapped.tenantStepId) return notStaffOwned(initial);
 
   // Unlinked internal steps still gate the candidate on the job workflow's step, so mirror there.
   const tenantStepId =
@@ -822,6 +827,14 @@ export async function applyStaffWorkflowStepAction(
   ).status;
   let onBehalfDocumentIds: string[] = [];
   if (onBehalf) {
+    if (currentStatus === "completed") {
+      return {
+        ok: false,
+        status: 409,
+        code: "INVALID_TRANSITION",
+        error: "This step is already completed. Refresh to see the latest status.",
+      };
+    }
     const uploads = await loadStepDocumentUploads(supabase, {
       tenantId,
       workerId,
@@ -831,20 +844,6 @@ export async function applyStaffWorkflowStepAction(
       candidateOwned: true,
       stepStatus: currentStatus,
     });
-    if (!uploads.canCompleteForCandidate) {
-      return {
-        ok: false,
-        status: 409,
-        code: "DOCUMENTS_MISSING",
-        error: uploads.missingRequired.length
-          ? `Upload ${uploads.missingRequired.join(", ")} before completing this step.`
-          : uploads.slots.length === 0
-            ? "This step has no documents staff can upload, so the candidate completes it."
-            : uploads.canUpload
-              ? "Upload at least one document before completing this step."
-              : "This step is already completed. Refresh to see the latest status.",
-      };
-    }
     onBehalfDocumentIds = uploads.slots.flatMap((slot) =>
       slot.requiredDocumentId ? [slot.requiredDocumentId] : []
     );
@@ -862,7 +861,8 @@ export async function applyStaffWorkflowStepAction(
   const review = await buildStaffReview(supabase, { action, note, actor: params.actor, now });
 
   await writeStepRecordDecision(supabase, {
-    ctx,
+    recordId: String(ctx.record.id),
+    instanceId: String(ctx.instance.id),
     tenantId,
     action,
     previousStatus: currentStatus,

@@ -332,6 +332,16 @@ function stageSortIndex(name: string, lifecycle: HireStageLifecycle): number {
   return idx >= 0 ? idx : canonical.length + 1;
 }
 
+/** "2 Completed", "1 Submitted": Submitted steps count as done but still await recruiter review. */
+function doneLabels(steps: CandidateWorkflowStepView[], completedCount: number): string[] {
+  const submitted = steps.filter((step) => step.displayStatus === "submitted").length;
+  const completed = completedCount - submitted;
+  return [
+    completed ? `${completed} Completed` : null,
+    submitted ? `${submitted} Submitted` : null,
+  ].filter((label): label is string => Boolean(label));
+}
+
 function summarizeStage(steps: CandidateWorkflowStepView[]): {
   completedCount: number;
   inProgressCount: number;
@@ -346,8 +356,7 @@ function summarizeStage(steps: CandidateWorkflowStepView[]): {
     else if (isInProgressStatus(step.displayStatus)) inProgressCount += 1;
     else pendingCount += 1;
   }
-  const parts: string[] = [];
-  if (completedCount) parts.push(`${completedCount} Completed`);
+  const parts: string[] = [...doneLabels(steps, completedCount)];
   if (inProgressCount) parts.push(`${inProgressCount} In Progress`);
   if (pendingCount && !completedCount && !inProgressCount) parts.push(`${pendingCount} Pending`);
   else if (pendingCount && (completedCount || inProgressCount)) parts.push(`${pendingCount} Upcoming`);
@@ -407,7 +416,7 @@ export function groupStepsIntoHireStages(
     if (requiredDone && (optionalOpen === 0 || !foundCurrent)) {
       group.status = "completed";
       group.summaryLabel = [
-        group.completedCount ? `${group.completedCount} Completed` : null,
+        ...doneLabels(group.steps, group.completedCount),
         optionalOpen ? `${optionalOpen} Optional` : null,
       ]
         .filter(Boolean)
@@ -419,7 +428,7 @@ export function groupStepsIntoHireStages(
       group.status = group.inProgressCount > 0 ? "current" : "current";
       if (group.inProgressCount > 0) {
         group.summaryLabel = [
-          group.completedCount ? `${group.completedCount} Completed` : null,
+          ...doneLabels(group.steps, group.completedCount),
           `${group.inProgressCount} In Progress`,
           "Current Step",
         ]

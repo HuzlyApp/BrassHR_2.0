@@ -1,6 +1,7 @@
 import { isUploadResumeStep } from "@/lib/onboarding/enforce-upload-resume-first";
 import { applicantStepHasNavigableScreen } from "@/lib/onboarding/applicant-step-navigability";
 import { readStepTemplatePhase } from "@/lib/onboarding/workflow-phase";
+import { isTenantStepBlocking } from "@/lib/onboarding/reference-verification";
 import { isUuid } from "@/lib/validation/uuid";
 import type {
   OnboardingStepStatus,
@@ -77,10 +78,7 @@ export function buildProgressStatusMaps(
       // Published steps own their progress row by id (republish keeps ids stable). Keys are
       // shared by unrelated steps across flows, so only placeholder ids may resolve through them.
       if (isUuid(step.id)) {
-        const idStatus = byStepId.get(step.id);
-        if (idStatus && idStatus !== "pending") {
-          return [step.id, idStatus] as const;
-        }
+        return [step.id, byStepId.get(step.id) ?? "pending"] as const;
       }
       const baseKey = step.step_key.replace(/_\d+$/, "");
       const status =
@@ -125,7 +123,7 @@ export function computeMaxAllowedStepIndexFromProgress(
       } else if (st === "in_progress") {
         max = Math.max(max, i + 1);
         break;
-      } else if (!enabledSteps[i]!.is_required) {
+      } else if (!isTenantStepBlocking(enabledSteps[i]!)) {
         max = Math.max(max, i + 2);
       } else if (!applicantStepHasNavigableScreen(enabledSteps[i]!, enabledSteps)) {
         max = Math.max(max, i + 2);
