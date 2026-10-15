@@ -31,14 +31,34 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ documents: [] });
     }
 
-    const { data, error } = await supabase
-      .from("worker_submitted_documents")
-      .select("required_document_id, original_file_name, status, uploaded_at")
-      .eq("worker_id", ctx.workerId);
+    const [{ data, error }, { data: professionUploads, error: professionError }] = await Promise.all([
+      supabase
+        .from("worker_submitted_documents")
+        .select("required_document_id, original_file_name, status, uploaded_at")
+        .eq("worker_id", ctx.workerId),
+      supabase
+        .from("worker_profession_document_uploads")
+        .select("id, profession_document_id, original_file_name, status, uploaded_at, issued_date, expiry_date")
+        .eq("worker_id", ctx.workerId)
+        .order("uploaded_at", { ascending: true }),
+    ]);
 
     if (error) throw error;
+    if (professionError) throw professionError;
 
-    return NextResponse.json({ documents: data ?? [] });
+    const professionMapped = (professionUploads ?? []).map((row) => ({
+      id: row.id ? String(row.id) : null,
+      required_document_id: String(row.profession_document_id),
+      original_file_name: row.original_file_name,
+      status: row.status,
+      uploaded_at: row.uploaded_at,
+      issued_date: row.issued_date ?? null,
+      expiry_date: row.expiry_date ?? null,
+    }));
+
+    return NextResponse.json({
+      documents: [...(data ?? []), ...professionMapped],
+    });
   } catch (err: unknown) {
     console.error("[onboarding/submitted-documents]", err);
     const msg = err instanceof Error ? err.message : "Unexpected error";

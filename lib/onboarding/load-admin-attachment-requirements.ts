@@ -175,12 +175,15 @@ export async function loadAdminAttachmentRequirements(
 
     const { data: uploads, error: uploadError } = await supabase
       .from("worker_profession_document_uploads")
-      .select("id, profession_document_id, file_url, original_file_name, status")
+      .select(
+        "id, profession_document_id, file_url, original_file_name, status, uploaded_at, issued_date, expiry_date"
+      )
       .eq("tenant_id", tenantId)
-      .eq("worker_id", workerId);
+      .eq("worker_id", workerId)
+      .order("uploaded_at", { ascending: true });
     if (uploadError) throw uploadError;
 
-    const filesByDocumentId = new Map<string, ProfessionAttachmentFile>();
+    const filesByDocumentId = new Map<string, ProfessionAttachmentFile[]>();
     await Promise.all(
       (uploads ?? []).map(async (upload) => {
         const documentId = String(upload.profession_document_id ?? "");
@@ -189,12 +192,16 @@ export async function loadAdminAttachmentRequirements(
         const signedUrl = await resolveStorageAccessibleUrl(supabase, fileUrl, {
           defaultBucket: WORKER_REQUIRED_FILES_BUCKET,
         });
-        filesByDocumentId.set(documentId, {
+        const list = filesByDocumentId.get(documentId) ?? [];
+        list.push({
           id: String(upload.id ?? ""),
           signedUrl,
           originalFileName: upload.original_file_name ? String(upload.original_file_name) : null,
           status: upload.status ? String(upload.status) : null,
+          issuedDate: upload.issued_date ? String(upload.issued_date) : null,
+          expiryDate: upload.expiry_date ? String(upload.expiry_date) : null,
         });
+        filesByDocumentId.set(documentId, list);
       })
     );
 

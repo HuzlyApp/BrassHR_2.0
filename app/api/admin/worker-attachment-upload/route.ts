@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
+import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import { requireApiSession } from "@/lib/auth/api-session"
 import { isStaffRole } from "@/lib/auth/app-role"
 import { canAccessWorkerRecord } from "@/lib/auth/worker-record-access"
@@ -31,18 +31,31 @@ function uploadResponse(result: StaffUploadResult) {
   return NextResponse.json({ ok: true, path: result.path, bucket: result.bucket })
 }
 
+type ProfessionDocumentExpiryRow = {
+  id: string
+  has_expiration: boolean | null
+}
+
 async function saveProfessionDocumentUpload(
-  supabase: ReturnType<typeof createClient>,
-  input: { tenantId: string; workerId: string; professionDocumentId: string; file: File }
+  supabase: SupabaseClient,
+  input: {
+    tenantId: string
+    workerId: string
+    professionDocumentId: string
+    file: File
+    issuedDate?: string
+    expiryDate?: string
+  }
 ): Promise<StaffUploadResult | null> {
-  const { data: professionDoc, error } = await supabase
+  const { data, error } = await supabase
     .from("tenant_profession_documents")
-    .select("id")
+    .select("id, has_expiration")
     .eq("id", input.professionDocumentId)
     .eq("tenant_id", input.tenantId)
     .eq("is_active", true)
     .maybeSingle()
   if (error) throw error
+  const professionDoc = data as ProfessionDocumentExpiryRow | null
   if (!professionDoc) return null
 
   if (!isAcceptedDocumentFileType(input.file, ["pdf", "png", "jpg", "jpeg", "webp"])) {
@@ -50,6 +63,36 @@ async function saveProfessionDocumentUpload(
   }
   if (input.file.size > 10 * 1024 * 1024) {
     return { ok: false, status: 400, error: "File exceeds 10MB limit" }
+  }
+
+  const { validateCredentialDates } = await import("@/lib/professions/catalog")
+  const {
+    countWorkerProfessionDocumentFiles,
+    MAX_PROFESSION_DOCUMENT_FILES,
+  } = await import("@/lib/professions/profession-documents")
+
+  const hasExpiration = professionDoc.has_expiration === true
+  const dateError = validateCredentialDates({
+    hasExpiration,
+    issuedDate: input.issuedDate ?? null,
+    expiryDate: input.expiryDate ?? null,
+  })
+  if (dateError) {
+    return { ok: false, status: 400, error: dateError }
+  }
+
+  const existingCount = await countWorkerProfessionDocumentFiles(
+    supabase,
+    input.tenantId,
+    input.workerId,
+    input.professionDocumentId
+  )
+  if (existingCount >= MAX_PROFESSION_DOCUMENT_FILES) {
+    return {
+      ok: false,
+      status: 400,
+      error: `You can upload at most ${MAX_PROFESSION_DOCUMENT_FILES} files for this document.`,
+    }
   }
 
   const buffer = Buffer.from(await input.file.arrayBuffer())
@@ -71,21 +114,13 @@ async function saveProfessionDocumentUpload(
     file_type: input.file.type || null,
     file_size: input.file.size,
     status: "uploaded",
+    issued_date: hasExpiration ? input.issuedDate || null : null,
+    expiry_date: hasExpiration ? input.expiryDate || null : null,
     uploaded_at: new Date().toISOString(),
   }
-  const { data: existing, error: existingError } = await supabase
+  const { error: writeError } = await supabase
     .from("worker_profession_document_uploads")
-    .select("id")
-    .eq("tenant_id", input.tenantId)
-    .eq("worker_id", input.workerId)
-    .eq("profession_document_id", input.professionDocumentId)
-    .maybeSingle()
-  if (existingError) throw existingError
-
-  const write = existing?.id
-    ? supabase.from("worker_profession_document_uploads").update(row).eq("id", existing.id)
-    : supabase.from("worker_profession_document_uploads").insert(row)
-  const { error: writeError } = await write
+    .insert(row as Record<string, unknown>)
   if (writeError) throw writeError
 
   return { ok: true, path: objectPath, bucket: WORKER_REQUIRED_FILES_BUCKET }
@@ -226,6 +261,8 @@ export async function POST(req: NextRequest) {
         workerId,
         professionDocumentId: requiredDocumentId,
         file,
+        issuedDate: String(formData.get("issuedDate") ?? "").trim() || undefined,
+        expiryDate: String(formData.get("expiryDate") ?? "").trim() || undefined,
       })
       if (professionSaved) return uploadResponse(professionSaved)
     }
