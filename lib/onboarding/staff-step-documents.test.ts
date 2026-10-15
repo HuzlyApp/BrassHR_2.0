@@ -39,7 +39,7 @@ describe("stepUploadRequirements", () => {
 describe("buildStepDocumentUploads", () => {
   const base = {
     workerId: "worker-1",
-    stepType: "credential-license-verification",
+    stepType: "tax-forms",
     requirements: [license, cpr],
     identityRow: null,
     candidateOwned: true,
@@ -103,7 +103,21 @@ describe("buildStepDocumentUploads", () => {
     expect(result.slots.map((slot) => slot.key)).toEqual(["ssn_front", "ssn_back", "dl_front", "dl_back"]);
     expect(result.slots[0].documentId).toBe("wd-1:ssn_url");
     expect(result.missingRequired).toEqual(["Driver's license (front)"]);
-    expect(result.canCompleteForCandidate).toBe(false);
+    expect(result.uploadsOptional).toBe(true);
+    expect(result.canCompleteForCandidate).toBe(true);
+  });
+
+  it("lists but does not block on missing files for upload-later document steps", () => {
+    const result = buildStepDocumentUploads({
+      ...base,
+      stepType: "credential-license-verification",
+      requirements: [license, requirement("req-extra", "Extra File")],
+      submittedRows: [{ id: "doc-1", required_document_id: "req-license", status: "uploaded" }],
+    });
+    expect(result.uploadsOptional).toBe(true);
+    expect(result.missingRequired).toEqual(["Extra File"]);
+    expect(result.canCompleteForCandidate).toBe(true);
+    expect(buildStepDocumentUploads({ ...base, stepType: "credential-license-verification", submittedRows: [] }).canCompleteForCandidate).toBe(false);
   });
 });
 

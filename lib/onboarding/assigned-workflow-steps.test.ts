@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  candidateReviewDisplayStatus,
+  candidateStepVerifiedAt,
   stepDecision,
   stepDisplayStatusLabel,
+  stepStatusPill,
   assignmentSourceLabel,
   buildPhaseAssignment,
   enrichAssignedStepsDisplayFromEvidence,
@@ -321,6 +324,56 @@ describe("assigned workflow steps", () => {
     expect(matched).toBeNull();
   });
 
+  it("links a record to the disabled library step the candidate worked on, not another upload step", () => {
+    const ssnWithProgress = tenantStep({
+      id: "tenant-ssn",
+      step_key: "document_upload",
+      title: "SSN / Identity Verification",
+      step_type: "document_upload",
+      is_enabled: false,
+      sort_order: 40,
+      metadata: { workflow_node_id: "node-a", workflow_step_id: "ssn-identity-verification" },
+    });
+    const otherSsn = tenantStep({
+      id: "tenant-ssn-other",
+      step_key: "custom_question_31",
+      title: "SSN & Driver's License",
+      step_type: "document_upload",
+      is_enabled: false,
+      sort_order: 10,
+      metadata: { workflow_node_id: "node-b", workflow_step_id: "ssn-identity-verification" },
+    });
+    const documents = tenantStep({
+      id: "tenant-docs",
+      step_key: "document_upload_2",
+      title: "Required Candidate Documentation",
+      step_type: "document_upload",
+      metadata: { workflow_step_id: "document-upload" },
+    });
+    const [mapped] = mapAssignedStepRecords({
+      records: [
+        {
+          id: "rec-ssn",
+          snapshot_step_id: "w2-figma-17",
+          title: "SSN / Identity Verification",
+          step_type: "ssn-identity-verification",
+          is_required: true,
+          position: 7,
+          phase: "pre_hire",
+          status: "completed",
+          settings: {},
+        },
+      ],
+      tenantSteps: [otherSsn, documents, ssnWithProgress],
+      progressByStepId: new Map([
+        ["tenant-ssn", { onboarding_step_id: "tenant-ssn", status: "completed", data: {} }],
+        ["tenant-docs", { onboarding_step_id: "tenant-docs", status: "pending", data: {} }],
+      ]),
+    });
+    expect(mapped?.tenantStepId).toBe("tenant-ssn");
+    expect(mapped?.status).toBe("completed");
+  });
+
   it("uses workflow instance progress, not a similarly named document", () => {
     const resume = tenantStep({
       id: "tenant-resume",
@@ -346,7 +399,7 @@ describe("assigned workflow steps", () => {
       progressByStepId: new Map([["tenant-resume", { onboarding_step_id: "tenant-resume", status: "completed" }]]),
     });
     expect(mapped[0]?.status).toBe("completed");
-    expect(mapped[0]?.displayStatus).toBe("completed");
+    expect(mapped[0]?.displayStatus).toBe("submitted");
     expect(mapped[0]?.tenantStepId).toBe("tenant-resume");
     expect(mapped[0]?.settings).toEqual({ stageName: "Intake", phase: "pre_hire" });
   });
@@ -431,7 +484,10 @@ describe("assigned workflow steps", () => {
     expect(enriched[0]?.displayStatus).toBe("submitted");
   });
 
-  function mapIdentityStep(progressStatus: string) {
+  function mapIdentityStep(
+    progressStatus: string,
+    review: { review_decision?: string; status_changed_at?: string } = {}
+  ) {
     return mapAssignedStepRecords({
       records: [
         {
@@ -444,6 +500,7 @@ describe("assigned workflow steps", () => {
           phase: "pre_hire",
           status: "pending",
           settings: {},
+          ...review,
         },
       ],
       tenantSteps: [
@@ -473,12 +530,132 @@ describe("assigned workflow steps", () => {
     ).toBe("not_started");
   });
 
-  it("never downgrades a completed SSN step to Submitted", () => {
-    const mapped = mapIdentityStep("completed");
+  it("never downgrades a verified SSN step to Submitted", () => {
+    const mapped = mapIdentityStep("completed", {
+      review_decision: "complete",
+      status_changed_at: "2026-10-02T00:00:00.000Z",
+    });
     expect(
       enrichAssignedStepsDisplayFromEvidence({ steps: mapped, hasIdentityDocuments: true })[0]
         ?.displayStatus
     ).toBe("completed");
+  });
+
+  it("keeps a candidate-completed SSN step at Submitted until a recruiter verifies it", () => {
+    const mapped = mapIdentityStep("completed");
+    expect(
+      enrichAssignedStepsDisplayFromEvidence({ steps: mapped, hasIdentityDocuments: true })[0]
+        ?.displayStatus
+    ).toBe("submitted");
+  });
+
+  describe("candidate step verification", () => {
+    const infoStep = tenantStep({
+      id: "tenant-info",
+      step_key: "personal_information",
+      title: "Personal Information",
+      step_type: "profile_information",
+      metadata: { workflow_step_id: "personal-information" },
+    });
+    const infoRecord = {
+      id: "rec-info",
+      snapshot_step_id: "step-personal_information",
+      title: "Personal Information",
+      step_type: "personal-information",
+      is_required: true,
+      position: 2,
+      phase: "post_hire",
+      status: "completed",
+      settings: { completionOwner: "applicant" },
+    };
+    const submitted = { onboarding_step_id: "tenant-info", status: "completed", completed_at: "2026-10-10T10:00:00.000Z" };
+
+    function mapInfo(record: Partial<typeof infoRecord> & Record<string, unknown>, progress = submitted) {
+      return mapAssignedStepRecords({
+        records: [{ ...infoRecord, ...record }],
+        tenantSteps: [infoStep],
+        progressByStepId: new Map([["tenant-info", progress]]),
+      })[0]!;
+    }
+
+    it("shows Submitted when the candidate completes it, without changing the progress status", () => {
+      const step = mapInfo({});
+      expect(step.candidateOwned).toBe(true);
+      expect(step.status).toBe("completed");
+      expect(step.displayStatus).toBe("submitted");
+      expect(step.verifiedAt).toBeNull();
+      expect(stepDisplayStatusLabel(step)).toBe("Submitted");
+      expect(stepStatusPill(step)).toEqual({ label: "Submitted", tone: "info" });
+    });
+
+    it("shows Completed once a recruiter marks it complete", () => {
+      const step = mapInfo({
+        review_decision: "complete",
+        status_changed_at: "2026-10-11T09:00:00.000Z",
+        status_changed_by_name: "Test User",
+      });
+      expect(step.displayStatus).toBe("completed");
+      expect(step.verifiedAt).toBe("2026-10-11T09:00:00.000Z");
+      expect(step.verifiedByName).toBe("Test User");
+      expect(stepStatusPill(step)).toBeNull();
+    });
+
+    it("goes back to Submitted when the candidate re-submits after verification", () => {
+      const step = mapInfo(
+        { review_decision: "complete", status_changed_at: "2026-10-11T09:00:00.000Z" },
+        { ...submitted, completed_at: "2026-10-12T08:00:00.000Z" }
+      );
+      expect(step.displayStatus).toBe("submitted");
+      expect(step.verifiedAt).toBeNull();
+    });
+
+    it("leaves unfinished candidate steps and recruiter steps alone", () => {
+      expect(mapInfo({}, { ...submitted, status: "in_progress", completed_at: "" }).displayStatus).toBe("in_progress");
+      const [screening] = mapAssignedStepRecords({
+        records: [
+          {
+            id: "rec-screening",
+            snapshot_step_id: "node-screening",
+            title: "Recruiter Screening",
+            step_type: "recruiter-screening",
+            is_required: true,
+            position: 1,
+            status: "completed",
+            settings: { completionOwner: "recruiter_or_hr" },
+          },
+        ],
+        tenantSteps: [],
+        progressByStepId: new Map(),
+      });
+      expect(screening?.candidateOwned).toBe(false);
+      expect(screening?.displayStatus).toBe("completed");
+    });
+
+    it("checks the recruiter decision against the candidate's submission time", () => {
+      expect(candidateStepVerifiedAt({ review_decision: "reopen", status_changed_at: "2026-10-11T00:00:00Z" }, submitted)).toBeNull();
+      expect(
+        candidateStepVerifiedAt({ review_decision: "complete", status_changed_at: "2026-10-10T10:00:00.000Z" }, submitted)
+      ).toBe("2026-10-10T10:00:00.000Z");
+    });
+
+    it("maps a verified step's document approval to Completed, not Approved", () => {
+      expect(
+        candidateReviewDisplayStatus({
+          status: "completed",
+          displayStatus: "approved",
+          candidateOwned: true,
+          verifiedAt: "2026-10-11T09:00:00.000Z",
+        })
+      ).toBe("completed");
+      expect(
+        candidateReviewDisplayStatus({
+          status: "completed",
+          displayStatus: "rejected",
+          candidateOwned: true,
+          verifiedAt: null,
+        })
+      ).toBe("rejected");
+    });
   });
 
   it("requires both SSN card and driver's license fronts", () => {

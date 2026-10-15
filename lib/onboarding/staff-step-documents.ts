@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { SSN_IDENTITY_STEP_TYPE } from "@/lib/onboarding/assigned-workflow-steps";
+import { isUploadLaterStep } from "@/lib/onboarding/reference-verification";
 import type { TenantOnboardingConfig, TenantRequiredDocument } from "@/lib/onboarding/types";
 
 /** `worker_documents` slots the identity step collects, keyed by the upload route's field alias. */
@@ -27,6 +28,8 @@ export type StepUploadSlot = {
 export type StepDocumentUploads = {
   slots: StepUploadSlot[];
   missingRequired: string[];
+  /** Upload-later step: missing files are listed but never block completing the step. */
+  uploadsOptional: boolean;
   /** Staff may upload into the slots (closed once the step is completed or skipped). */
   canUpload: boolean;
   /** Candidate-owned step whose uploads are all in, so staff can complete it for the candidate. */
@@ -128,15 +131,17 @@ export function buildStepDocumentUploads(params: {
     .map((slot) => slot.title);
 
   const stepOpen = !CLOSED_STEP_STATUSES.has(String(params.stepStatus ?? "").toLowerCase());
+  const uploadsOptional = isUploadLaterStep({ stepType: params.stepType });
   return {
     slots,
     missingRequired,
+    uploadsOptional,
     canUpload: slots.length > 0 && stepOpen,
     canCompleteForCandidate:
       params.candidateOwned &&
       stepOpen &&
       slots.length > 0 &&
-      missingRequired.length === 0 &&
+      (uploadsOptional || missingRequired.length === 0) &&
       slots.some(satisfied),
   };
 }

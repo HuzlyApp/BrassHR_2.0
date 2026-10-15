@@ -448,12 +448,13 @@ export default function CustomOnboardingStepPage() {
                 isCheckboxStep ? (
                   <div className="mt-6">
                     <OnboardingCheckbox
+                      alignFirstLine
                       checked={Boolean(answer && answer === dynamicCheckboxLabel)}
                       onChange={(checked) => {
                         setAnswer(checked ? dynamicCheckboxLabel : "");
                       }}
                     >
-                      <span className="text-sm text-slate-700">
+                      <span className="text-sm leading-5 text-slate-700">
                         {dynamicCheckboxLabel}
                         {settings?.required ? <span className="text-red-600"> *</span> : null}
                       </span>
