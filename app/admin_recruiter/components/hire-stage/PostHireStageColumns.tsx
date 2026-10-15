@@ -234,7 +234,8 @@ function PostTaskCard({
   refreshingId: string | null;
   onRefreshStep?: (stepId: string) => void;
 }) {
-  const done = isStepDone(step);
+  // Skipped steps were never done, so they keep the in-progress icon.
+  const done = isStepDone(step) && step.displayStatus !== "skipped";
   const pill = stepStatusPill(step);
   const rejected = step.displayStatus === "rejected" || step.displayStatus === "blocked";
   const settled = done || rejected || stepDecision(step) != null;
