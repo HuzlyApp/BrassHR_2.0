@@ -65,13 +65,37 @@ export async function persistMatchRequirements(args: {
     nextRows.map((r) => normalizeRequirementKey(r.requirement_type, r.requirement))
   );
 
-  // Delete requirements that no longer appear (but only if not recruiter-verified? Spec says preserve when text matches — delete unmatched)
-  const toDelete = (existing ?? [])
-    .filter((row) => {
-      const key = normalizeRequirementKey(row.requirement_type, row.requirement_text);
-      return !nextKeys.has(key);
-    })
-    .map((row) => row.id);
+  // Delete requirements that no longer appear — but never hard-delete rows that
+  // carry recruiter verification or notes (CASCADE would wipe note history).
+  const unmatched = (existing ?? []).filter((row) => {
+    const key = normalizeRequirementKey(row.requirement_type, row.requirement_text);
+    return !nextKeys.has(key);
+  });
+  const protectedIds = new Set(
+    unmatched
+      .filter(
+        (row) =>
+          row.recruiter_verified ||
+          Boolean(String(row.recruiter_note ?? "").trim())
+      )
+      .map((row) => row.id)
+  );
+  if (unmatched.length) {
+    const candidateIds = unmatched.map((row) => row.id).filter((id) => !protectedIds.has(id));
+    if (candidateIds.length) {
+      const { data: notedRows } = await supabase
+        .from("job_application_match_requirement_notes")
+        .select("requirement_id")
+        .eq("tenant_id", tenantId)
+        .eq("job_application_id", jobApplicationId)
+        .in("requirement_id", candidateIds);
+      for (const note of notedRows ?? []) {
+        const reqId = String(note.requirement_id ?? "");
+        if (reqId) protectedIds.add(reqId);
+      }
+    }
+  }
+  const toDelete = unmatched.map((row) => row.id).filter((id) => !protectedIds.has(id));
 
   if (toDelete.length) {
     const { error: delError } = await supabase

@@ -9,6 +9,7 @@ import {
   buildFollowUpQuestionsPrompt,
   checklistFollowUpRows,
   ensureFollowUpUserPrompt,
+  filterStep3QuestionsAgainstCallPack,
   followUpSourceContextBlock,
   mergeFollowUpQuestions,
   parseFollowUpQuestions,
@@ -59,6 +60,67 @@ describe("follow-up screening questions", () => {
     expect(FOLLOW_UP_ENRICHMENT_USER_TEMPLATE).not.toContain("Prefer empty array");
   });
 
+  it("keeps Step 3 content-focused and bans logistics reuse", () => {
+    expect(FOLLOW_UP_ENRICHMENT_SYSTEM_PROMPT).toContain("content-focused");
+    expect(FOLLOW_UP_ENRICHMENT_SYSTEM_PROMPT).toContain("Never repeat a Step 2 question");
+    expect(FOLLOW_UP_ENRICHMENT_SYSTEM_PROMPT).not.toMatch(
+      /Also ask practical follow-ups that are still unanswered: start date/
+    );
+    expect(FOLLOW_UP_ENRICHMENT_USER_TEMPLATE).toContain("Do NOT ask citizenship");
+    expect(FOLLOW_UP_ENRICHMENT_USER_TEMPLATE).not.toContain(
+      "Ask practical follow-ups that are still unanswered: start date"
+    );
+  });
+
+  it("filters Step 3 questions that copy Step 2 or re-ask logistics", () => {
+    const filtered = filterStep3QuestionsAgainstCallPack({
+      callPackQuestions: [
+        {
+          question:
+            "Can you confirm your U.S. citizenship or Green Card status and that you do not require sponsorship?",
+          relatedRequirement: "U.S. Citizen or Green Card only. No sponsorship",
+        },
+        {
+          question:
+            "Can you walk through the 120+ dbt models you built at Pinnacle Software Group?",
+          relatedRequirement: "Substantial dbt for transformations",
+        },
+      ],
+      questions: [
+        {
+          priority: 1,
+          question:
+            "Can you confirm your U.S. citizenship or Green Card status and that you do not require sponsorship?",
+          reason: "Still open",
+          relatedRequirement: "U.S. Citizen or Green Card only. No sponsorship",
+        },
+        {
+          priority: 2,
+          question: "What is your earliest available start date?",
+          reason: "Availability",
+          relatedRequirement: "Start date",
+        },
+        {
+          priority: 3,
+          question:
+            "Can you walk through the 120+ dbt models you built at Pinnacle Software Group?",
+          reason: "Same as Step 2",
+          relatedRequirement: "Substantial dbt for transformations",
+        },
+        {
+          priority: 4,
+          question:
+            "For those dbt models, how did you design the staging vs mart layers and which custom macros were reusable?",
+          reason: "Content depth after Step 2",
+          relatedRequirement: "Substantial dbt for transformations",
+        },
+      ],
+    });
+    expect(filtered.map((item) => item.question)).toEqual([
+      "For those dbt models, how did you design the staging vs mart layers and which custom macros were reusable?",
+    ]);
+  });
+
   it("overrides an older Follow-Up prompt that preferred an empty list", () => {
     const legacy =
       "Return 0-5 focused questions. Prefer empty array when nothing remains open.";
@@ -68,7 +130,7 @@ describe("follow-up screening questions", () => {
       quickMatchSummary: "Route: STRONG",
     });
     expect(ensured).toContain("An empty array is invalid");
-    expect(ensured).toContain("start date");
+    expect(ensured).toContain("content-focused");
     expect(ensured).toContain("Must have 4 years.");
     expect(ensured).toContain("Project manager, 15 years.");
     expect(ensured).toContain("Route: STRONG");
