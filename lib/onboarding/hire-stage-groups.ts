@@ -553,3 +553,12 @@ export function shouldShowInterviewScheduleAction(
   if (step.interview?.latest) return false;
   return isInterviewScheduleStep(step);
 }
+
+/** Current Pre-Hire board stage name (for status catalog actions), or null when unknown. */
+export function currentPreHireStatusStageName(stages: readonly HireStageGroup[]): string | null {
+  const current = stages.find(
+    (stage) => stage.status === "current" || stage.status === "in_progress"
+  );
+  const name = current?.name?.trim() ?? "";
+  return name || null;
+}

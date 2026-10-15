@@ -6,16 +6,16 @@ import {
   statusGroupIsOnStage,
 } from "./stage-status-filter";
 
-describe("AI analysis status stages", () => {
-  it("maps progression steps onto settings stage names", () => {
+describe("AI analysis progression labels", () => {
+  it("maps progression steps onto note/display labels only", () => {
     expect(aiMatchStatusStageName("quick")).toBe("Step 1 · Quick Match");
     expect(aiMatchStatusStageName("submission")).toBe("Step 5 · Submission");
     expect(aiMatchStatusStageName("unknown")).toBeNull();
   });
 
-  it("keeps AI step 5 distinct from the Pre-Hire Submission stage", () => {
+  it("does not treat AI steps as assignable status catalog stages", () => {
     expect(isAssignableStatusStageName("Submission")).toBe(true);
-    expect(isAssignableStatusStageName("Step 5 · Submission")).toBe(true);
+    expect(isAssignableStatusStageName("Step 5 · Submission")).toBe(false);
     expect(isAssignableStatusStageName("Kickoff")).toBe(false);
   });
 });

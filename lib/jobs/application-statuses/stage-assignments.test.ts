@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_GROUP_AI_MATCH_STAGES,
   DEFAULT_GROUP_PRE_HIRE_STAGES,
+  aiMatchStatusStageName,
   isAssignableCatalogGroupKey,
   isAssignableStatusStageName,
+  isAiMatchStatusStageName,
   isPreHireStatusStageName,
 } from "./stage-assignments";
 
@@ -21,15 +22,12 @@ describe("group → stage mapping", () => {
     expect(isPreHireStatusStageName("Kickoff")).toBe(false);
   });
 
-  it("assigns default groups to AI analysis steps 1–5", () => {
-    expect(DEFAULT_GROUP_AI_MATCH_STAGES.start).toEqual(["Step 1 · Quick Match"]);
-    expect(DEFAULT_GROUP_AI_MATCH_STAGES.interview).toEqual([
-      "Step 2 · Verifications",
-      "Step 3 · Follow-Up",
-    ]);
-    expect(DEFAULT_GROUP_AI_MATCH_STAGES.msp).toEqual(["Step 4 · Deep Match"]);
-    expect(DEFAULT_GROUP_AI_MATCH_STAGES.client).toEqual(["Step 5 · Submission"]);
-    expect(isAssignableStatusStageName("Step 5 · Submission")).toBe(true);
+  it("keeps AI progression labels for notes only — not status catalog stages", () => {
+    expect(aiMatchStatusStageName("verifications")).toBe("Step 2 · Verifications");
+    expect(isAiMatchStatusStageName("Step 2 · Verifications")).toBe(true);
+    expect(isAssignableStatusStageName("Submission")).toBe(true);
+    expect(isAssignableStatusStageName("Step 5 · Submission")).toBe(false);
+    expect(isAssignableStatusStageName("Step 2 · Verifications")).toBe(false);
     expect(isPreHireStatusStageName("Step 5 · Submission")).toBe(false);
   });
 });

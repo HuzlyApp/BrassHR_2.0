@@ -16,7 +16,6 @@ import {
   groupStatuses,
   isSharedClosedGroupKey,
 } from "@/lib/jobs/application-statuses/groups";
-import { AI_MATCH_STATUS_STAGES } from "@/lib/jobs/application-statuses/stage-assignments";
 import {
   normalizeStageStatusLane,
   resolveConfiguredStageStatusLanes,
@@ -892,7 +891,7 @@ export default function CandidateStatusesPanel() {
 
   const groupsByStage = useMemo(() => {
     const map = new Map<string, StatusGroup[]>();
-    for (const stage of [...PRE_HIRE_FIGMA_STAGES, ...AI_MATCH_STATUS_STAGES]) map.set(stage, []);
+    for (const stage of PRE_HIRE_FIGMA_STAGES) map.set(stage, []);
     for (const row of [...assignments].sort((a, b) => a.sortOrder - b.sortOrder)) {
       const group = groupById.get(row.groupId);
       if (!group || isSharedClosedGroupKey(group.systemKey)) continue;
@@ -1581,30 +1580,13 @@ export default function CandidateStatusesPanel() {
               ))}
             </select>
             <p className="text-xs leading-5 text-[#64748B]">
-              Each pre-hire workflow can keep its own primary, alternate, and closing statuses. A stage can omit alternate or closing.
+              Each pre-hire workflow can keep its own primary, alternate, and closing statuses. AI Analysis uses this same catalog for the candidate&apos;s current Pre-Hire stage. A stage can omit alternate or closing.
             </p>
             {workflowStages.map(({ stage, steps }) =>
               stageCard(
                 stage,
                 `Workflow steps: ${steps.length > 0 ? steps.join(", ") : "None mapped"}`,
                 { categories: true, workflowId: workflowScopeId || null }
-              )
-            )}
-          </CatalogSection>
-
-          <CatalogSection
-            title="AI analysis workflow status catalog"
-            open={openCatalogs.has("ai")}
-            onToggle={() => toggleCatalog("ai")}
-          >
-            <p className="text-xs leading-5 text-[#64748B]">
-              Each AI step uses Primary, Alternate, and Closing. Remove the alternate or closing button on a step that does not use it.
-            </p>
-            {AI_MATCH_STATUS_STAGES.map((stage) =>
-              stageCard(
-                stage,
-                "Add statuses into Primary, Alternate, or Closing for this step.",
-                { categories: true, workflowId: null }
               )
             )}
           </CatalogSection>

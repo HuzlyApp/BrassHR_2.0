@@ -59,7 +59,16 @@ import { brandingToCssVars } from "@/lib/tenant/tenant-branding";
 import { ResumeHistoryModal, type ResumeHistoryItem } from "../ResumeHistoryModal";
 import { RemoveFromJobConfirmModal } from "../RemoveFromJobConfirmModal";
 import { StageStatusSequenceButtons } from "@/app/admin_recruiter/components/StageStatusSequenceButtons";
-import { aiMatchStatusStageName } from "@/lib/jobs/application-statuses/stage-assignments";
+import {
+  isPreHireStatusStageName,
+  type PreHireStatusStageName,
+} from "@/lib/jobs/application-statuses/stage-assignments";
+import { resolvePreHireStatusStageForActions } from "@/lib/jobs/application-statuses/resolve-pre-hire-stage";
+import {
+  currentPreHireStatusStageName,
+  groupStepsIntoHireStages,
+} from "@/lib/onboarding/hire-stage-groups";
+import type { CandidateWorkflowPhaseView } from "@/lib/onboarding/candidate-workflow-phase-view";
 import CandidateCommunicationDialog from "@/app/admin_recruiter/components/CandidateCommunicationDialog";
 import {
   DeepMatchConfirmDialog,
@@ -711,6 +720,7 @@ export function AiAnalysisOverviewClient({
   const [statusName, setStatusName] = useState("");
   const [statusSystemKey, setStatusSystemKey] = useState<string | null>(null);
   const [statusRevision, setStatusRevision] = useState(0);
+  const [preHireStageName, setPreHireStageName] = useState<PreHireStatusStageName>("Intake");
   const [viewedStep, setViewedStep] = useState(0);
   const [userPickedStep, setUserPickedStep] = useState(false);
   const [confirmDeepOpen, setConfirmDeepOpen] = useState(false);
@@ -1171,6 +1181,85 @@ export function AiAnalysisOverviewClient({
     if (app?.status_system_key !== undefined) setStatusSystemKey(app.status_system_key ?? null);
   }, [app?.status_name, app?.status_system_key]);
 
+  // Status actions under This Job use the Pre-Hire catalog for the candidate's
+  // current hire-journey stage — never AI Analysis progression steps.
+  useEffect(() => {
+    const scopedWorkerId = workerId?.trim();
+    if (!scopedWorkerId) {
+      setPreHireStageName("Intake");
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [phaseRes, assignRes, appRes] = await Promise.all([
+          fetch(`/api/admin/candidates/${encodeURIComponent(scopedWorkerId)}/workflow-phases`, {
+            cache: "no-store",
+          }),
+          fetch("/api/admin/application-status-stage-assignments", { cache: "no-store" }),
+          fetch(`/api/admin/job-applications/${encodeURIComponent(applicationId)}`, {
+            cache: "no-store",
+          }),
+        ]);
+        const phaseJson = (await phaseRes.json()) as CandidateWorkflowPhaseView & { error?: string };
+        const assignJson = (await assignRes.json()) as {
+          lanes?: Array<{
+            stageName?: string;
+            statusId?: string;
+            lane?: string;
+            workflowId?: string | null;
+            sortOrder?: number;
+          }>;
+          error?: string;
+        };
+        const appJson = (await appRes.json()) as {
+          application?: { status_id?: string | null; workflow_id?: string | null };
+          error?: string;
+        };
+        if (cancelled) return;
+
+        const journeyStages = groupStepsIntoHireStages(phaseRes.ok ? (phaseJson.preHire?.steps ?? []) : [], "pre_hire");
+        const journeyStage = currentPreHireStatusStageName(journeyStages);
+        const laneRows = Array.isArray(assignJson.lanes)
+          ? assignJson.lanes
+              .filter(
+                (row): row is {
+                  stageName: string;
+                  statusId: string;
+                  lane: string;
+                  workflowId: string | null;
+                  sortOrder: number;
+                } =>
+                  typeof row.stageName === "string" &&
+                  typeof row.statusId === "string" &&
+                  typeof row.lane === "string"
+              )
+              .map((row) => ({
+                stageName: row.stageName,
+                statusId: row.statusId,
+                lane: row.lane as "happy_path" | "alternate" | "closed",
+                workflowId: row.workflowId ?? null,
+                sortOrder: Number(row.sortOrder ?? 0),
+              }))
+          : [];
+        const next = resolvePreHireStatusStageForActions({
+          hireJourneyStageName: journeyStage,
+          statusId: appJson.application?.status_id ?? null,
+          workflowId: appJson.application?.workflow_id ?? null,
+          lanes: laneRows,
+        });
+        if (!cancelled && isPreHireStatusStageName(next)) setPreHireStageName(next);
+      } catch {
+        if (!cancelled) setPreHireStageName("Intake");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workerId, applicationId, statusRevision]);
+
   const noteFeedItems = useMemo(() => {
     const verified = (data?.verifiedInformation ?? []).map((item) => ({
       kind: "verified" as const,
@@ -1490,35 +1579,31 @@ export function AiAnalysisOverviewClient({
             <div className="flex flex-col gap-4">
               <div>
                 <h2 className="text-xl font-bold text-[#101828]">This Job</h2>
-                {progressionStep ? (
-                  <p className="mt-2 text-sm text-[#475467]">
-                    Stage · <span className="font-semibold text-[#101828]">{progressionStep.label}</span>
-                  </p>
-                ) : null}
+                <p className="mt-2 text-sm text-[#475467]">
+                  Stage · <span className="font-semibold text-[#101828]">{preHireStageName}</span>
+                </p>
                 {statusName ? (
                   <p className="mt-1 text-sm text-[#475467]">
                     Status · <span className="font-semibold text-[#101828]">{statusName}</span>
                   </p>
                 ) : null}
               </div>
-              {progressionStep && aiMatchStatusStageName(progressionStep.id) ? (
-                <StageStatusSequenceButtons
-                  key={`${aiMatchStatusStageName(progressionStep.id)}-${statusRevision}`}
-                  applicationId={applicationId}
-                  stageName={aiMatchStatusStageName(progressionStep.id) ?? ""}
-                  onStatusChanged={(next) => {
-                    setStatusName(next.statusName);
-                    setStatusSystemKey(null);
-                    setStatusRevision((revision) => revision + 1);
-                  }}
-                  onException={async (status) => {
-                    if (!status.name.toLowerCase().includes("talent pool")) return false;
-                    await handleTalentPool();
-                    setStatusRevision((revision) => revision + 1);
-                    return true;
-                  }}
-                />
-              ) : null}
+              <StageStatusSequenceButtons
+                key={`${preHireStageName}-${statusRevision}`}
+                applicationId={applicationId}
+                stageName={preHireStageName}
+                onStatusChanged={(next) => {
+                  setStatusName(next.statusName);
+                  setStatusSystemKey(null);
+                  setStatusRevision((revision) => revision + 1);
+                }}
+                onException={async (status) => {
+                  if (!status.name.toLowerCase().includes("talent pool")) return false;
+                  await handleTalentPool();
+                  setStatusRevision((revision) => revision + 1);
+                  return true;
+                }}
+              />
             </div>
           </section>
 
