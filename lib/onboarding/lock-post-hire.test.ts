@@ -117,11 +117,11 @@ describe("lock-post-hire", () => {
     ).toBe(true);
   });
 
-  it("reveals staff Post-Hire when Agreement eSign step in Pre-Hire is completed", () => {
+  it("reveals staff Post-Hire when Authorization e-sign step in Pre-Hire is completed", () => {
     const withAgreementPending = [
       {
         snapshotStepId: "employee-agreement",
-        title: "Agreement eSign",
+        title: "Authorization e-sign",
         required: true,
         displayStatus: "pending" as const,
       },
@@ -143,7 +143,7 @@ describe("lock-post-hire", () => {
     const withAgreementDone = [
       {
         snapshotStepId: "employee-agreement",
-        title: "Agreement eSign",
+        title: "Authorization e-sign",
         required: true,
         displayStatus: "completed" as const,
       },

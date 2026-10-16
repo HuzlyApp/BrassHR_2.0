@@ -63,8 +63,11 @@ export function isAgreementEsignStep(step: {
   }
 
   return (
+    title.includes("authorization e-sign") ||
+    title.includes("authorization esign") ||
     title.includes("agreement esign") ||
     title.includes("agreement e-sign") ||
+    title.includes("agreement signed") ||
     title.includes("employee agreement") ||
     title.includes("employment agreement") ||
     title.includes("contract esign") ||

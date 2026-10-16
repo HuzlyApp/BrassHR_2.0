@@ -129,9 +129,9 @@ export const WORKFLOW_STEP_LIBRARY_DATA: WorkflowStepLibraryCategory[] = [
       },
       {
         id: "employee-agreement",
-        label: "Employee Agreement / Contract eSign",
+        label: "Authorization e-sign",
         iconKey: "employee-agreement",
-        description: "Collect employee agreement signatures.",
+        description: "Collect authorization e-sign signatures.",
         stepType: "authorizations",
       },
       {

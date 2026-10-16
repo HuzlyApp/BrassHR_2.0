@@ -486,8 +486,8 @@ export const FIGMA_PRE_HIRE_GROUPS: FigmaLibraryGroupDef[] = [
       },
       {
         id: "employee-agreement",
-        label: "Agreement eSign",
-        description: "Collect employee agreement signatures.",
+        label: "Authorization e-sign",
+        description: "Collect authorization e-sign signatures.",
         iconKey: "agreement-esign",
         defaultPhase: "pre_hire",
       },

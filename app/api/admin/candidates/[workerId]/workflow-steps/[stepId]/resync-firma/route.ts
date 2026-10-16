@@ -192,7 +192,7 @@ export async function POST(req: Request, context: RouteContext) {
       const stepToNotify = (realStep || {
         id: stepId,
         step_key: "agreement",
-        title: "Agreement eSign",
+        title: "Authorization e-sign",
       }) as unknown as TenantOnboardingStep;
 
       const applicationId = (session.application_id as string | null) ?? null;
