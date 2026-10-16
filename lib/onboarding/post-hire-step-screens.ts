@@ -1,6 +1,7 @@
 import { workflowStepIdFromMetadata } from "@/lib/onboarding/firma-step-settings";
 import { hireLifecycleForPhase } from "@/lib/onboarding/hire-stage-catalog";
 import type { TenantOnboardingStep } from "@/lib/onboarding/types";
+import { isWorkerPerformableStep } from "@/lib/onboarding/workflow-settings";
 
 /** Candidate screen families for Post-Hire library steps that the applicant completes. */
 export type PostHireScreenKind =
@@ -8,7 +9,8 @@ export type PostHireScreenKind =
   | "tax_withholding"
   | "i9_attestation"
   | "acknowledgment"
-  | "training";
+  | "training"
+  | "confirmation";
 
 export const POST_HIRE_SCREEN_KIND_BY_STEP_ID: Readonly<Record<string, PostHireScreenKind>> = {
   "direct-deposit-setup": "direct_deposit",
@@ -47,6 +49,21 @@ export function postHireScreenKindForStep(
   return hireLifecycleForPhase(rawWorkflowSettings(step.metadata).phase) === "post_hire" ? kind : null;
 }
 
+/**
+ * Screen for a post-hire step the candidate completes.
+ * Known library steps keep their dedicated screens. Any other candidate-owned
+ * post-hire step falls back to a checkbox confirmation built from the step title.
+ * Recruiter / HR steps stay on the waiting-gate screen.
+ */
+export function candidatePostHireScreenKind(
+  step: TenantOnboardingStep | null | undefined
+): PostHireScreenKind | null {
+  if (!step) return null;
+  if (hireLifecycleForPhase(rawWorkflowSettings(step.metadata).phase) !== "post_hire") return null;
+  if (!isWorkerPerformableStep(step)) return null;
+  return postHireScreenKindForStep(step) ?? "confirmation";
+}
+
 /** Shown under the step title when the step has no description of its own. */
 export const POST_HIRE_SCREEN_SUBTITLE: Readonly<Record<PostHireScreenKind, string>> = {
   direct_deposit: "Tell us where to deposit your pay.",
@@ -54,6 +71,7 @@ export const POST_HIRE_SCREEN_SUBTITLE: Readonly<Record<PostHireScreenKind, stri
   i9_attestation: "Complete Section 1 of Form I-9 to confirm your identity and eligibility to work in the U.S.",
   acknowledgment: "Review the material below and sign to acknowledge it.",
   training: "Complete the training below, then confirm you're done.",
+  confirmation: "Confirm you have completed this step.",
 };
 
 const DEFAULT_ACKNOWLEDGMENT_BY_STEP_ID: Readonly<Record<string, string>> = {
@@ -80,6 +98,7 @@ const DEFAULT_ACKNOWLEDGMENT_BY_KIND: Readonly<Record<PostHireScreenKind, string
     "I am aware that federal law provides for imprisonment and/or fines for false statements, or the use of false documents, in connection with the completion of this form. I attest, under penalty of perjury, that the information I have provided is true and correct.",
   acknowledgment: "I have read and acknowledge the material above.",
   training: "I have completed this training.",
+  confirmation: "I confirm that I have completed this step.",
 };
 
 export type PostHireScreenContent = {
@@ -112,8 +131,10 @@ export function readPostHireScreenContent(
 ): PostHireScreenContent {
   const settings = rawWorkflowSettings(step.metadata);
   const stepId = workflowStepIdFromMetadata(step.metadata);
-  const kind = postHireScreenKindForStepId(stepId) ?? "acknowledgment";
-  const dynamicAck = step.title ? `I confirm that I have completed ${step.title}.` : undefined;
+  const mappedKind = postHireScreenKindForStepId(stepId);
+  const kind = mappedKind ?? "confirmation";
+  const title = step.title?.trim();
+  const dynamicAck = title ? `I confirm that I have completed ${title}.` : undefined;
   return {
     instructions: readTrimmed(settings, "applicantInstructions"),
     contentUrl: safeHttpUrl(readTrimmed(settings, "contentUrl")),
@@ -245,7 +266,8 @@ function isScreenKind(value: unknown): value is PostHireScreenKind {
     value === "tax_withholding" ||
     value === "i9_attestation" ||
     value === "acknowledgment" ||
-    value === "training"
+    value === "training" ||
+    value === "confirmation"
   );
 }
 
@@ -277,6 +299,7 @@ const CHECKBOX_EVIDENCE_KINDS: ReadonlySet<PostHireScreenKind> = new Set([
   "acknowledgment",
   "i9_attestation",
   "direct_deposit",
+  "confirmation",
 ]);
 
 /** True when progress data includes a real candidate confirmation / submission. */

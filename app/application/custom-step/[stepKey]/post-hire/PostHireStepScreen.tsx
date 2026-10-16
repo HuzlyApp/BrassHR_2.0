@@ -273,7 +273,7 @@ export default function PostHireStepScreen({
         />
       ) : (
         <AcknowledgmentForm
-          mode={kind === "training" ? "training" : "acknowledgment"}
+          mode={kind === "acknowledgment" ? "acknowledgment" : "training"}
           acknowledgmentText={content.acknowledgmentText}
           documentUrl={content.documentUrl}
           initialAgreed={hasCandidatePostHireEvidence(kind, progressRow?.data)}

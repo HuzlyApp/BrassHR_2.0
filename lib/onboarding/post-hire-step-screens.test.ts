@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildPostHireSubmissionData,
+  candidatePostHireScreenKind,
   effectivePostHireProgressStatus,
   hasCandidatePostHireEvidence,
   isValidRoutingNumber,
@@ -12,6 +13,7 @@ import {
   videoEmbedForUrl,
   w4DependentsAmount,
 } from "@/lib/onboarding/post-hire-step-screens";
+import type { TenantOnboardingStep } from "@/lib/onboarding/types";
 
 function stepWith(stepId: string | null, settings: Record<string, unknown> = {}) {
   return {
@@ -40,6 +42,53 @@ describe("postHireScreenKindForStep", () => {
   it("leaves Pre-Hire and unphased copies on their existing screens", () => {
     expect(postHireScreenKindForStep(stepWith("policy-acknowledgment", { phase: "pre_hire" }))).toBeNull();
     expect(postHireScreenKindForStep(stepWith("tax-forms", { phase: "" }))).toBeNull();
+  });
+});
+
+describe("candidatePostHireScreenKind", () => {
+  function fullStep(
+    workflowStepId: string,
+    settings: Record<string, unknown>,
+    title = "Parking Permit"
+  ): TenantOnboardingStep {
+    return {
+      id: "step-1",
+      step_key: "custom_question_99",
+      title,
+      description: null,
+      step_type: "custom_question",
+      sort_order: 1,
+      is_required: true,
+      is_enabled: true,
+      metadata: {
+        workflow_step_id: workflowStepId,
+        workflow_settings: settings,
+      },
+    };
+  }
+
+  it("uses a checkbox confirmation for unknown candidate post-hire steps", () => {
+    const step = fullStep("parking-permit", { phase: "post_hire", completionOwner: "applicant" });
+    expect(candidatePostHireScreenKind(step)).toBe("confirmation");
+    expect(readPostHireScreenContent(step).acknowledgmentText).toBe(
+      "I confirm that I have completed Parking Permit."
+    );
+  });
+
+  it("keeps known candidate screens and skips recruiter-owned steps", () => {
+    expect(
+      candidatePostHireScreenKind(
+        fullStep("compliance-training", { phase: "post_hire", completionOwner: "applicant" }, "Compliance Training")
+      )
+    ).toBe("training");
+    expect(
+      candidatePostHireScreenKind(
+        fullStep("payroll-profile-creation", { phase: "post_hire", completionOwner: "recruiter_or_hr" })
+      )
+    ).toBeNull();
+    expect(
+      candidatePostHireScreenKind(fullStep("parking-permit", { phase: "pre_hire", completionOwner: "applicant" }))
+    ).toBeNull();
   });
 });
 

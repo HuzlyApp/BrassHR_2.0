@@ -31,8 +31,8 @@ import {
   type EmploymentLifecyclePhase,
 } from "@/lib/onboarding/workflow-phase-groups"
 import {
+  candidatePostHireScreenKind,
   effectivePostHireProgressStatus,
-  postHireScreenKindForStep,
 } from "@/lib/onboarding/post-hire-step-screens"
 import ApplicantPhaseWelcome from "@/app/components/onboarding/ApplicantPhaseWelcome"
 
@@ -158,7 +158,7 @@ export default function OnboardingStepper({
     if (!enabledSteps?.length) return [] as StepIndicatorState[]
     return enabledSteps.map((configStep, index) => {
       const rawStatus = statusByStepId.get(configStep.id) ?? "pending"
-      const kind = postHireScreenKindForStep(configStep)
+      const kind = candidatePostHireScreenKind(configStep)
       const dbStatus = kind
         ? effectivePostHireProgressStatus(kind, rawStatus, progressDataByStepId.get(configStep.id))
         : rawStatus
@@ -202,7 +202,7 @@ export default function OnboardingStepper({
   const heading = title ?? phaseCopy.header
   const completedCount = displaySteps.filter((step) => {
     const rawStatus = statusByStepId.get(step.id) ?? "pending"
-    const kind = postHireScreenKindForStep(step)
+    const kind = candidatePostHireScreenKind(step)
     const status = kind
       ? effectivePostHireProgressStatus(kind, rawStatus, progressDataByStepId.get(step.id))
       : rawStatus

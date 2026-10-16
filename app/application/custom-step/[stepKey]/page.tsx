@@ -29,7 +29,7 @@ import { isOfferAcceptanceStepType } from "@/lib/onboarding/offer-acceptance";
 import { isEnrollmentDecisionStep } from "@/lib/onboarding/enrollment-decision-step";
 import {
   POST_HIRE_SCREEN_SUBTITLE,
-  postHireScreenKindForStep,
+  candidatePostHireScreenKind,
 } from "@/lib/onboarding/post-hire-step-screens";
 import { hireStageLabelForStep } from "@/lib/onboarding/hire-stage-groups";
 import { workflowStepIdFromMetadata } from "@/lib/onboarding/firma-step-settings";
@@ -71,7 +71,7 @@ export default function CustomOnboardingStepPage() {
     typeof step?.metadata?.workflow_step_id === "string" &&
     isOfferAcceptanceStepType(step.metadata.workflow_step_id);
   const isEnrollmentStep = isEnrollmentDecisionStep(step);
-  const postHireKind = postHireScreenKindForStep(step);
+  const postHireKind = candidatePostHireScreenKind(step);
   const rawWorkflowSettings = step?.metadata?.workflow_settings as Record<string, unknown> | null | undefined;
   const stageLabel =
     step && postHireKind
@@ -215,7 +215,7 @@ export default function CustomOnboardingStepPage() {
   }, [progressRow, isCheckboxStep, dynamicCheckboxLabel, answer]);
 
   const shouldRedirectToDedicatedScreen = useMemo(() => {
-    if (!step || showCustomForm || isEnrollmentDecisionStep(step) || postHireScreenKindForStep(step) || isI9Section1Step(step)) {
+    if (!step || showCustomForm || isEnrollmentDecisionStep(step) || candidatePostHireScreenKind(step) || isI9Section1Step(step)) {
       return false;
     }
     if (step.step_type !== "custom_question") return true;
