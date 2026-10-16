@@ -335,7 +335,8 @@ export default function CustomOnboardingStepPage() {
                 },
               }
             : {}),
-        }
+        },
+        step.id
       );
       nav.goNext();
     } catch (e) {
@@ -452,6 +453,23 @@ export default function CustomOnboardingStepPage() {
                       checked={Boolean(answer && answer === dynamicCheckboxLabel)}
                       onChange={(checked) => {
                         setAnswer(checked ? dynamicCheckboxLabel : "");
+                        if (!step) return;
+                        void persistStepProgress(
+                          nav.updateStepStatus,
+                          step.step_key,
+                          "in_progress",
+                          completingRef,
+                          {
+                            checkbox_confirmed: checked,
+                            checkbox_label: dynamicCheckboxLabel,
+                            response: checked ? dynamicCheckboxLabel : "",
+                            confirmed_at: checked ? new Date().toISOString() : null,
+                            step_type: step.step_type,
+                          },
+                          step.id
+                        ).catch(() => {
+                          // Draft save failures should not block the candidate from continuing.
+                        });
                       }}
                     >
                       <span className="text-sm leading-5 text-slate-700">

@@ -4,12 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
-  Circle,
   Sparkles,
   Award,
   Briefcase,
-  ChevronDown,
-  ChevronUp,
   ArrowRight,
   ShieldCheck,
   Check,
@@ -20,32 +17,14 @@ import { useOnboardingTenant } from "@/lib/tenant/use-onboarding-tenant";
 import { useOnboardingConfigOptional } from "@/app/components/onboarding/OnboardingConfigProvider";
 import {
   evaluateWorkflowCompletion,
-  type StepCompletionItem,
   type WorkflowCompletionResult,
 } from "@/lib/onboarding/workflow-completion-check";
 import {
   APPLICANT_SHELL_TALL_CLASS,
   APPLICANT_TITLE_CLASS,
 } from "@/app/application/applicant-onboarding-responsive";
-import { stepStatusLabel } from "@/app/application/components/completion/step-status-label";
-
-function StepStatusRow({ item }: { item: StepCompletionItem }) {
-  return (
-    <div className="flex items-center justify-between text-xs text-slate-700">
-      <span className="flex items-center gap-2">
-        {item.isComplete ? (
-          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-        ) : (
-          <Circle className="h-3.5 w-3.5 text-slate-400" />
-        )}
-        <span>{item.title}</span>
-      </span>
-      <span className={`text-[11px] font-semibold ${item.isComplete ? "text-emerald-700" : "text-slate-500"}`}>
-        {stepStatusLabel(item.status)}
-      </span>
-    </div>
-  );
-}
+import { CompletionDetailsToggle } from "@/app/application/components/completion/CompletionDetailsToggle";
+import { CompletionStepStatusRow } from "@/app/application/components/completion/CompletionStepStatusRow";
 
 type Props = {
   completionResult?: WorkflowCompletionResult | null;
@@ -148,15 +127,11 @@ export default function PostHireCompletionView({
               </div>
 
               {preHireSteps.length > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => setShowPreHireList(!showPreHireList)}
-                  className="inline-flex items-center gap-1 text-xs font-medium text-emerald-800 hover:text-emerald-950"
-                  aria-expanded={showPreHireList}
-                >
-                  <span>{showPreHireList ? "Hide steps" : "View steps"}</span>
-                  {showPreHireList ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                </button>
+                <CompletionDetailsToggle
+                  expanded={showPreHireList}
+                  onToggle={() => setShowPreHireList(!showPreHireList)}
+                  expandedLabel="Hide steps"
+                />
               ) : (
                 <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-800">
                   Completed
@@ -167,7 +142,7 @@ export default function PostHireCompletionView({
             {showPreHireList && preHireSteps.length > 0 ? (
               <div className="mt-3 pt-3 border-t border-emerald-200/80 space-y-1.5">
                 {preHireSteps.map((item, idx) => (
-                  <StepStatusRow key={item.id || idx} item={item} />
+                  <CompletionStepStatusRow key={item.id || idx} item={item} />
                 ))}
               </div>
             ) : null}
@@ -189,15 +164,11 @@ export default function PostHireCompletionView({
               </div>
 
               {postHireSteps.length > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => setShowPostHireList(!showPostHireList)}
-                  className="inline-flex items-center gap-1 text-xs font-medium text-emerald-800 hover:text-emerald-950"
-                  aria-expanded={showPostHireList}
-                >
-                  <span>{showPostHireList ? "Hide steps" : "View steps"}</span>
-                  {showPostHireList ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                </button>
+                <CompletionDetailsToggle
+                  expanded={showPostHireList}
+                  onToggle={() => setShowPostHireList(!showPostHireList)}
+                  expandedLabel="Hide steps"
+                />
               ) : (
                 <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-800">
                   Completed
@@ -208,7 +179,7 @@ export default function PostHireCompletionView({
             {showPostHireList && postHireSteps.length > 0 ? (
               <div className="mt-3 pt-3 border-t border-emerald-200/80 space-y-1.5">
                 {postHireSteps.map((item, idx) => (
-                  <StepStatusRow key={item.id || idx} item={item} />
+                  <CompletionStepStatusRow key={item.id || idx} item={item} />
                 ))}
               </div>
             ) : null}

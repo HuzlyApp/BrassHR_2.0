@@ -10,20 +10,25 @@ export type I9Prefill = { firstName: string; lastName: string; email: string };
 export default function I9AttestationForm({
   prefill,
   attestationText,
+  stepId,
   submit,
+  persistDraft,
   actions,
 }: {
   prefill: I9Prefill;
   attestationText: string;
+  stepId?: string;
   submit: (fields: PostHireSubmissionField[], extra?: Record<string, unknown>) => Promise<void>;
+  persistDraft?: (extra: Record<string, unknown>) => Promise<void>;
   actions: ActionRowProps;
 }) {
   const onboarding = useOnboardingConfigOptional();
-  const progressRow = onboarding?.progress?.steps.find(
-    (row) =>
-      row.step_key === "i9-section-1" ||
-      row.step_key === "i9-right-to-work-verification" ||
-      row.step_key?.toLowerCase().includes("i9")
+  const progressRow = onboarding?.progress?.steps.find((row) =>
+    stepId
+      ? row.onboarding_step_id === stepId
+      : row.step_key === "i9-section-1" ||
+        row.step_key === "i9-right-to-work-verification" ||
+        row.step_key?.toLowerCase().includes("i9")
   );
   const rowData = (progressRow?.data && typeof progressRow.data === "object" ? progressRow.data : {}) as Record<string, unknown>;
   const isAlreadyConfirmed = Boolean(
@@ -42,6 +47,23 @@ export default function I9AttestationForm({
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  async function handleCheckboxChange(checked: boolean) {
+    setAgreed(checked);
+    setError("");
+    if (!persistDraft) return;
+    try {
+      await persistDraft({
+        checkbox_confirmed: checked,
+        checkbox_label: attestationText,
+        response: checked ? attestationText : "",
+        confirmed_at: checked ? new Date().toISOString() : null,
+        i9_section_1_confirmed: checked,
+      });
+    } catch {
+      // Draft save failures should not block the candidate from continuing.
+    }
+  }
 
   async function handleSave() {
     setError("");
@@ -76,7 +98,7 @@ export default function I9AttestationForm({
   return (
     <>
       <Section title="I-9 Section 1">
-        <CheckboxRow id="i9-section-1-confirmation" checked={agreed} onChange={setAgreed}>
+        <CheckboxRow id="i9-section-1-confirmation" checked={agreed} onChange={(checked) => void handleCheckboxChange(checked)}>
           {attestationText}
         </CheckboxRow>
         <p className="mt-3 text-xs leading-5 text-slate-500">

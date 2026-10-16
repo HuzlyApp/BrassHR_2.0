@@ -20,6 +20,7 @@ export default function AcknowledgmentForm({
   initialAgreed = false,
   initialSignatureName = "",
   submit,
+  persistDraft,
   actions,
 }: {
   mode: "acknowledgment" | "training";
@@ -28,6 +29,7 @@ export default function AcknowledgmentForm({
   initialAgreed?: boolean;
   initialSignatureName?: string;
   submit: (fields: PostHireSubmissionField[], extra?: Record<string, unknown>) => Promise<void>;
+  persistDraft?: (extra: Record<string, unknown>) => Promise<void>;
   actions: ActionRowProps;
 }) {
   const [signature, setSignature] = useState<SignatureValue>({
@@ -37,6 +39,21 @@ export default function AcknowledgmentForm({
   const [completed, setCompleted] = useState(initialAgreed);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  async function persistCheckboxDraft(checked: boolean) {
+    if (!persistDraft) return;
+    try {
+      await persistDraft({
+        checkbox_confirmed: checked,
+        checkbox_label: acknowledgmentText,
+        response: checked ? acknowledgmentText : "",
+        confirmed_at: checked ? new Date().toISOString() : null,
+        ...(mode === "training" ? { training_completed: checked } : {}),
+      });
+    } catch {
+      // Draft save failures should not block the candidate from continuing.
+    }
+  }
 
   async function handleSave() {
     setError("");
@@ -85,12 +102,29 @@ export default function AcknowledgmentForm({
     <>
       {mode === "training" ? (
         <Section>
-          <CheckboxRow id="training-complete" checked={completed} onChange={setCompleted}>
+          <CheckboxRow
+            id="training-complete"
+            checked={completed}
+            onChange={(checked) => {
+              setCompleted(checked);
+              void persistCheckboxDraft(checked);
+            }}
+          >
             {acknowledgmentText}
           </CheckboxRow>
         </Section>
       ) : (
-        <SignatureBlock idPrefix="ack" statement={acknowledgmentText} value={signature} onChange={setSignature} />
+        <SignatureBlock
+          idPrefix="ack"
+          statement={acknowledgmentText}
+          value={signature}
+          onChange={(next) => {
+            setSignature(next);
+            if (next.agreed !== signature.agreed) {
+              void persistCheckboxDraft(next.agreed);
+            }
+          }}
+        />
       )}
 
       {error ? <p className="mt-3 text-sm text-red-700">{error}</p> : null}

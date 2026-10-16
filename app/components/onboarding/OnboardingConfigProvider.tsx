@@ -54,7 +54,8 @@ type Ctx = {
   updateStepStatus: (
     stepKey: string,
     status: OnboardingStepStatus,
-    data?: Record<string, unknown>
+    data?: Record<string, unknown>,
+    stepId?: string
   ) => Promise<void>;
   maxAllowedStepIndex: number;
   waitingOnInternal: boolean;
@@ -342,17 +343,25 @@ export default function OnboardingConfigProvider({ children }: { children: React
   }, [refreshProgressOnly, tenantFromUrl, resolvedJobToken, sessionReady, sessionLoading]);
 
   const updateStepStatus = useCallback(
-    async (stepKey: string, status: OnboardingStepStatus, data?: Record<string, unknown>) => {
+    async (
+      stepKey: string,
+      status: OnboardingStepStatus,
+      data?: Record<string, unknown>,
+      stepId?: string
+    ) => {
       if (isDraftPreview) return;
       const aid = readApplicantId();
       if (!aid) return;
       const search = typeof window !== "undefined" ? window.location.search : "";
       const slug = resolveClientOnboardingTenantSlug(search);
+      const preferredId = typeof stepId === "string" ? stepId.trim() : "";
       const matchedStep =
+        (preferredId
+          ? config?.steps.find((s) => s.id === preferredId) ??
+            allWorkflowSteps.find((s) => s.id === preferredId)
+          : null) ??
         config?.steps.find((s) => s.step_key === stepKey) ??
-        config?.steps.find((s) => s.step_key.replace(/_\d+$/, "") === stepKey.replace(/_\d+$/, "")) ??
-        allWorkflowSteps.find((s) => s.step_key === stepKey) ??
-        allWorkflowSteps.find((s) => s.step_key.replace(/_\d+$/, "") === stepKey.replace(/_\d+$/, ""));
+        allWorkflowSteps.find((s) => s.step_key === stepKey);
       const jobToken = resolvedJobToken;
       const res = await fetch("/api/onboarding/progress/step", {
         method: "POST",
@@ -363,7 +372,7 @@ export default function OnboardingConfigProvider({ children }: { children: React
           jobToken: jobToken || undefined,
           applicationId: applicationIdFromUrl || applicationId || undefined,
           stepKey,
-          stepId: matchedStep?.id,
+          stepId: matchedStep?.id || preferredId || undefined,
           status,
           data,
         }),
@@ -382,24 +391,12 @@ export default function OnboardingConfigProvider({ children }: { children: React
         return;
       }
 
-      const step =
-        config?.steps.find((s) => s.step_key === stepKey) ??
-        config?.steps.find(
-          (s) => s.step_key.replace(/_\d+$/, "") === stepKey.replace(/_\d+$/, "")
-        ) ??
-        allWorkflowSteps.find((s) => s.step_key === stepKey) ??
-        allWorkflowSteps.find(
-          (s) => s.step_key.replace(/_\d+$/, "") === stepKey.replace(/_\d+$/, "")
-        );
+      const step = matchedStep;
       if (step) {
         setProgress((prev) => {
           if (!prev) return prev;
           const rows = prev.steps.slice();
-          const idx = rows.findIndex(
-            (row) =>
-              row.onboarding_step_id === step.id ||
-              (row.step_key && row.step_key === step.step_key)
-          );
+          const idx = rows.findIndex((row) => row.onboarding_step_id === step.id);
           const nextRow = {
             onboarding_step_id: step.id,
             step_key: step.step_key,

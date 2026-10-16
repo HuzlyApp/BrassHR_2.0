@@ -28,7 +28,8 @@ import TaxWithholdingForm from "./TaxWithholdingForm";
 type UpdateStepStatus = (
   stepKey: string,
   status: OnboardingStepStatus,
-  data?: Record<string, unknown>
+  data?: Record<string, unknown>,
+  stepId?: string
 ) => Promise<void>;
 
 const FIRMA_CAPABLE_KINDS: ReadonlySet<PostHireScreenKind> = new Set([
@@ -59,9 +60,8 @@ export default function PostHireStepScreen({
   const signer = useApplicantSigningEmail({ applicantId, tenantSlug });
 
   const progressRows = onboarding?.progress?.steps ?? [];
-  const progressRow =
-    progressRows.find((row) => row.onboarding_step_id === step.id) ??
-    progressRows.find((row) => row.step_key === step.step_key);
+  // Prefer step id only — shared step_key prefixes (custom_question_N) must not cross-match.
+  const progressRow = progressRows.find((row) => row.onboarding_step_id === step.id) ?? null;
   const submission = progressRow ? readPostHireSubmission(progressRow.data) : null;
   const done = progressRow?.status === "completed";
   const content = readPostHireScreenContent(step);
@@ -69,13 +69,36 @@ export default function PostHireStepScreen({
   const fullName = `${signer.firstName} ${signer.lastName}`.trim();
 
   async function submit(fields: PostHireSubmissionField[], extra?: Record<string, unknown>) {
-    await persistStepProgress(updateStepStatus, step.step_key, "completed", completingRef, {
-      ...extra,
-      ...buildPostHireSubmissionData(kind, fields),
-      step_type: step.step_type,
-    });
+    await persistStepProgress(
+      updateStepStatus,
+      step.step_key,
+      "completed",
+      completingRef,
+      {
+        ...extra,
+        ...buildPostHireSubmissionData(kind, fields),
+        step_type: step.step_type,
+      },
+      step.id
+    );
     setEditing(false);
     onContinue();
+  }
+
+  /** Persist checkbox / partial response without marking the step completed. */
+  async function persistCheckboxDraft(extra: Record<string, unknown>) {
+    if (done || !updateStepStatus) return;
+    await persistStepProgress(
+      updateStepStatus,
+      step.step_key,
+      "in_progress",
+      completingRef,
+      {
+        ...extra,
+        step_type: step.step_type,
+      },
+      step.id
+    );
   }
 
   const actions: ActionRowProps = {
@@ -199,6 +222,7 @@ export default function PostHireStepScreen({
       ) : kind === "direct_deposit" ? (
         <DirectDepositForm
           stepKey={step.step_key}
+          stepId={step.id}
           applicantId={applicantId}
           applicationId={onboarding?.applicationId ?? null}
           tenantSlug={tenantSlug}
@@ -206,6 +230,7 @@ export default function PostHireStepScreen({
           authorizationText={content.acknowledgmentText}
           isPreview={Boolean(onboarding?.isDraftPreview)}
           submit={submit}
+          persistDraft={persistCheckboxDraft}
           actions={actions}
         />
       ) : kind === "tax_withholding" ? (
@@ -214,7 +239,9 @@ export default function PostHireStepScreen({
         <I9AttestationForm
           prefill={{ firstName: signer.firstName, lastName: signer.lastName, email: signer.email }}
           attestationText={content.acknowledgmentText}
+          stepId={step.id}
           submit={submit}
+          persistDraft={persistCheckboxDraft}
           actions={actions}
         />
       ) : (
@@ -222,11 +249,19 @@ export default function PostHireStepScreen({
           mode={kind === "training" ? "training" : "acknowledgment"}
           acknowledgmentText={content.acknowledgmentText}
           documentUrl={content.documentUrl}
-          initialAgreed={done || submission != null}
+          initialAgreed={
+            done ||
+            Boolean(
+              progressRow?.data &&
+                typeof progressRow.data === "object" &&
+                (progressRow.data as Record<string, unknown>).checkbox_confirmed === true
+            )
+          }
           initialSignatureName={
             submission?.fields.find((f) => f.label === "Signature")?.value || fullName
           }
           submit={submit}
+          persistDraft={persistCheckboxDraft}
           actions={actions}
         />
       )}

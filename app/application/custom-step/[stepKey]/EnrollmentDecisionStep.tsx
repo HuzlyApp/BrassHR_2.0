@@ -21,7 +21,8 @@ import { CheckboxRow, Section } from "./post-hire/fields";
 type UpdateStepStatus = (
   stepKey: string,
   status: OnboardingStepStatus,
-  data?: Record<string, unknown>
+  data?: Record<string, unknown>,
+  stepId?: string
 ) => Promise<void>;
 
 function formatDate(value: string | null): string | null {
@@ -50,9 +51,7 @@ export default function EnrollmentDecisionStep({
   const [error, setError] = useState("");
 
   const question = enrollmentQuestionForStep(step);
-  const progressRow = onboarding?.progress?.steps.find(
-    (row) => row.onboarding_step_id === step.id || row.step_key === step.step_key
-  );
+  const progressRow = onboarding?.progress?.steps.find((row) => row.onboarding_step_id === step.id);
   const saved = progressRow ? readEnrollmentDecision(progressRow.data) : null;
   const rowData = (progressRow?.data && typeof progressRow.data === "object" ? progressRow.data : {}) as Record<string, unknown>;
 
@@ -84,6 +83,29 @@ export default function EnrollmentDecisionStep({
   }, [isInitiallyConfirmed, confirmed]);
 
   const answeredOn = formatDate(saved?.answeredAt ?? (rowData.confirmed_at as string | null) ?? null);
+
+  async function handleCheckboxChange(checked: boolean) {
+    setConfirmed(checked);
+    setError("");
+    try {
+      await persistStepProgress(
+        updateStepStatus,
+        step.step_key,
+        "in_progress",
+        completingRef,
+        {
+          checkbox_confirmed: checked,
+          checkbox_label: checkboxLabel,
+          response: checked ? checkboxLabel : "",
+          confirmed_at: checked ? new Date().toISOString() : null,
+          step_type: step.step_type,
+        },
+        step.id
+      );
+    } catch {
+      // Draft save failures should not block the candidate from continuing.
+    }
+  }
 
   async function handleSaveAgreed() {
     setError("");
@@ -125,7 +147,8 @@ export default function EnrollmentDecisionStep({
         step.step_key,
         "completed",
         completingRef,
-        enrollmentDecisionData("agreed", question, new Date().toISOString(), extraData)
+        enrollmentDecisionData("agreed", question, new Date().toISOString(), extraData),
+        step.id
       );
       onContinue();
     } catch (e) {
@@ -144,7 +167,8 @@ export default function EnrollmentDecisionStep({
         step.step_key,
         statusForEnrollmentDecision("not_ready", required),
         completingRef,
-        enrollmentDecisionData("not_ready", question, new Date().toISOString())
+        enrollmentDecisionData("not_ready", question, new Date().toISOString()),
+        step.id
       );
       if (!required) onContinue();
     } catch (e) {
@@ -160,7 +184,7 @@ export default function EnrollmentDecisionStep({
         <CheckboxRow
           id={`enrollment-confirm-${step.id || step.step_key}`}
           checked={confirmed}
-          onChange={(checked) => setConfirmed(checked)}
+          onChange={(checked) => void handleCheckboxChange(checked)}
         >
           <span className="font-medium text-slate-800">{checkboxLabel}</span>
           {required ? <span className="text-red-600"> *</span> : null}

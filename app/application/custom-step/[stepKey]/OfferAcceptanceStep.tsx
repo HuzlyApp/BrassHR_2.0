@@ -100,19 +100,33 @@ export default function OfferAcceptanceStep({
     const decidedAt = new Date().toISOString();
     try {
       if (choice === "accept") {
-        await persistStepProgress(updateStepStatus, step.step_key, "completed", completingRef, {
-          offer_decision: "accepted",
-          offer_decided_at: decidedAt,
-          offer,
-        });
+        await persistStepProgress(
+          updateStepStatus,
+          step.step_key,
+          "completed",
+          completingRef,
+          {
+            offer_decision: "accepted",
+            offer_decided_at: decidedAt,
+            offer,
+          },
+          step.id
+        );
         onContinue();
       } else {
-        await persistStepProgress(updateStepStatus, step.step_key, "failed", completingRef, {
-          offer_decision: "declined",
-          offer_decided_at: decidedAt,
-          failure_reason: reason.trim() || "Candidate declined the offer",
-          offer,
-        });
+        await persistStepProgress(
+          updateStepStatus,
+          step.step_key,
+          "failed",
+          completingRef,
+          {
+            offer_decision: "declined",
+            offer_decided_at: decidedAt,
+            failure_reason: reason.trim() || "Candidate declined the offer",
+            offer,
+          },
+          step.id
+        );
         setDeclining(false);
       }
     } catch (e) {

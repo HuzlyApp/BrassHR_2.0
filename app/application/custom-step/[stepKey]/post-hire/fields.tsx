@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import OnboardingCheckbox from "@/app/components/OnboardingCheckbox";
 import {
   APPLICANT_ACTION_ROW,
   APPLICANT_BTN_BACK,
@@ -205,17 +206,9 @@ export function CheckboxRow({
   children: ReactNode;
 }) {
   return (
-    <label htmlFor={id} className="flex cursor-pointer items-start gap-2.5 text-sm leading-6 text-slate-700">
-      <input
-        id={id}
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        style={{ accentColor: "var(--brand-secondary)" }}
-        className="mt-[3px] h-[18px] w-[18px] shrink-0 cursor-pointer rounded-[6px] accent-[color:var(--brand-secondary)]"
-      />
-      <span>{children}</span>
-    </label>
+    <OnboardingCheckbox id={id} checked={checked} onChange={onChange} alignFirstLine>
+      <span className="text-sm leading-5 text-slate-700">{children}</span>
+    </OnboardingCheckbox>
   );
 }
 
