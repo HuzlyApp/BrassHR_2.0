@@ -23,6 +23,7 @@ import {
 } from "@/app/application/applicant-onboarding-responsive";
 import { CompletionDetailsToggle } from "@/app/application/components/completion/CompletionDetailsToggle";
 import { CompletionStepStatusRow } from "@/app/application/components/completion/CompletionStepStatusRow";
+import { useMarkPhaseCompletionStep } from "@/app/application/components/completion/useMarkPhaseCompletionStep";
 
 type Props = {
   completionResult?: WorkflowCompletionResult | null;
@@ -37,6 +38,7 @@ export default function PostHireCompletionView({
   const branding = useTenantBranding();
   const { slug } = useOnboardingTenant();
   const onboarding = useOnboardingConfigOptional();
+  useMarkPhaseCompletionStep("post_hire");
 
   const [showPreHireList, setShowPreHireList] = useState(true);
   const [showPostHireList, setShowPostHireList] = useState(true);

@@ -1,4 +1,5 @@
 import { workflowStepIdFromMetadata } from "@/lib/onboarding/firma-step-settings";
+import { POST_HIRE_COMPLETION_STEP_ID } from "@/lib/onboarding/phase-completion-steps";
 import type { TenantOnboardingStep } from "@/lib/onboarding/types";
 import { readStepLifecyclePhase } from "@/lib/onboarding/workflow-phase";
 import { isWorkerPerformableStep } from "@/lib/onboarding/workflow-settings";
@@ -69,6 +70,7 @@ export function candidatePostHireScreenKind(
   if (!step) return null;
   if (readStepLifecyclePhase(step) !== "post_hire") return null;
   if (!isWorkerPerformableStep(step)) return null;
+  if (workflowStepIdFromMetadata(step.metadata) === POST_HIRE_COMPLETION_STEP_ID) return null;
   return postHireScreenKindForStep(step) ?? "confirmation";
 }
 

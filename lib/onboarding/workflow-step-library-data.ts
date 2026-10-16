@@ -406,6 +406,14 @@ export const WORKFLOW_STEP_LIBRARY_DATA: WorkflowStepLibraryCategory[] = [
         description: "Mark onboarding complete.",
         stepType: "custom_question",
       },
+      {
+        id: "post-hire-completion-milestone",
+        label: "Post hire Completion / Milestone",
+        iconKey: "completion-milestone",
+        description: "Shows the Post-Hire completion screen after the candidate finishes the other Post-Hire steps.",
+        stepType: "custom_question",
+        defaultPhase: "post_hire",
+      },
     ],
   },
   {

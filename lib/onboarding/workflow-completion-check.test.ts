@@ -21,6 +21,29 @@ function mockStep(id: string, key: string, title: string, phase: "pre_hire" | "p
 }
 
 describe("evaluateWorkflowCompletion", () => {
+  it("treats the Pre-Hire completion screen as done once the other Pre-Hire steps are done", () => {
+    const steps = [
+      mockStep("s1", "resume_upload", "Resume", "pre_hire"),
+      {
+        ...mockStep("s2", "pre_hire_done", "Pre Hire Completion / Milestone", "pre_hire"),
+        metadata: {
+          workflow_step_id: "pre-hire-completion-milestone",
+          workflow_settings: { phase: "pre_hire", completionOwner: "applicant" },
+        },
+      },
+    ];
+    const progress: WorkerOnboardingProgressPayload = {
+      progressId: "p1",
+      status: "in_progress",
+      steps: [
+        { onboarding_step_id: "s1", status: "completed", completed_at: new Date().toISOString(), data: {} },
+      ],
+    };
+    const result = evaluateWorkflowCompletion({ allSteps: steps, progress, tenantSlug: "acme" });
+    expect(result.preHire.isComplete).toBe(true);
+    expect(result.preHire.total).toBe(1);
+  });
+
   it("detects pre-hire incomplete when steps are pending", () => {
     const steps = [
       mockStep("s1", "resume_upload", "Resume", "pre_hire"),

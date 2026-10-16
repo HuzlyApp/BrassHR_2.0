@@ -156,6 +156,7 @@ describe("library-category-theme", () => {
       { id: "final-onboarding-call", label: "Final Onboarding Call" },
       { id: "buddy-mentor-assignment", label: "Buddy / Mentor Assignment" },
       { id: "completion-milestone", label: "Onboarding Complete" },
+      { id: "post-hire-completion-milestone", label: "Post hire Completion / Milestone" },
     ]);
     expect(
       postHire
@@ -226,6 +227,7 @@ describe("library-category-theme", () => {
       { id: "employee-agreement", label: "Authorization e-sign" },
       { id: "offer-acceptance", label: "Pay Rate Accepted" },
       { id: "i9-right-to-work-verification", label: "I-9 section 1" },
+      { id: "pre-hire-completion-milestone", label: "Pre Hire Completion / Milestone" },
     ]);
     expect(
       resolveStepThemeColor({ id: "offer-acceptance" }, "offer-agreement", "Offer & Agreement")

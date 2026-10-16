@@ -21,6 +21,27 @@ function step(partial: Partial<TenantOnboardingStep> & Pick<TenantOnboardingStep
 }
 
 describe("resolve-applicant-step-route", () => {
+  it("sends phase completion milestones to the existing completion screens", () => {
+    expect(WORKFLOW_STEP_APPLICANT_ROUTE["pre-hire-completion-milestone"]).toBe(
+      "/application/pre-hire-completion"
+    );
+    expect(WORKFLOW_STEP_APPLICANT_ROUTE["post-hire-completion-milestone"]).toBe(
+      "/application/post-hire-completion"
+    );
+    expect(
+      routeForApplicantStep(
+        step({
+          step_key: "custom_question_20",
+          step_type: "custom_question",
+          metadata: {
+            workflow_step_id: "post-hire-completion-milestone",
+            workflow_settings: { phase: "post_hire", completionOwner: "applicant" },
+          },
+        })
+      )
+    ).toContain("/application/post-hire-completion");
+  });
+
   it("maps collect-extra-files to professional license / document upload screen", () => {
     expect(WORKFLOW_STEP_APPLICANT_ROUTE["collect-extra-files"]).toBe(
       "/application/professional-license"

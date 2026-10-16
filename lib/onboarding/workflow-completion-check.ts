@@ -1,3 +1,4 @@
+import { isPhaseCompletionMilestoneStep } from "@/lib/onboarding/phase-completion-steps";
 import { routeForApplicantStep } from "@/lib/onboarding/resolve-applicant-step-route";
 import { readStepLifecyclePhase } from "@/lib/onboarding/workflow-phase";
 import { buildProgressStatusMaps } from "@/lib/onboarding/compute-max-allowed-from-progress";
@@ -69,7 +70,9 @@ export function evaluateWorkflowCompletion(params: {
   const { allSteps, progress, tenantSlug } = params;
 
   // Filter only enabled steps
-  const enabled = (allSteps ?? []).filter((s) => s.is_enabled);
+  const enabled = (allSteps ?? []).filter(
+    (step) => step.is_enabled && !isPhaseCompletionMilestoneStep(step)
+  );
 
   const preHireSteps: TenantOnboardingStep[] = [];
   const postHireSteps: TenantOnboardingStep[] = [];

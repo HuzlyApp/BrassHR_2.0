@@ -63,6 +63,7 @@ const PRE_HIRE_LIBRARY_STAGE: Record<string, (typeof PRE_HIRE_FIGMA_STAGES)[numb
   "employee-agreement": "Offer & Agreement",
   "agreement-esign": "Offer & Agreement",
   "i9-section-1": "Offer & Agreement",
+  "pre-hire-completion-milestone": "Offer & Agreement",
   "manager-facility-approval": "Approvals",
   "hr-final-approval": "Approvals",
   "completion-milestone": "Approvals",
@@ -151,6 +152,7 @@ const PRE_HIRE_RULES: Array<{ stage: (typeof PRE_HIRE_FIGMA_STAGES)[number]; pat
       /pay.?rate/,
       /hire.?date/,
       /i-?9.?section.?1/,
+      /pre.?hire.?completion/,
     ],
   },
   {
