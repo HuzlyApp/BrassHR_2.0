@@ -69,13 +69,13 @@ export default function AcknowledgmentForm({
     const fields: PostHireSubmissionField[] =
       mode === "training"
         ? [
+            { label: "Confirmation", value: acknowledgmentText },
             { label: "Training completed", value: "Yes" },
-            { label: "Statement", value: acknowledgmentText },
             { label: "Completed on", value: today },
           ]
         : [
+            { label: "Confirmation", value: acknowledgmentText },
             { label: "Acknowledged", value: "Yes" },
-            { label: "Statement", value: acknowledgmentText },
             { label: "Document", value: documentUrl ?? "" },
             { label: "Signature", value: signature.name.trim() },
             { label: "Signed on", value: today },

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buildPostHireSubmissionData,
+  effectivePostHireProgressStatus,
+  hasCandidatePostHireEvidence,
   isValidRoutingNumber,
   maskAccountNumber,
   postHireScreenKindForStep,
@@ -143,5 +145,20 @@ describe("post-hire submission data", () => {
   it("computes W-4 dependent credits", () => {
     expect(w4DependentsAmount(2, 1)).toBe(4500);
     expect(w4DependentsAmount(-1, Number.NaN)).toBe(0);
+  });
+
+  it("does not treat training steps as completed without candidate checkbox evidence", () => {
+    expect(hasCandidatePostHireEvidence("training", { step_type: "custom_question" })).toBe(false);
+    expect(effectivePostHireProgressStatus("training", "completed", {})).toBe("pending");
+    expect(
+      effectivePostHireProgressStatus("training", "completed", { checkbox_confirmed: true })
+    ).toBe("completed");
+    expect(
+      effectivePostHireProgressStatus(
+        "training",
+        "completed",
+        buildPostHireSubmissionData("training", [{ label: "Confirmation", value: "I completed training." }])
+      )
+    ).toBe("completed");
   });
 });

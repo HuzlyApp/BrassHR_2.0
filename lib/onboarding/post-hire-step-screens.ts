@@ -271,6 +271,50 @@ export function readPostHireSubmission(data: unknown): PostHireSubmission | null
   };
 }
 
+/** Checkbox-style post-hire steps that must not show Completed without a candidate response. */
+const CHECKBOX_EVIDENCE_KINDS: ReadonlySet<PostHireScreenKind> = new Set([
+  "training",
+  "acknowledgment",
+  "i9_attestation",
+  "direct_deposit",
+]);
+
+/** True when progress data includes a real candidate confirmation / submission. */
+export function hasCandidatePostHireEvidence(
+  kind: PostHireScreenKind | null | undefined,
+  data: unknown
+): boolean {
+  const submission = readPostHireSubmission(data);
+  if (submission && submission.fields.length > 0) return true;
+  if (!data || typeof data !== "object" || Array.isArray(data)) return false;
+  const row = data as Record<string, unknown>;
+  if (row.checkbox_confirmed === true) return true;
+  if (kind === "tax_withholding") {
+    return (
+      row.firma_status === "completed" ||
+      row.firma_status === "signed" ||
+      typeof row.w4_filing_status === "string" ||
+      Boolean(row.signing_request_id)
+    );
+  }
+  return false;
+}
+
+/**
+ * Downgrades a false "completed" status when a checkbox-style post-hire step has no
+ * candidate confirmation. Prevents stepper/check UI from showing Completed incorrectly.
+ */
+export function effectivePostHireProgressStatus(
+  kind: PostHireScreenKind | null | undefined,
+  status: string | null | undefined,
+  data: unknown
+): string {
+  const norm = String(status ?? "pending").trim().toLowerCase() || "pending";
+  if (norm !== "completed") return norm;
+  if (!kind || !CHECKBOX_EVIDENCE_KINDS.has(kind)) return norm;
+  return hasCandidatePostHireEvidence(kind, data) ? norm : "pending";
+}
+
 export const W4_FILING_STATUS_OPTIONS = [
   { value: "single", label: "Single or Married filing separately" },
   { value: "married_jointly", label: "Married filing jointly or Qualifying surviving spouse" },

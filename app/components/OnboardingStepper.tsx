@@ -30,6 +30,10 @@ import {
   WAITING_ON_INTERNAL_MESSAGE,
   type EmploymentLifecyclePhase,
 } from "@/lib/onboarding/workflow-phase-groups"
+import {
+  effectivePostHireProgressStatus,
+  postHireScreenKindForStep,
+} from "@/lib/onboarding/post-hire-step-screens"
 import ApplicantPhaseWelcome from "@/app/components/onboarding/ApplicantPhaseWelcome"
 
 interface Props {
@@ -142,17 +146,30 @@ export default function OnboardingStepper({
     [enabledSteps, onboarding?.progress]
   )
 
+  const progressDataByStepId = useMemo(() => {
+    const map = new Map<string, unknown>()
+    for (const row of onboarding?.progress?.steps ?? []) {
+      map.set(row.onboarding_step_id, row.data)
+    }
+    return map
+  }, [onboarding?.progress?.steps])
+
   const stepStates = useMemo(() => {
     if (!enabledSteps?.length) return [] as StepIndicatorState[]
-    return enabledSteps.map((configStep, index) =>
-      deriveStepIndicatorState({
-        dbStatus: statusByStepId.get(configStep.id) ?? "pending",
+    return enabledSteps.map((configStep, index) => {
+      const rawStatus = statusByStepId.get(configStep.id) ?? "pending"
+      const kind = postHireScreenKindForStep(configStep)
+      const dbStatus = kind
+        ? effectivePostHireProgressStatus(kind, rawStatus, progressDataByStepId.get(configStep.id))
+        : rawStatus
+      return deriveStepIndicatorState({
+        dbStatus,
         stepNumber: index + 1,
         currentStepNumber: currentStep,
         isRequired: configStep.is_required !== false,
       })
-    )
-  }, [enabledSteps, statusByStepId, currentStep])
+    })
+  }, [enabledSteps, statusByStepId, progressDataByStepId, currentStep])
 
   const livePhase: EmploymentLifecyclePhase =
     onboarding?.workflowPhase === "post_hire" || onboarding?.workflowPhase === "completed"
@@ -183,9 +200,13 @@ export default function OnboardingStepper({
       : enabledSteps
   const phaseCopy = applicantPortalCopy(selectedPhase)
   const heading = title ?? phaseCopy.header
-  const completedCount = displaySteps.filter((step, index) => {
-    const state = stepStates[enabledSteps.findIndex((s) => s.id === step.id)] ?? "not_started"
-    return state === "completed" || state === "skipped"
+  const completedCount = displaySteps.filter((step) => {
+    const rawStatus = statusByStepId.get(step.id) ?? "pending"
+    const kind = postHireScreenKindForStep(step)
+    const status = kind
+      ? effectivePostHireProgressStatus(kind, rawStatus, progressDataByStepId.get(step.id))
+      : rawStatus
+    return status === "completed" || status === "skipped"
   }).length
   const progressLabel = formatPhaseProgressShort(
     completedCount,
