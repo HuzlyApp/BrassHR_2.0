@@ -34,6 +34,7 @@ import {
   isPreHireWorkflowStep,
   readStepLifecyclePhase,
 } from "@/lib/onboarding/workflow-phase";
+import { recruiterVerificationStaysAfterRefresh } from "@/lib/onboarding/assigned-workflow-steps";
 import {
   commitOnboardingStepProgress,
   StepProgressConflictError,
@@ -236,8 +237,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const completed_at = status === "completed" ? new Date().toISOString() : null;
-
     if (status === "skipped" && stepRow && isUploadResumeStep(stepRow)) {
       return NextResponse.json({ error: "Upload Resume cannot be skipped." }, { status: 400 });
     }
@@ -309,7 +308,7 @@ export async function POST(req: NextRequest) {
 
     const { data: existingRow } = await supabase
       .from("worker_onboarding_step_progress")
-      .select("status")
+      .select("status, completed_at")
       .eq("worker_onboarding_progress_id", progressPayload.progressId)
       .eq("onboarding_step_id", stepId)
       .maybeSingle();
@@ -331,6 +330,30 @@ export async function POST(req: NextRequest) {
       );
       return NextResponse.json({ progress, noop: true });
     }
+
+    const signingStep = stepRow ?? candidateFacingStep;
+    const keepOriginalCompletion =
+      status === "completed" &&
+      existingStatus === "completed" &&
+      Boolean(existingRow?.completed_at) &&
+      Boolean(
+        signingStep &&
+          recruiterVerificationStaysAfterRefresh({
+            snapshotStepId:
+              typeof signingStep.metadata?.workflow_step_id === "string"
+                ? signingStep.metadata.workflow_step_id
+                : null,
+            stepKey: signingStep.step_key,
+            stepType: signingStep.step_type,
+            title: signingStep.title,
+          })
+      );
+    const completed_at =
+      status === "completed"
+        ? keepOriginalCompletion
+          ? String(existingRow?.completed_at)
+          : new Date().toISOString()
+        : null;
 
     // The screen marks itself in_progress on mount, which can fire before the client route
     // guard redirects away from a step still locked behind a required internal step.

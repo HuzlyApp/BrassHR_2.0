@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   candidateReviewDisplayStatus,
   candidateStepVerifiedAt,
+  recruiterVerificationStaysAfterRefresh,
   stepDecision,
   stepDisplayStatusLabel,
   stepStatusPill,
@@ -636,6 +637,55 @@ describe("assigned workflow steps", () => {
       expect(
         candidateStepVerifiedAt({ review_decision: "complete", status_changed_at: "2026-10-10T10:00:00.000Z" }, submitted)
       ).toBe("2026-10-10T10:00:00.000Z");
+    });
+
+    it("keeps Completed on an authorization step after a later signing refresh", () => {
+      expect(recruiterVerificationStaysAfterRefresh({ stepType: "background-check", title: "Auth Release Form" })).toBe(
+        true
+      );
+      const verifiedAt = "2026-10-16T12:57:24.455Z";
+      const refreshed = { ...submitted, completed_at: "2026-10-16T12:58:52.936Z" };
+      expect(
+        candidateStepVerifiedAt(
+          {
+            review_decision: "complete",
+            status_changed_at: verifiedAt,
+            step_type: "background-check",
+            title: "Auth Release Form",
+            snapshot_step_id: "zipstaff-w2-05",
+          },
+          refreshed
+        )
+      ).toBe(verifiedAt);
+      const [step] = mapAssignedStepRecords({
+        records: [
+          {
+            id: "rec-auth",
+            snapshot_step_id: "zipstaff-w2-05",
+            title: "Auth Release Form",
+            step_type: "background-check",
+            is_required: true,
+            position: 1,
+            status: "completed",
+            settings: { completionOwner: "applicant" },
+            review_decision: "complete",
+            status_changed_at: verifiedAt,
+            status_changed_by_name: "Test User",
+          },
+        ],
+        tenantSteps: [
+          tenantStep({
+            id: "tenant-auth",
+            step_key: "custom_question_11",
+            title: "Auth Release Form",
+            step_type: "custom_question",
+            metadata: { workflow_step_id: "background-check" },
+          }),
+        ],
+        progressByStepId: new Map([["tenant-auth", refreshed]]),
+      });
+      expect(step?.displayStatus).toBe("completed");
+      expect(step?.verifiedAt).toBe(verifiedAt);
     });
 
     it("maps a verified step's document approval to Completed, not Approved", () => {
