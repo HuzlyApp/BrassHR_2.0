@@ -3,16 +3,14 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  CheckCircle2,
   Sparkles,
   Award,
-  Briefcase,
   ArrowRight,
   ShieldCheck,
   Check,
 } from "lucide-react";
 import { useTenantBranding } from "@/app/components/tenant/TenantBrandingContext";
-import { applicationPath } from "@/lib/tenant/with-tenant";
+import { workerSignInHref } from "@/lib/auth/worker-sign-in";
 import { useOnboardingTenant } from "@/lib/tenant/use-onboarding-tenant";
 import { useOnboardingConfigOptional } from "@/app/components/onboarding/OnboardingConfigProvider";
 import {
@@ -62,12 +60,8 @@ export default function PostHireCompletionView({
   const overallPercent =
     totalStepsCount > 0 ? Math.round((totalStepsCompleted / totalStepsCount) * 100) : 0;
 
-  const handleDashboard = () => {
-    router.push(
-      applicationPath(
-        slug ? `/application/applicant-dashboard?tenant=${encodeURIComponent(slug)}` : "/application/applicant-dashboard"
-      )
-    );
+  const handleWorkerSignIn = () => {
+    router.push(workerSignInHref({ tenant: slug }));
   };
 
   const containerClasses = embedded
@@ -189,47 +183,18 @@ export default function PostHireCompletionView({
             ) : null}
           </div>
 
-          {/* Work Readiness Highlight Box */}
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="flex items-start gap-3">
-              <div className="mt-0.5 flex h-8 w-8 flex-none items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-                <Briefcase className="h-4 w-4" />
-              </div>
-              <div>
-                <h4 className="text-xs font-semibold text-slate-900 uppercase tracking-wider">Next Step: Ready for Work</h4>
-                <p className="mt-1 text-xs text-slate-600 leading-normal">
-                  Your worker file is now fully certified and in good standing. Your recruiter and facility coordinators will provide your assignment details, schedule, and reporting instructions.
-                </p>
-              </div>
-            </div>
-          </div>
         </div>
 
-        {/* Action Buttons */}
         <div className="mt-7 flex w-full flex-col sm:flex-row items-center justify-center gap-3">
           <button
             type="button"
-            onClick={handleDashboard}
+            onClick={handleWorkerSignIn}
             className="inline-flex h-12 w-full sm:w-auto min-w-[220px] items-center justify-center gap-2 rounded-xl px-6 text-sm sm:text-base font-semibold text-white shadow-md transition-all hover:brightness-95 hover:shadow-lg"
             style={{ backgroundColor: branding.primaryHex }}
           >
-            <span>Go to Dashboard</span>
+            <span>Worker sign in</span>
             <ArrowRight className="h-4 w-4" />
           </button>
-
-          {/* <button
-            type="button"
-            onClick={() =>
-              router.push(
-                applicationPath(
-                  slug ? `/application/application-status?tenant=${encodeURIComponent(slug)}` : "/application/application-status"
-                )
-              )
-            }
-            className="inline-flex h-12 w-full sm:w-auto items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-          >
-            View Application Status
-          </button> */}
         </div>
       </div>
     </div>

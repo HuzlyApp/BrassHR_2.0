@@ -361,6 +361,41 @@ describe("groupStepsIntoHireStages", () => {
     expect(groups.map((g) => g.name)).toEqual(["Intake", "Approvals"]);
   });
 
+  it("places an Application stage first as Intake", () => {
+    const groups = groupStepsIntoHireStages(
+      [
+        step({
+          id: "screen",
+          title: "Screening",
+          stepType: "recruiter-screening",
+          settings: { stageName: "Screening" },
+          displayStatus: "in_progress",
+        }),
+        step({
+          id: "resume",
+          title: "Resume & Basic Profile",
+          stepType: "resume-basic-profile",
+          settings: { stageName: "Application" },
+          displayStatus: "submitted",
+        }),
+        step({
+          id: "job",
+          title: "Parameterized Job Application",
+          stepType: "parameterized-job-application",
+          settings: { stageName: "Application" },
+          displayStatus: "submitted",
+        }),
+      ],
+      "pre_hire"
+    );
+
+    expect(groups.map((group) => group.name)).toEqual(["Intake", "Screening"]);
+    expect(groups[0]?.steps.map((item) => item.title)).toEqual([
+      "Resume & Basic Profile",
+      "Parameterized Job Application",
+    ]);
+  });
+
   it("lets an explicit stageName override the library map", () => {
     const groups = groupStepsIntoHireStages(
       [

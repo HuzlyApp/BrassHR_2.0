@@ -259,11 +259,21 @@ const POST_HIRE_STAGE_ALIASES: Record<string, (typeof POST_HIRE_FIGMA_STAGES)[nu
   "day one ready": "Welcome & Complete",
 };
 
+/**
+ * Workflows sometimes stamp the first Pre-Hire steps as "Application".
+ * That name is Intake on the board, and it has to sort with Intake (first), not after the known stages.
+ */
+const PRE_HIRE_STAGE_ALIASES: Record<string, (typeof PRE_HIRE_FIGMA_STAGES)[number]> = {
+  application: "Intake",
+  "application & profile": "Intake",
+  "application and profile": "Intake",
+};
+
 /** Maps a stage name onto the board for this lifecycle; null when it belongs to the other board. */
 function boardStageName(name: string | null, lifecycle: HireStageLifecycle): string | null {
   if (!name || !hireStageFitsLifecycle(name, lifecycle)) return null;
   if (lifecycle === "post_hire") return POST_HIRE_STAGE_ALIASES[name.toLowerCase()] ?? name;
-  return name;
+  return PRE_HIRE_STAGE_ALIASES[name.toLowerCase()] ?? name;
 }
 
 /** Board stage for a published step, as shown to the candidate above the step title. */
