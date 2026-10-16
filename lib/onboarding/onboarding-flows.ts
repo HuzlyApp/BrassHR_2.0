@@ -665,18 +665,97 @@ export async function updateOnboardingFlow(
   return detail;
 }
 
+export class OnboardingFlowDeleteError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "OnboardingFlowDeleteError";
+    this.status = status;
+  }
+}
+
+export function workflowDeleteBlockedMessage(usage: {
+  jobs: number;
+  applications: number;
+  mappings: number;
+  applicants: number;
+}): string | null {
+  const parts = [
+    usage.jobs ? `${usage.jobs} job${usage.jobs === 1 ? "" : "s"}` : "",
+    usage.applications
+      ? `${usage.applications} application${usage.applications === 1 ? "" : "s"}`
+      : "",
+    usage.mappings ? `${usage.mappings} mapping${usage.mappings === 1 ? "" : "s"}` : "",
+    usage.applicants
+      ? `${usage.applicants} applicant workflow${usage.applicants === 1 ? "" : "s"}`
+      : "",
+  ].filter(Boolean);
+
+  if (!parts.length) return null;
+  return `This workflow is still used by ${parts.join(", ")}. Reassign those before deleting it.`;
+}
+
+async function countFlowReferences(
+  supabase: OnboardingDbClient,
+  tenantId: string,
+  flowId: string,
+  table:
+    | "workflow_mappings"
+    | "job_requisitions"
+    | "job_applications"
+    | "applicant_workflow_instances"
+): Promise<number> {
+  const { count, error } = await supabase
+    .from(table)
+    .select("id", { count: "exact", head: true })
+    .eq("tenant_id", tenantId)
+    .eq("workflow_id", flowId);
+
+  if (error) {
+    throw new Error(error.message || "Failed to check whether this workflow is in use");
+  }
+  return count ?? 0;
+}
+
 export async function deleteOnboardingFlow(
   supabase: OnboardingDbClient,
   tenantId: string,
   flowId: string
 ): Promise<void> {
+  const existing = await getOnboardingFlowById(supabase, tenantId, flowId);
+  if (!existing) {
+    throw new OnboardingFlowDeleteError("Workflow not found", 404);
+  }
+
+  const [jobs, applications, mappings, applicants] = await Promise.all([
+    countFlowReferences(supabase, tenantId, flowId, "job_requisitions"),
+    countFlowReferences(supabase, tenantId, flowId, "job_applications"),
+    countFlowReferences(supabase, tenantId, flowId, "workflow_mappings"),
+    countFlowReferences(supabase, tenantId, flowId, "applicant_workflow_instances"),
+  ]);
+
+  const blocked = workflowDeleteBlockedMessage({ jobs, applications, mappings, applicants });
+  if (blocked) {
+    throw new OnboardingFlowDeleteError(blocked, 409);
+  }
+
   const { error } = await supabase
     .from("onboarding_flows")
     .delete()
     .eq("id", flowId)
     .eq("tenant_id", tenantId);
 
-  if (error) throw error;
+  if (error) {
+    const code = (error as { code?: string }).code;
+    if (code === "23503") {
+      throw new OnboardingFlowDeleteError(
+        "This workflow is still used by a job, application, or mapping. Reassign those before deleting it.",
+        409
+      );
+    }
+    throw new Error(error.message || "Failed to delete workflow");
+  }
 }
 
 export async function saveOnboardingFlowAsTemplate(

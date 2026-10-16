@@ -111,6 +111,22 @@ export function useOnboardingFlows(opts?: {
     enabled,
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: async (flowId: string) => {
+      const res = await fetch(`/api/admin/onboarding-flows/${flowId}`, {
+        ...(await staffFetchInit()),
+        method: "DELETE",
+        cache: "no-store",
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error || "Failed to delete workflow");
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: FLOWS_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: LIBRARIES_QUERY_KEY });
+    },
+  });
+
   const createMutation = useMutation({
     mutationFn: async (input: CreateFlowInput) => {
       const res = await fetch("/api/admin/onboarding-flows", {
@@ -143,5 +159,7 @@ export function useOnboardingFlows(opts?: {
     createFlow: createMutation.mutateAsync,
     isCreating: createMutation.isPending,
     createError: createMutation.error,
+    deleteFlow: deleteMutation.mutateAsync,
+    isDeleting: deleteMutation.isPending,
   };
 }

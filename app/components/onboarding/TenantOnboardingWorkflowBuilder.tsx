@@ -212,6 +212,7 @@ export default function TenantOnboardingWorkflowBuilder({
   );
   const [templateUpdatedAt, setTemplateUpdatedAt] = useState<string | null>(null);
   const [pastingWorkflow, setPastingWorkflow] = useState(false);
+  const [deletingWorkflow, setDeletingWorkflow] = useState(false);
   const [successModal, setSuccessModal] = useState<SuccessModalState>({
     open: false,
     title: "Success!",
@@ -999,6 +1000,40 @@ export default function TenantOnboardingWorkflowBuilder({
     [editingTemplate?.isViewOnly, persist]
   );
 
+  const handleDeleteWorkflow = useCallback(async () => {
+    if (!flowIdFromUrl || editingTemplate?.isViewOnly || deletingWorkflow) return;
+    const name = flowTitleRef.current.trim() || "this workflow";
+    const confirmed = window.confirm(`Delete "${name}"? This cannot be undone.`);
+    if (!confirmed) return;
+
+    setDeletingWorkflow(true);
+    try {
+      const res = await fetch(`/api/admin/onboarding-flows/${flowIdFromUrl}`, {
+        ...(await staffFetchInit()),
+        method: "DELETE",
+        cache: "no-store",
+      });
+      const payload = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(payload.error || "Failed to delete workflow");
+      toast.success(`Deleted ${name}`);
+      void queryClient.invalidateQueries({ queryKey: FLOWS_QUERY_KEY });
+      const flowsPath = pathname.includes("/onboarding-builder")
+        ? pathname.replace("/onboarding-builder", "/onboarding-flows")
+        : "/admin_recruiter/dashboard/onboarding-flows";
+      router.push(flowsPath);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to delete workflow");
+      setDeletingWorkflow(false);
+    }
+  }, [
+    deletingWorkflow,
+    editingTemplate?.isViewOnly,
+    flowIdFromUrl,
+    pathname,
+    queryClient,
+    router,
+  ]);
+
   const handleResetCanvas = useCallback(() => {
     if (editingTemplate?.isViewOnly) return;
     const confirmed = window.confirm(
@@ -1338,6 +1373,12 @@ export default function TenantOnboardingWorkflowBuilder({
           pastingWorkflow={pastingWorkflow}
           onPasteWorkflow={() => void handlePasteWorkflow()}
           onResetCanvas={!isViewOnly && !editingTemplate ? handleResetCanvas : undefined}
+          onDeleteWorkflow={
+            !isViewOnly && !editingTemplate && flowIdFromUrl
+              ? () => void handleDeleteWorkflow()
+              : undefined
+          }
+          deletingWorkflow={deletingWorkflow}
           savingTemplate={savingTemplate}
           savingPublish={savingPublish}
           onSaveAsTemplate={(state) => void persist(state, { template: true })}

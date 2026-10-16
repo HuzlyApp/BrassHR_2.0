@@ -759,51 +759,95 @@ function CreateNewFlowModal({
   );
 }
 
+function TrashIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path
+        d="M3.5 4.5H12.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      <path
+        d="M6.5 4.5V3.5C6.5 3.22386 6.72386 3 7 3H9C9.27614 3 9.5 3.22386 9.5 3.5V4.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      <path
+        d="M4.5 4.5L5 12.5C5.027 12.914 5.373 13.25 5.788 13.25H10.212C10.627 13.25 10.973 12.914 11 12.5L11.5 4.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 type FlowCardProps = {
   flow: OnboardingFlow;
   builderHref: string;
+  deleting?: boolean;
+  onDelete: (flow: OnboardingFlow) => void;
 };
 
-function FlowCard({ flow, builderHref }: FlowCardProps) {
+function FlowCard({ flow, builderHref, deleting = false, onDelete }: FlowCardProps) {
   const published = flow.status === "published";
 
   return (
-    <Link
-      href={builderHref}
+    <div
       className="group relative flex min-w-0 items-center gap-3 rounded-xl border bg-white px-3 py-3.5 transition hover:border-[color:var(--brand-primary)] sm:gap-4 sm:px-4 sm:py-4"
       style={{
         borderColor: CARD_BORDER,
         boxShadow: "0 1px 2px rgba(16, 24, 40, 0.05)",
       }}
-      aria-label={`Open ${flow.name} in builder`}
     >
-      <div
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg sm:h-11 sm:w-11"
-        style={{ backgroundColor: ICON_BOX_BG }}
+      <Link
+        href={builderHref}
+        className="flex min-w-0 flex-1 items-center gap-3 pr-24 sm:gap-4"
+        aria-label={`Open ${flow.name} in builder`}
       >
-        <FlowListIcon />
-      </div>
-
-      <div className="min-w-0 flex-1 pr-12 sm:pr-16">
-        <h3
-          className="truncate text-[14px] font-semibold leading-5 sm:text-[15px] sm:leading-6"
-          style={{ color: TEXT_PRIMARY }}
+        <div
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg sm:h-11 sm:w-11"
+          style={{ backgroundColor: ICON_BOX_BG }}
         >
-          {flow.name}
-        </h3>
-        <div className="mt-1.5">
-          {published ? <PublishedBadge /> : <UnpublishedBadge />}
+          <FlowListIcon />
         </div>
-      </div>
 
-      <div
-        className="absolute right-3 top-1/2 flex h-[14px] w-[36px] -translate-y-1/2 items-center gap-2 opacity-100 transition-opacity sm:right-4 md:opacity-0 md:group-hover:opacity-100"
-        aria-hidden
-      >
-        <EyeIcon />
-        <EditIcon />
+        <div className="min-w-0 flex-1">
+          <h3
+            className="truncate text-[14px] font-semibold leading-5 sm:text-[15px] sm:leading-6"
+            style={{ color: TEXT_PRIMARY }}
+          >
+            {flow.name}
+          </h3>
+          <div className="mt-1.5">
+            {published ? <PublishedBadge /> : <UnpublishedBadge />}
+          </div>
+        </div>
+      </Link>
+
+      <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-2 sm:right-4">
+        <div
+          className="pointer-events-none flex h-[14px] w-[36px] items-center gap-2 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100"
+          aria-hidden
+        >
+          <EyeIcon />
+          <EditIcon />
+        </div>
+        <button
+          type="button"
+          aria-label={`Delete ${flow.name}`}
+          title="Delete workflow"
+          disabled={deleting}
+          onClick={() => onDelete(flow)}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[#B42318] transition hover:bg-[#FEF3F2] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <TrashIcon />
+        </button>
       </div>
-    </Link>
+    </div>
   );
 }
 
@@ -825,6 +869,7 @@ function OnboardingFlowsPageContent({
 
   const [activeTab, setActiveTab] = useState<FilterTab>("published");
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [deletingFlowId, setDeletingFlowId] = useState<string | null>(null);
   const [mappingSetup, setMappingSetup] = useState<{
     workflowId: string;
     workflowName: string;
@@ -873,6 +918,7 @@ function OnboardingFlowsPageContent({
     error: flowsError,
     createFlow,
     isCreating,
+    deleteFlow,
     refetch,
   } = useOnboardingFlows({
     libraryId: effectiveLibraryId,
@@ -925,6 +971,24 @@ function OnboardingFlowsPageContent({
       }
     },
     [createFlow, effectiveLibraryId, refetch, router, builderBase, templateOptions]
+  );
+
+  const handleDeleteFlow = useCallback(
+    async (flow: OnboardingFlow) => {
+      const confirmed = window.confirm(`Delete "${flow.name}"? This cannot be undone.`);
+      if (!confirmed) return;
+      setDeletingFlowId(flow.id);
+      try {
+        await deleteFlow(flow.id);
+        toast.success(`Deleted ${flow.name}`);
+        await refetch();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Failed to delete workflow");
+      } finally {
+        setDeletingFlowId(null);
+      }
+    },
+    [deleteFlow, refetch]
   );
 
   const sectionTitle = activeTab === "published" ? "Published Flows" : "Unpublished Flows";
@@ -1080,6 +1144,8 @@ function OnboardingFlowsPageContent({
                 key={flow.id}
                 flow={flow}
                 builderHref={`${builderBase}?flow=${flow.id}`}
+                deleting={deletingFlowId === flow.id}
+                onDelete={(target) => void handleDeleteFlow(target)}
               />
             ))}
           </section>

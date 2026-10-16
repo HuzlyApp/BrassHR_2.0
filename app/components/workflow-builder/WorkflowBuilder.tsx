@@ -100,6 +100,8 @@ export type WorkflowBuilderProps = {
   pastingWorkflow?: boolean;
   onPasteWorkflow?: () => void;
   onResetCanvas?: () => void;
+  onDeleteWorkflow?: () => void;
+  deletingWorkflow?: boolean;
   registerUndoControls?: (
     controls: { canUndo: boolean; undo: () => void; canRedo: boolean; redo: () => void } | null
   ) => void;
@@ -148,6 +150,8 @@ function WorkflowBuilderInner({
   pastingWorkflow = false,
   onPasteWorkflow,
   onResetCanvas,
+  onDeleteWorkflow,
+  deletingWorkflow = false,
   registerUndoControls,
 }: WorkflowBuilderProps) {
   const hydratedInitial = useMemo(
@@ -804,6 +808,19 @@ function WorkflowBuilderInner({
                   title="Clear the canvas and build this workflow from scratch"
                 >
                   Blank sheet
+                </button>
+              ) : null}
+              {!readOnly && onDeleteWorkflow ? (
+                <button
+                  type="button"
+                  onClick={onDeleteWorkflow}
+                  disabled={deletingWorkflow || savingPublish || savingTemplate}
+                  className={FOOTER_BTN}
+                  style={{ borderColor: "#FDA29B", color: "#B42318" }}
+                  aria-label="Delete workflow"
+                  title="Delete this workflow"
+                >
+                  {deletingWorkflow ? "Deleting…" : "Delete"}
                 </button>
               ) : null}
             </div>
