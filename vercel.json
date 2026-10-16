@@ -1,4 +1,10 @@
 {
+  "git": {
+    "deploymentEnabled": {
+      "**": false,
+      "staging": true
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/close-expired-jobs",
