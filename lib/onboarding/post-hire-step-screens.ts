@@ -39,14 +39,22 @@ function rawWorkflowSettings(metadata: Record<string, unknown> | null | undefine
   return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
 }
 
+type PostHireScreenStep = Pick<TenantOnboardingStep, "metadata"> &
+  Partial<Pick<TenantOnboardingStep, "step_key" | "title">>;
+
 /** Pre-Hire copies of these library steps keep their existing applicant screens. */
 export function postHireScreenKindForStep(
-  step: Pick<TenantOnboardingStep, "metadata" | "step_key" | "title"> | null | undefined
+  step: PostHireScreenStep | null | undefined
 ): PostHireScreenKind | null {
   if (!step) return null;
   const kind = postHireScreenKindForStepId(workflowStepIdFromMetadata(step.metadata));
   if (!kind) return null;
-  return readStepLifecyclePhase(step as TenantOnboardingStep) === "post_hire" ? kind : null;
+  const phaseStep = {
+    step_key: step.step_key ?? "",
+    title: step.title ?? "",
+    metadata: step.metadata,
+  } as TenantOnboardingStep;
+  return readStepLifecyclePhase(phaseStep) === "post_hire" ? kind : null;
 }
 
 /**
