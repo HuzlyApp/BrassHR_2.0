@@ -33,8 +33,6 @@ import {
 } from "@/lib/onboarding/use-mark-step-in-progress-if-pending";
 import { skipOnboardingStep } from "@/lib/onboarding/skip-onboarding-step";
 import { resolveClientOnboardingTenantSlug } from "@/lib/tenant/client-onboarding-slug";
-import { nextStepRouteAfter } from "@/lib/onboarding/professional-license-step";
-
 type UploadedFile = {
   name: string;
   size: string;
@@ -137,14 +135,11 @@ export default function CollectExtraFilesPage() {
   });
 
   const skipStep = () => {
-    const next =
-      nextStepRouteAfter(onboarding?.config, currentStep, tenantSlug) ??
-      applicationPath(APPLICATION_ROUTES.addReferences, tenantSlug);
     void skipOnboardingStep({
       step: currentStep,
       updateStepStatus: onboarding?.updateStepStatus,
       completingRef,
-      onNavigate: () => router.push(next),
+      onNavigate: () => stepNav.goNext("skipped"),
     });
   };
 
@@ -253,10 +248,7 @@ export default function CollectExtraFilesPage() {
         );
       }
 
-      const nextRoute =
-        nextStepRouteAfter(onboarding?.config, currentStep, tenantSlug) ??
-        applicationPath(APPLICATION_ROUTES.addReferences, tenantSlug);
-      router.push(nextRoute);
+      stepNav.goNext();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {

@@ -76,20 +76,23 @@ export function useOnboardingStepNav() {
     nextRoute,
     prevRoute,
     firstRoute,
-    goNext: () => {
+    goNext: (savedStatus: "completed" | "skipped" = "completed") => {
       const completion =
         currentStep && readStepLifecyclePhase(currentStep) === "post_hire"
           ? "post_hire"
           : "pre_hire";
       const inPostHire = onboarding?.workflowPhase === "post_hire" || onboarding?.workflowPhase === "completed";
-      if (onboarding?.waitingOnInternal && !inPostHire) {
+      if (savedStatus !== "skipped" && onboarding?.waitingOnInternal && !inPostHire) {
         const query = new URLSearchParams({ completion });
         if (slug) query.set("tenant", slug);
         push(`${APPLICATION_ROUTES.applicationStatus}?${query.toString()}`);
         return;
       }
-      const href =
-        nextRoute ?? resolvePostStepContinueRoute(onboarding?.config, currentStep, slug);
+      const href = resolvePostStepContinueRoute(onboarding?.config, currentStep, slug, {
+        progress: onboarding?.progress,
+        savedStepId: currentStep?.id,
+        savedStatus,
+      });
       if (href) push(href);
     },
     goPrev: () => {

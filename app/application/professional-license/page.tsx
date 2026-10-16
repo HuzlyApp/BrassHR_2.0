@@ -24,7 +24,6 @@ import { brandingToCssVars } from "@/lib/tenant/tenant-branding";
 import { useOnboardingConfigOptional } from "@/app/components/onboarding/OnboardingConfigProvider";
 import {
   findProfessionalLicenseStep,
-  nextStepRouteAfter,
   requiredDocumentsForStep,
 } from "@/lib/onboarding/professional-license-step";
 import { isTenantStepBlocking } from "@/lib/onboarding/reference-verification";
@@ -277,16 +276,19 @@ export default function Step2License() {
 
   const stepRequiresUpload = licenseStep ? isTenantStepBlocking(licenseStep) : false;
 
-  const routeAfterThisStep = () =>
-    nextStepRouteAfter(onboarding?.config, licenseStep, tenantSlug) ??
-    resolvePostStepContinueRoute(onboarding?.config, licenseStep, tenantSlug);
+  const routeAfterThisStep = (savedStatus: "completed" | "skipped") =>
+    resolvePostStepContinueRoute(onboarding?.config, licenseStep, tenantSlug, {
+      progress: onboarding?.progress,
+      savedStepId: licenseStep?.id,
+      savedStatus,
+    });
 
   const skipProfessionalLicense = () => {
     void skipOnboardingStep({
       step: licenseStep,
       updateStepStatus: onboarding?.updateStepStatus,
       completingRef,
-      onNavigate: () => router.push(routeAfterThisStep()),
+      onNavigate: () => router.push(routeAfterThisStep("skipped")),
     });
   };
 
@@ -717,7 +719,7 @@ export default function Step2License() {
           licenseStep.id
         );
       }
-      router.push(routeAfterThisStep());
+      router.push(routeAfterThisStep(hasAnyUpload ? "completed" : "skipped"));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {

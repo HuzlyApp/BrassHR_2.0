@@ -254,7 +254,7 @@ export default function IdentityVerificationPage() {
       step,
       updateStepStatus: nav.updateStepStatus,
       completingRef,
-      onNavigate: () => nav.goNext(),
+      onNavigate: () => nav.goNext("skipped"),
     })
   }
 

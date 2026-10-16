@@ -11,7 +11,10 @@ import { useTenantBranding } from "@/app/components/tenant/TenantBrandingContext
 import { brandingToCssVars } from "@/lib/tenant/tenant-branding"
 import { useOnboardingConfigOptional } from "@/app/components/onboarding/OnboardingConfigProvider"
 import { routeForApplicantStep } from "@/lib/onboarding/resolve-applicant-step-route"
-import { resolvePostStepContinueRoute } from "@/lib/onboarding/tenant-step-navigation"
+import {
+    firstSkippedRequiredCandidateStep,
+    resolvePostStepContinueRoute,
+} from "@/lib/onboarding/tenant-step-navigation"
 import { useOnboardingStepNav } from "@/lib/onboarding/use-onboarding-step-nav"
 import { readStepLifecyclePhase } from "@/lib/onboarding/workflow-phase"
 import {
@@ -55,13 +58,36 @@ export default function SkillAssessmentIntro() {
 
     useEffect(() => {
         if (nav.configLoading || !skillStep || !postHireSkillStep) return
-        const href = stepsResolved
-            ? resolvePostStepContinueRoute(onboarding?.config, skillStep, nav.slug)
-            : routeForApplicantStep(skillStep, nav.slug)
+        const phase = "post_hire" as const
+        const remaining = firstSkippedRequiredCandidateStep(
+            nav.enabledSteps ?? [],
+            phase,
+            onboarding?.progress
+        )
+        const href =
+            stepsResolved && remaining
+                ? routeForApplicantStep(remaining, nav.slug)
+                : stepsResolved
+                  ? resolvePostStepContinueRoute(onboarding?.config, skillStep, nav.slug, {
+                        progress: onboarding?.progress,
+                        savedStepId: skillStep.id,
+                        savedStatus: "completed",
+                    })
+                  : routeForApplicantStep(skillStep, nav.slug)
         if (!href.includes(APPLICATION_ROUTES.skillsIntro)) {
             router.replace(href)
         }
-    }, [nav.configLoading, nav.slug, onboarding?.config, postHireSkillStep, router, skillStep, stepsResolved])
+    }, [
+        nav.configLoading,
+        nav.enabledSteps,
+        nav.slug,
+        onboarding?.config,
+        onboarding?.progress,
+        postHireSkillStep,
+        router,
+        skillStep,
+        stepsResolved,
+    ])
 
     useMarkStepInProgressIfPending({
       step: skillStep,
@@ -79,7 +105,11 @@ export default function SkillAssessmentIntro() {
         }
       }
       router.push(
-        nav.nextRoute ?? resolvePostStepContinueRoute(onboarding?.config, skillStep, nav.slug)
+        resolvePostStepContinueRoute(onboarding?.config, skillStep, nav.slug, {
+          progress: onboarding?.progress,
+          savedStepId: skillStep?.id,
+          savedStatus: "skipped",
+        })
       )
     }
 

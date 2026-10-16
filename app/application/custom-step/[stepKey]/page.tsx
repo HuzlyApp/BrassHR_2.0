@@ -405,7 +405,7 @@ export default function CustomOnboardingStepPage() {
               tenantSlug={nav.slug || null}
               updateStepStatus={nav.updateStepStatus}
               onBack={() => nav.goPrev()}
-              onContinue={() => nav.goNext()}
+              onContinue={(status) => nav.goNext(status)}
             />
           ) : step && isOfferStep ? (
             <OfferAcceptanceStep

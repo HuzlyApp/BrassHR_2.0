@@ -80,7 +80,7 @@ export default function AgreementSignaturePage() {
                 tenantSlug={nav.slug || null}
                 updateStepStatus={nav.updateStepStatus}
                 onBack={() => nav.goPrev()}
-                onContinue={() => nav.goNext()}
+                onContinue={(status) => nav.goNext(status)}
               />
             </>
           ) : (

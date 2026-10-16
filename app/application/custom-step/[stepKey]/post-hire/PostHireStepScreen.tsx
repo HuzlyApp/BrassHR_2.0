@@ -53,7 +53,7 @@ export default function PostHireStepScreen({
   tenantSlug: string | null;
   updateStepStatus: UpdateStepStatus | undefined;
   onBack: () => void;
-  onContinue: () => void;
+  onContinue: (savedStatus?: "completed" | "skipped") => void;
 }) {
   const onboarding = useOnboardingConfigOptional();
   const applicantId = onboarding?.applicantId ?? null;
@@ -132,7 +132,13 @@ export default function PostHireStepScreen({
     onBack,
     onSkip:
       !done && isOnboardingStepSkippable(step)
-        ? () => void skipOnboardingStep({ step, updateStepStatus, completingRef, onNavigate: onContinue })
+        ? () =>
+            void skipOnboardingStep({
+              step,
+              updateStepStatus,
+              completingRef,
+              onNavigate: () => onContinue("skipped"),
+            })
         : undefined,
   };
 
