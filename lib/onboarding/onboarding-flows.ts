@@ -299,6 +299,44 @@ async function loadPublishedPresetForSeed(
   return null;
 }
 
+async function loadIndustryPresetForEmployment(
+  supabase: OnboardingDbClient,
+  tenantId: string,
+  employmentType: "W2" | "1099" | "RNR"
+): Promise<WorkflowTemplateRow | null> {
+  const { data: tenant, error: tenantError } = await supabase
+    .from("tenants")
+    .select("primary_industry_key")
+    .eq("id", tenantId)
+    .maybeSingle();
+  if (tenantError) throw tenantError;
+
+  const preferred =
+    (tenant as { primary_industry_key?: string | null } | null)?.primary_industry_key ===
+    "technology"
+      ? "technology"
+      : "healthcare";
+
+  const { data, error } = await supabase
+    .from("onboarding_templates")
+    .select(
+      "id, tenant_id, name, description, type, status, employment_type, industry_key, template_type, is_system_preset, is_editable, version, builder_draft, flow_name, created_by, updated_by, created_at, updated_at"
+    )
+    .eq("type", "preset")
+    .eq("status", "published")
+    .eq("is_system_preset", true)
+    .eq("employment_type", employmentType);
+  if (error) throw error;
+
+  const rows = (data ?? []) as Array<WorkflowTemplateRow & { industry_key?: string | null }>;
+  return (
+    rows.find((row) => row.industry_key === preferred) ??
+    rows.find((row) => row.industry_key === "healthcare") ??
+    rows[0] ??
+    null
+  );
+}
+
 async function employmentTypedFlowExists(
   supabase: OnboardingDbClient,
   tenantId: string,
@@ -318,7 +356,9 @@ async function insertEmploymentTypedFlow(
   seed: EmploymentFlowSeed,
   createdBy?: string | null
 ): Promise<void> {
-  const preset = await loadPublishedPresetForSeed(supabase, seed);
+  const preset =
+    (await loadPublishedPresetForSeed(supabase, seed)) ??
+    (await loadIndustryPresetForEmployment(supabase, tenantId, seed.employmentType));
   if (!preset) {
     if (seed.optional) return;
     throw new Error(
