@@ -1,6 +1,6 @@
 import { APPLICATION_ROUTES } from "@/lib/onboarding/application-routes";
 import { stepUsesFirmaSigning } from "@/lib/onboarding/firma-step-settings";
-import { postHireScreenKindForStep } from "@/lib/onboarding/post-hire-step-screens";
+import { candidatePostHireScreenKind } from "@/lib/onboarding/post-hire-step-screens";
 import type { OnboardingStepType, TenantOnboardingStep } from "@/lib/onboarding/types";
 import { withTenant } from "@/lib/tenant/with-tenant";
 
@@ -77,7 +77,7 @@ function baseRouteForStep(step: TenantOnboardingStep): string {
     return APPLICATION_ROUTES.applicationSummary;
   }
 
-  if (postHireScreenKindForStep(step)) {
+  if (candidatePostHireScreenKind(step)) {
     return APPLICATION_ROUTES.customStep(step.step_key);
   }
 
@@ -109,7 +109,7 @@ function baseRouteForStep(step: TenantOnboardingStep): string {
 }
 
 export function dedicatedRouteForWorkflowStep(step: TenantOnboardingStep): string | null {
-  if (postHireScreenKindForStep(step)) return null;
+  if (candidatePostHireScreenKind(step)) return null;
   const libraryId = workflowStepId(step);
   if (libraryId && WORKFLOW_STEP_APPLICANT_ROUTE[libraryId]) {
     return WORKFLOW_STEP_APPLICANT_ROUTE[libraryId];

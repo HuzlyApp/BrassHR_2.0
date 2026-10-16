@@ -128,6 +128,7 @@ describe("PostHireCompletionView", () => {
     render(<PostHireCompletionView completionResult={mockResult} />);
 
     expect(screen.getByRole("heading", { name: /congratulations/i })).toBeDefined();
+    expect(screen.getByText(/onboarding 100% completed/i)).toBeDefined();
     expect(screen.getByText(/you completed all pre hire and post hire steps/i)).toBeDefined();
     expect(screen.getByText(/you can now continue work/i)).toBeDefined();
     expect(screen.getByRole("button", { name: /go to dashboard/i })).toBeDefined();

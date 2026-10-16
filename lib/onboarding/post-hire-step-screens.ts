@@ -1,6 +1,6 @@
 import { workflowStepIdFromMetadata } from "@/lib/onboarding/firma-step-settings";
-import { hireLifecycleForPhase } from "@/lib/onboarding/hire-stage-catalog";
 import type { TenantOnboardingStep } from "@/lib/onboarding/types";
+import { readStepLifecyclePhase } from "@/lib/onboarding/workflow-phase";
 import { isWorkerPerformableStep } from "@/lib/onboarding/workflow-settings";
 
 /** Candidate screen families for Post-Hire library steps that the applicant completes. */
@@ -41,12 +41,12 @@ function rawWorkflowSettings(metadata: Record<string, unknown> | null | undefine
 
 /** Pre-Hire copies of these library steps keep their existing applicant screens. */
 export function postHireScreenKindForStep(
-  step: Pick<TenantOnboardingStep, "metadata"> | null | undefined
+  step: Pick<TenantOnboardingStep, "metadata" | "step_key" | "title"> | null | undefined
 ): PostHireScreenKind | null {
   if (!step) return null;
   const kind = postHireScreenKindForStepId(workflowStepIdFromMetadata(step.metadata));
   if (!kind) return null;
-  return hireLifecycleForPhase(rawWorkflowSettings(step.metadata).phase) === "post_hire" ? kind : null;
+  return readStepLifecyclePhase(step as TenantOnboardingStep) === "post_hire" ? kind : null;
 }
 
 /**
@@ -59,7 +59,7 @@ export function candidatePostHireScreenKind(
   step: TenantOnboardingStep | null | undefined
 ): PostHireScreenKind | null {
   if (!step) return null;
-  if (hireLifecycleForPhase(rawWorkflowSettings(step.metadata).phase) !== "post_hire") return null;
+  if (readStepLifecyclePhase(step) !== "post_hire") return null;
   if (!isWorkerPerformableStep(step)) return null;
   return postHireScreenKindForStep(step) ?? "confirmation";
 }

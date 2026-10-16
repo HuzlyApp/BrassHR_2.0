@@ -40,8 +40,8 @@ export default function PostHireCompletionView({
   const { slug } = useOnboardingTenant();
   const onboarding = useOnboardingConfigOptional();
 
-  const [showPreHireList, setShowPreHireList] = useState(false);
-  const [showPostHireList, setShowPostHireList] = useState(false);
+  const [showPreHireList, setShowPreHireList] = useState(true);
+  const [showPostHireList, setShowPostHireList] = useState(true);
 
   // Dynamically evaluate all step completion
   const effectiveResult =
@@ -59,6 +59,8 @@ export default function PostHireCompletionView({
     effectiveResult.preHire.completedCount + effectiveResult.postHire.completedCount;
   const totalStepsCount =
     effectiveResult.preHire.total + effectiveResult.postHire.total;
+  const overallPercent =
+    totalStepsCount > 0 ? Math.round((totalStepsCompleted / totalStepsCount) * 100) : 0;
 
   const handleDashboard = () => {
     router.push(
@@ -89,7 +91,7 @@ export default function PostHireCompletionView({
         {/* Phase Pill */}
         <div className="mb-3.5 inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-1 text-xs font-semibold text-emerald-800">
           <ShieldCheck className="h-4 w-4 text-emerald-600" />
-          <span>Onboarding 100% Completed</span>
+          <span>{`Onboarding ${overallPercent}% completed`}</span>
         </div>
 
         {/* User's Exact Requested Messages */}
@@ -98,7 +100,9 @@ export default function PostHireCompletionView({
         </h1>
 
         <p className="mt-2 text-lg font-semibold text-slate-800 sm:text-2xl">
-          You completed all pre hire and Post hire steps
+          {overallPercent === 100
+            ? "You completed all pre hire and Post hire steps"
+            : `${totalStepsCompleted} of ${totalStepsCount} steps completed (${overallPercent}%)`}
         </p>
 
         <p className="mt-1.5 text-base sm:text-lg font-medium text-emerald-700">

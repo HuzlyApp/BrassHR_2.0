@@ -193,4 +193,34 @@ describe("resolve-applicant-step-route", () => {
     );
     expect(current?.step_key).toBe("authorization_background_check");
   });
+
+  it("sends post-hire training modules to the checkbox screen, not the skill quiz", () => {
+    const route = routeForApplicantStep(
+      step({
+        step_key: "skill_assessment_2",
+        step_type: "skill_assessment",
+        title: "Training Modules + Quiz",
+        metadata: {
+          workflow_step_id: "training-modules-quiz",
+          workflow_settings: { phase: "post_hire", completionOwner: "applicant" },
+        },
+      }),
+      "testcompany"
+    );
+    expect(route).toContain("/application/custom-step/skill_assessment_2");
+    expect(route).not.toContain("/application/skills-intro");
+    expect(
+      dedicatedRouteForWorkflowStep(
+        step({
+          step_key: "skill_assessment_2",
+          step_type: "skill_assessment",
+          title: "Training Modules + Quiz",
+          metadata: {
+            workflow_step_id: "training-modules-quiz",
+            workflow_settings: { phase: "post_hire", completionOwner: "applicant" },
+          },
+        })
+      )
+    ).toBeNull();
+  });
 });
