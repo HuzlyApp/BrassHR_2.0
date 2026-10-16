@@ -467,10 +467,12 @@ function WorkflowBuilderInner({
               color="#98a2b3"
             />
             <input
-              type="search"
+              type="text"
+              role="searchbox"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search Steps"
+              aria-label="Search the steps library"
               className="h-9 w-[240px] rounded-lg border bg-[#f9fafb] pl-9 pr-3 text-xs outline-none transition focus:border-[#BC8B41] focus:bg-white focus:ring-2 focus:ring-[#BC8B41]/20"
               style={{ borderColor: CARD_BORDER, color: TEXT_PRIMARY }}
             />
@@ -563,6 +565,7 @@ function WorkflowBuilderInner({
         <StepsLibrary
           categories={stepLibrary}
           searchTerm={searchTerm}
+          onSearchTermChange={setSearchTerm}
           readOnly={readOnly}
           compactMode={isCompactBuilder}
           panelOpen={libraryPanelOpen}
@@ -797,8 +800,10 @@ function WorkflowBuilderInner({
                   onClick={onResetCanvas}
                   className={FOOTER_BTN}
                   style={{ borderColor: "#d0d5dd", color: TEXT_PRIMARY }}
+                  aria-label="Blank sheet"
+                  title="Clear the canvas and build this workflow from scratch"
                 >
-                  Reset
+                  Blank sheet
                 </button>
               ) : null}
             </div>

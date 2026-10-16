@@ -88,10 +88,13 @@ export function hydrateWorkflowFromStorage(
   builderDraft: unknown,
   drafts: OnboardingStepDraft[],
   stepById: Map<string, StepDefinition>,
-  options?: { includeDisabled?: boolean }
+  options?: { includeDisabled?: boolean; enforceResumeFirst?: boolean }
 ): { nodes: Node<WorkflowNodeData>[]; edges: Edge[] } {
   if (isSerializableWorkflowState(builderDraft) && builderDraft.nodes.length > 0) {
-    const enforced = enforceUploadResumeFirstInWorkflowState(builderDraft, drafts);
+    const enforced =
+      options?.enforceResumeFirst === false
+        ? builderDraft
+        : enforceUploadResumeFirstInWorkflowState(builderDraft, drafts);
     const nodes: Node<WorkflowNodeData>[] = enforced.nodes.map((n) => {
       const def = resolveStepDefinition(n.stepId, stepById);
       const settings = normalizeWorkflowNodeSettings(n.settings, {

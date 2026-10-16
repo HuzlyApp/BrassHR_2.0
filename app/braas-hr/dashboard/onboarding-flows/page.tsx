@@ -661,6 +661,11 @@ function CreateNewFlowModal({
               Create as blank
             </span>
           </label>
+          {createAsBlank ? (
+            <p className="text-xs leading-5" style={{ color: TEXT_MUTED }}>
+              Opens an empty canvas. Add steps from the library to build the workflow from scratch.
+            </p>
+          ) : null}
 
           {createAsBlank ? (
             <div className="min-w-0">

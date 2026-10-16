@@ -92,7 +92,8 @@ export default function AddStepPicker({
               color="#98a2b3"
             />
             <input
-              type="search"
+              type="text"
+              role="searchbox"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search steps..."

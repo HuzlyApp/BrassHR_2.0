@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { filterStepLibrary } from "./filter-step-library";
 import {
   filterStepLibraryByPhase,
   LIBRARY_THEME_COLORS,
@@ -207,16 +208,45 @@ describe("library-category-theme", () => {
   it("adds Figma Intake steps under Pre-hire Intake when missing", () => {
     const preHire = filterStepLibraryByPhase(library, "pre_hire");
     const intake = preHire.find((category) => category.id === "application-profile");
-    expect(intake?.steps.slice(0, 3).map((step) => step.id)).toEqual([
+    expect(intake?.steps.map((step) => step.id)).toEqual([
       "collect-extra-files",
       "collect-references",
       "custom-form",
+      "resume-basic-profile",
+      "references-collection",
     ]);
     expect(intake?.steps.slice(0, 3).map((step) => step.label)).toEqual([
       "Collect Extra Files",
       "Collect References",
       "Custom Form",
     ]);
+  });
+
+  it("keeps non-figma steps searchable after regrouping, including once the query is cleared", () => {
+    const originalIds = library.flatMap((category) => category.steps.map((step) => step.id));
+    const preHire = filterStepLibraryByPhase(library, "pre_hire");
+    const ids = preHire.flatMap((category) => category.steps.map((step) => step.id));
+
+    expect(ids).toContain("resume-basic-profile");
+    expect(ids).toContain("references-collection");
+    expect(
+      filterStepLibraryByPhase(library, "pre_hire").flatMap((category) =>
+        category.steps.map((step) => step.id)
+      )
+    ).toEqual(ids);
+    expect(library.flatMap((category) => category.steps.map((step) => step.id))).toEqual(originalIds);
+
+    const narrowed = filterStepLibrary(preHire, "resume");
+    expect(narrowed.flatMap((category) => category.steps.map((step) => step.id))).toEqual([
+      "resume-basic-profile",
+    ]);
+    const restored = filterStepLibrary(preHire, "");
+    expect(restored.flatMap((category) => category.steps.map((step) => step.id))).toContain(
+      "references-collection"
+    );
+    expect(restored.flatMap((category) => category.steps.map((step) => step.id))).toContain(
+      "resume-basic-profile"
+    );
   });
 
   it("shows Offer & Agreement with Figma steps moved from Approvals", () => {

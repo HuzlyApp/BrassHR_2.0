@@ -800,10 +800,10 @@ export default function StepsCanvas({
               className="text-sm font-semibold leading-5"
               style={{ color: "#101828" }}
             >
-              {libraryDragActive ? "Drop here" : "Start your workflow"}
+              {libraryDragActive ? "Drop here" : "Blank workflow"}
             </span>
-            <span className="text-xs" style={{ color: TEXT_MUTED }}>
-              Drag a step here
+            <span className="max-w-[240px] text-xs" style={{ color: TEXT_MUTED }}>
+              Drag steps from the library to build this flow from scratch.
             </span>
             {!readOnly ? (
               <button

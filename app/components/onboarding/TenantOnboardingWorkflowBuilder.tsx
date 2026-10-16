@@ -768,7 +768,10 @@ export default function TenantOnboardingWorkflowBuilder({
           }
 
           const library = data?.stepLibrary ?? stepLibrary;
-          const savedCanvas = hydrateCanvasFromBuilderDraft(builderDraft, library);
+          const savedCanvas = hydrateCanvasFromBuilderDraft(builderDraft, library, {
+            allowEmpty: true,
+            enforceResumeFirst: false,
+          });
           setInitialNodes(savedCanvas.nodes);
           setInitialEdges(savedCanvas.edges);
           skipNextChange.current = true;
@@ -998,7 +1001,11 @@ export default function TenantOnboardingWorkflowBuilder({
 
   const handleResetCanvas = useCallback(() => {
     if (editingTemplate?.isViewOnly) return;
-    const confirmed = window.confirm("Clear all steps from the canvas? This stays as draft only and is not saved yet.");
+    const confirmed = window.confirm(
+      flowIdFromUrl
+        ? "Clear every step and start from a blank canvas? The empty workflow is saved."
+        : "Clear all steps from the canvas? This stays as draft only and is not saved yet."
+    );
     if (!confirmed) return;
 
     if (autosaveTimer.current) {
@@ -1011,10 +1018,17 @@ export default function TenantOnboardingWorkflowBuilder({
     latestStateRef.current = { nodes: [], edges: [] };
     setInitialNodes([]);
     setInitialEdges([]);
-    setPublishStatus("draft");
-    setActiveFlowKey(`${tenantId ?? "none"}:reset:${Date.now()}`);
-    toast.success("Canvas cleared — draft only, not saved");
-  }, [editingTemplate?.isViewOnly, tenantId]);
+    setActiveFlowKey(
+      `${tenantId ?? "none"}:${flowIdFromUrl ? `flow:${flowIdFromUrl}:` : ""}blank:${Date.now()}`
+    );
+    if (flowIdFromUrl) {
+      void persist({ nodes: [], edges: [] }, { silent: true });
+      toast.success("Blank canvas saved. Add steps from the library.");
+    } else {
+      setPublishStatus("draft");
+      toast.success("Canvas cleared — draft only, not saved");
+    }
+  }, [editingTemplate?.isViewOnly, flowIdFromUrl, persist, tenantId]);
 
   const handleFlowTitleChange = useCallback(
     async (nextTitle: string) => {

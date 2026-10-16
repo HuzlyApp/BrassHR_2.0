@@ -905,10 +905,13 @@ export function ensurePreHireFigmaGroups(
     const resolvedSteps = group.steps.map((def) => resolveFigmaStep(def, allSteps));
     const existing = byId.get(group.id);
     if (existing) {
+      // Figma steps lead the group. Other library steps stay after them so
+      // search can still find them. Replacing the list dropped those steps.
+      const leftover = existing.steps.filter((step) => !FIGMA_PRE_HIRE_STEP_IDS.has(step.id));
       byId.set(group.id, {
         ...existing,
         label: group.label,
-        steps: resolvedSteps,
+        steps: [...resolvedSteps, ...leftover],
       });
     } else {
       byId.set(group.id, {
