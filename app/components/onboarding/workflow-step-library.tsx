@@ -119,6 +119,17 @@ const ICONS: Record<string, ReactNode> = {
   "conditional-logic": <ConditionalLogicIcon />,
   "parallel-step-group": <ParallelStepGroupIcon />,
   "completion-milestone": <CompletionMilestoneIcon />,
+  "follow-up-interview": <ManagerWelcomeCallIcon />,
+  "submit-to-client": <CompletionMilestoneIcon />,
+  "authorization-esign": <EmployeeAgreementIcon />,
+  "offer-prep": <OfferAcceptanceIcon />,
+  "manager-approval": <ManagerFacilityApprovalIcon />,
+  w9: <TaxFormsIcon />,
+  "system-access": <FacilityAccessSetupIcon />,
+  "health-screening-waiver": <ComplianceTrainingIcon />,
+  "record-selection": <HrFinalApprovalIcon />,
+  "pre-hire-completion-milestone": <CompletionMilestoneIcon />,
+  "post-hire-completion-milestone": <CompletionMilestoneIcon />,
 };
 
 function hydrateStep(step: WorkflowStepLibraryItem) {
@@ -204,11 +215,24 @@ function resolveFigmaStepType(stepId: string): WorkflowStepLibraryItem["stepType
     return "document_upload";
   }
   if (stepId === "skill-qualification-assessment") return "skill_assessment";
-  if (stepId === "employee-agreement" || stepId === "welcome-packet-esign" || stepId === "policy-acknowledgment") {
+  if (
+    stepId === "employee-agreement" ||
+    stepId === "authorization-esign" ||
+    stepId === "welcome-packet-esign" ||
+    stepId === "policy-acknowledgment" ||
+    stepId === "health-screening-waiver"
+  ) {
     return "authorizations";
   }
+  if (stepId === "w9" || stepId === "tax-forms") return "document_upload";
+  if (stepId === "resume-basic-profile") return "resume_upload";
+  if (stepId === "credential-license-verification" || stepId === "certification-upload") {
+    return "professional_license";
+  }
+  if (stepId === "training-modules-quiz") return "skill_assessment";
   if (
     stepId === "pay-rate-hire-date" ||
+    stepId === "parameterized-job-application" ||
     stepId === "direct-deposit-setup" ||
     stepId === "benefits-enrollment" ||
     stepId === "401k-enrollment" ||

@@ -18,13 +18,17 @@ export const HIRE_STAGE_BY_STEP_KEY: Record<string, string> = {
   "reference-verification": "Screening",
 
   "interview-qualification": "Interview",
+  "follow-up-interview": "Interview",
   "internal-select": "Interview",
   "client-review": "Interview",
   "candidate-selection": "Interview",
 
-  "release-to-client": "Submission",
   "submit-to-msp": "Submission",
+  "submit-to-client": "Submission",
+  "manager-facility-approval": "Submission",
+  "release-to-client": "Submission",
 
+  "authorization-esign": "Compliance",
   "background-check": "Compliance",
   "drug-test-screening": "Compliance",
   "oig-exclusion-check": "Compliance",
@@ -33,46 +37,50 @@ export const HIRE_STAGE_BY_STEP_KEY: Record<string, string> = {
   "adverse-action-process": "Compliance",
 
   "pay-rate-hire-date": "Offer & Agreement",
-  "offer-acceptance": "Offer & Agreement",
-  "pay-rate-accepted": "Offer & Agreement",
+  "offer-prep": "Offer & Agreement",
+  "manager-approval": "Offer & Agreement",
   "employee-agreement": "Offer & Agreement",
   "i9-right-to-work-verification": "Offer & Agreement",
-  "pre-hire-completion-milestone": "Offer & Agreement",
+  "offer-acceptance": "Offer & Agreement",
+  "pay-rate-accepted": "Offer & Agreement",
 
-  "manager-facility-approval": "Approvals",
   "hr-final-approval": "Approvals",
+  "pre-hire-completion-milestone": "Approvals",
 
-  "tax-forms": "Paperwork",
-  "i9-section-2": "Paperwork",
-  "document-upload": "Paperwork",
+  "manager-welcome-call": "Kickoff",
+  "welcome-packet-esign": "Kickoff",
 
+  "payroll-profile-creation": "Payroll & Pay",
+  "tax-forms": "Payroll & Pay",
+  w9: "Payroll & Pay",
   "direct-deposit-setup": "Payroll & Pay",
+  "i9-section-2": "Payroll & Pay",
   "benefits-enrollment": "Payroll & Pay",
   "401k-enrollment": "Payroll & Pay",
-  "payroll-profile-creation": "Payroll & Pay",
 
-  "welcome-packet-esign": "Policies",
-  "policy-acknowledgment": "Policies",
-
-  "equipment-badge-acknowledgment": "Access & Equipment",
+  "system-access": "Access & Equipment",
   "badge-equipment-issuance": "Access & Equipment",
+  "equipment-badge-acknowledgment": "Access & Equipment",
   "schedule-assignment": "Access & Equipment",
   "facility-access-setup": "Access & Equipment",
   "benefits-confirmation": "Access & Equipment",
 
+  "orientation-video": "Training",
+  "policy-acknowledgment": "Training",
   "safety-training": "Training",
   "training-modules-quiz": "Training",
-  "orientation-video": "Training",
   "compliance-training": "Training",
   "certification-upload": "Training",
+  "health-screening-waiver": "Training",
 
-  "welcome-email": "Kickoff",
-  "manager-welcome-call": "Kickoff",
-
-  "final-onboarding-call": "Day One Ready",
   "buddy-mentor-assignment": "Day One Ready",
-  "completion-milestone": "Day One Ready",
+  "record-selection": "Day One Ready",
   "post-hire-completion-milestone": "Day One Ready",
+
+  "document-upload": "Paperwork",
+  "welcome-email": "Kickoff",
+  "final-onboarding-call": "Day One Ready",
+  "completion-milestone": "Day One Ready",
 };
 
 export type HireLifecycle = "pre_hire" | "post_hire";
@@ -113,12 +121,19 @@ export const PRE_HIRE_STAGE_STEP_ORDER: Record<
   ],
   Interview: [
     "interview-qualification",
+    "follow-up-interview",
     "internal-select",
     "client-review",
     "candidate-selection",
   ],
-  Submission: ["release-to-client", "submit-to-msp"],
+  Submission: [
+    "submit-to-msp",
+    "submit-to-client",
+    "manager-facility-approval",
+    "release-to-client",
+  ],
   Compliance: [
+    "authorization-esign",
     "background-check",
     "drug-test-screening",
     "oig-exclusion-check",
@@ -129,16 +144,17 @@ export const PRE_HIRE_STAGE_STEP_ORDER: Record<
   "Offer & Agreement": [
     "pay-rate-hire-date",
     "pay-and-start-date",
+    "offer-prep",
+    "manager-approval",
     "employee-agreement",
     "agreement-esign",
+    "i9-right-to-work-verification",
+    "i9-section-1",
     "offer-acceptance",
     "offer-accepted",
     "pay-rate-accepted",
-    "i9-right-to-work-verification",
-    "i9-section-1",
-    "pre-hire-completion-milestone",
   ],
-  Approvals: ["manager-facility-approval", "hr-final-approval", "completion-milestone"],
+  Approvals: ["hr-final-approval", "pre-hire-completion-milestone", "completion-milestone"],
 };
 
 /** Align with Figma Post-hire board (Payroll · Access · Training · Welcome). */
@@ -158,9 +174,17 @@ export const POST_HIRE_LIBRARY_STAGES = [
   "Access & Equipment",
   "Training",
   "Day One Ready",
+  "Welcome",
+  "Payroll and tax",
+  "Access and systems",
+  "Training and policy",
+  "Completion",
 ] as const;
 
-const PRE_HIRE_STAGE_KEYS = new Set(PRE_HIRE_FIGMA_STAGES.map((stage) => stage.toLowerCase()));
+const PRE_HIRE_STAGE_KEYS = new Set([
+  ...PRE_HIRE_FIGMA_STAGES.map((stage) => stage.toLowerCase()),
+  "offer and agreement",
+]);
 const POST_HIRE_STAGE_KEYS = new Set(
   [...POST_HIRE_FIGMA_STAGES, ...POST_HIRE_LIBRARY_STAGES].map((stage) => stage.toLowerCase())
 );

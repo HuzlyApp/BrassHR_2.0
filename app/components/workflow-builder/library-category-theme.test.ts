@@ -105,10 +105,11 @@ describe("library-category-theme", () => {
     expect(preHire.map((category) => category.id)).toContain("application-profile");
     expect(postHire.map((category) => category.id)).toEqual([
       "custom-steps",
+      "communication-notification",
       "payroll-financial",
       "team-operational",
       "training-development",
-      "communication-notification",
+      "completion",
     ]);
   });
 
@@ -122,7 +123,7 @@ describe("library-category-theme", () => {
     expect(merged.some((category) => category.id === "custom-flexible")).toBe(false);
   });
 
-  it("shows Welcome & Complete with Figma steps and labels", () => {
+  it("shows Welcome and Completion with the master-list steps", () => {
     const postHire = filterStepLibraryByPhase(
       [
         ...library,
@@ -150,14 +151,17 @@ describe("library-category-theme", () => {
     );
 
     const welcome = postHire.find((category) => category.id === "communication-notification");
-    expect(welcome?.label).toBe("Welcome & Complete");
+    expect(welcome?.label).toBe("Welcome");
     expect(welcome?.steps.map((step) => ({ id: step.id, label: step.label }))).toEqual([
-      { id: "welcome-email", label: "Send Message" },
-      { id: "manager-welcome-call", label: "Welcome Call" },
-      { id: "final-onboarding-call", label: "Final Onboarding Call" },
-      { id: "buddy-mentor-assignment", label: "Buddy / Mentor Assignment" },
-      { id: "completion-milestone", label: "Onboarding Complete" },
-      { id: "post-hire-completion-milestone", label: "Post hire Completion / Milestone" },
+      { id: "manager-welcome-call", label: "Welcome call" },
+      { id: "welcome-packet-esign", label: "Welcome packet" },
+    ]);
+    const completion = postHire.find((category) => category.id === "completion");
+    expect(completion?.label).toBe("Completion");
+    expect(completion?.steps.map((step) => step.id)).toEqual([
+      "buddy-mentor-assignment",
+      "record-selection",
+      "post-hire-completion-milestone",
     ]);
     expect(
       postHire
@@ -175,9 +179,9 @@ describe("library-category-theme", () => {
 
     const screening = preHire.find((category) => category.id === "screening");
     expect(screening?.steps.map((step) => ({ id: step.id, label: step.label }))).toEqual([
-      { id: "recruiter-screening", label: "Recruiter Screening" },
-      { id: "skill-qualification-assessment", label: "Skill / Qualification Assessment" },
-      { id: "reference-verification", label: "Reference Verification" },
+      { id: "recruiter-screening", label: "Recruiter screening" },
+      { id: "skill-qualification-assessment", label: "Skill / qualification assessment" },
+      { id: "reference-verification", label: "Reference check" },
     ]);
     expect(resolveStepThemeColor({ id: "recruiter-screening" }, "screening", "Screening")).toBe(
       LIBRARY_THEME_COLORS.screening
@@ -185,8 +189,9 @@ describe("library-category-theme", () => {
 
     const interview = preHire.find((category) => category.id === "interview");
     expect(interview?.steps.map((step) => ({ id: step.id, label: step.label }))).toEqual([
-      { id: "interview-qualification", label: "Interview/Qualification" },
-      { id: "internal-select", label: "Internal Select" },
+      { id: "interview-qualification", label: "Interview" },
+      { id: "follow-up-interview", label: "Follow-up interview" },
+      { id: "internal-select", label: "Internal selection" },
     ]);
     expect(resolveStepThemeColor({ id: "internal-select" }, "interview", "Interview")).toBe(
       LIBRARY_THEME_COLORS.interview
@@ -209,16 +214,19 @@ describe("library-category-theme", () => {
     const preHire = filterStepLibraryByPhase(library, "pre_hire");
     const intake = preHire.find((category) => category.id === "application-profile");
     expect(intake?.steps.map((step) => step.id)).toEqual([
+      "resume-basic-profile",
+      "parameterized-job-application",
       "collect-extra-files",
       "collect-references",
       "custom-form",
-      "resume-basic-profile",
       "references-collection",
     ]);
-    expect(intake?.steps.slice(0, 3).map((step) => step.label)).toEqual([
-      "Collect Extra Files",
-      "Collect References",
-      "Custom Form",
+    expect(intake?.steps.slice(0, 5).map((step) => step.label)).toEqual([
+      "Resume and profile",
+      "Job application",
+      "Collect documents",
+      "Collect references",
+      "Custom form",
     ]);
   });
 
@@ -253,14 +261,15 @@ describe("library-category-theme", () => {
     const preHire = filterStepLibraryByPhase(library, "pre_hire");
     const offer = preHire.find((category) => category.id === "offer-agreement");
     expect(offer?.steps.map((step) => ({ id: step.id, label: step.label }))).toEqual([
-      { id: "pay-rate-hire-date", label: "Pay and Start Date" },
-      { id: "employee-agreement", label: "Authorization e-sign" },
-      { id: "offer-acceptance", label: "Pay Rate Accepted" },
-      { id: "i9-right-to-work-verification", label: "I-9 section 1" },
-      { id: "pre-hire-completion-milestone", label: "Pre Hire Completion / Milestone" },
+      { id: "pay-rate-hire-date", label: "Pay and start date" },
+      { id: "offer-prep", label: "Offer prep" },
+      { id: "manager-approval", label: "Manager approval" },
+      { id: "employee-agreement", label: "Agreement e-sign" },
+      { id: "i9-right-to-work-verification", label: "I-9 Section 1" },
+      { id: "offer-acceptance", label: "Offer accepted" },
     ]);
     expect(
-      resolveStepThemeColor({ id: "offer-acceptance" }, "offer-agreement", "Offer & Agreement")
+      resolveStepThemeColor({ id: "offer-acceptance" }, "offer-agreement", "Offer and agreement")
     ).toBe(LIBRARY_THEME_COLORS.offerAgreement);
     expect(
       preHire
@@ -280,15 +289,17 @@ describe("library-category-theme", () => {
     const submission = preHire.find((category) => category.id === "submission");
     expect(submission?.label).toBe("Submission");
     expect(submission?.steps.map((step) => ({ id: step.id, label: step.label }))).toEqual([
-      { id: "release-to-client", label: "Release to Client" },
       { id: "submit-to-msp", label: "Submit to MSP" },
+      { id: "submit-to-client", label: "Submit to client" },
+      { id: "manager-facility-approval", label: "Client / facility approval" },
+      { id: "release-to-client", label: "Released to client" },
     ]);
 
     const approvals = preHire.find((category) => category.id === "approval-decision");
     expect(approvals?.label).toBe("Approvals");
     expect(approvals?.steps.map((step) => ({ id: step.id, label: step.label }))).toEqual([
-      { id: "manager-facility-approval", label: "Manager / Facility Approval" },
-      { id: "hr-final-approval", label: "HR Final Approval" },
+      { id: "hr-final-approval", label: "HR final approval" },
+      { id: "pre-hire-completion-milestone", label: "Pre-hire complete" },
     ]);
   });
 
@@ -296,6 +307,7 @@ describe("library-category-theme", () => {
     const preHire = filterStepLibraryByPhase(library, "pre_hire");
     const compliance = preHire.find((category) => category.id === "screening-compliance");
     expect(compliance?.steps.map((step) => step.id)).toEqual([
+      "authorization-esign",
       "background-check",
       "drug-test-screening",
       "oig-exclusion-check",
@@ -303,7 +315,7 @@ describe("library-category-theme", () => {
       "ssn-identity-verification",
       "adverse-action-process",
     ]);
-    expect(compliance?.steps.at(-1)?.label).toBe("Adverse Action Process");
+    expect(compliance?.steps.at(-1)?.label).toBe("Adverse action");
     expect(
       preHire
         .find((category) => category.id === "approval-decision")
@@ -337,9 +349,9 @@ describe("library-category-theme", () => {
       "post_hire"
     );
 
-    expect(postHire.at(-1)?.id).toBe("communication-notification");
+    expect(postHire.at(-1)?.id).toBe("completion");
     expect(resolveCategoryDisplayLabel("communication-notification", "Communication")).toBe(
-      "Welcome & Complete"
+      "Welcome"
     );
   });
 
@@ -363,7 +375,7 @@ describe("library-category-theme", () => {
     expect(preHire.some((category) => category.id === "communication-notification")).toBe(false);
     expect(postHire.some((category) => category.id === "communication-notification")).toBe(true);
     expect(resolveCategoryDisplayLabel("communication-notification", "Communication")).toBe(
-      "Welcome & Complete"
+      "Welcome"
     );
   });
 
@@ -377,24 +389,26 @@ describe("library-category-theme", () => {
     );
     expect(payrollGroups.map((category) => category.id)).toEqual(["payroll-financial"]);
     expect(payrollGroups[0]?.steps.map((step) => step.id)).toEqual([
+      "payroll-profile-creation",
       "tax-forms",
+      "w9",
       "direct-deposit-setup",
+      "i9-section-2",
       "benefits-enrollment",
       "401k-enrollment",
-      "payroll-profile-creation",
-      "i9-section-2",
     ]);
     expect(payrollGroups[0]?.steps.map((step) => step.label)).toEqual([
-      "Tax Forms (W-4 / State)",
-      "Direct Deposit Setup",
-      "Benefits Enrollment / Selection",
-      "401K / Retirement Enrollment",
-      "Payroll Profile Creation",
-      "I-9 (2)",
+      "Payroll profile",
+      "Tax forms",
+      "W-9",
+      "Direct deposit",
+      "I-9 Section 2",
+      "Benefits enrollment",
+      "Retirement enrollment",
     ]);
   });
 
-  it("shows Document Upload under Post-hire Payroll & Taxes only", () => {
+  it("does not keep Document Upload in the master library", () => {
     const preHire = filterStepLibraryByPhase(library, "pre_hire");
     const postHire = filterStepLibraryByPhase(library, "post_hire");
 
@@ -403,9 +417,11 @@ describe("library-category-theme", () => {
         category.steps.some((step) => step.id === "document-upload")
       )
     ).toBe(false);
-
-    const training = postHire.find((category) => category.id === "training-development");
-    expect(training?.steps.some((step) => step.id === "document-upload")).toBe(true);
+    expect(
+      postHire.some((category) =>
+        category.steps.some((step) => step.id === "document-upload")
+      )
+    ).toBe(false);
   });
 
   it("uses slate theme for custom step icon styling", () => {
@@ -423,7 +439,7 @@ describe("library-category-theme", () => {
       )
     ).toBe(LIBRARY_THEME_COLORS.screening);
     expect(
-      resolveStepThemeColor({ id: "offer-acceptance" }, "offer-agreement", "Offer & Agreement")
+      resolveStepThemeColor({ id: "offer-acceptance" }, "offer-agreement", "Offer and agreement")
     ).toBe(LIBRARY_THEME_COLORS.offerAgreement);
   });
 
