@@ -44,7 +44,7 @@ import {
 } from "@/lib/onboarding/staff-step-review-shared";
 import { lifecyclePhaseLabel } from "@/lib/onboarding/workflow-phase-groups";
 import { workflowStepOwnershipCopy } from "@/lib/onboarding/workflow-step-ownership-copy";
-import { RECRUITER_SCREENING_STEP_TYPE } from "@/lib/onboarding/recruiter-screening-progress";
+import { isNamedRecruiterScreeningStep } from "@/lib/onboarding/recruiter-screening-progress";
 import {
   candidateInterviewStatusLabel,
   candidateInterviewStatusTone,
@@ -539,7 +539,9 @@ export default function CandidateWorkflowStepModal({
   });
   const stepSideLabel = ownership.badge;
   const screeningApplicationId =
-    currentInspection?.step.stepType === RECRUITER_SCREENING_STEP_TYPE ? currentInspection.applicationId : null;
+    currentInspection && isNamedRecruiterScreeningStep(currentInspection.step)
+      ? currentInspection.applicationId
+      : null;
   const formQuestions = useMemo(() => {
     const questions = inspection?.form?.questions ?? [];
     return screeningApplicationId

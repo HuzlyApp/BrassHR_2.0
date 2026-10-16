@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { applyQuickMatchScreeningProgress } from "@/lib/onboarding/recruiter-screening-progress";
+import {
+  applyQuickMatchScreeningProgress,
+  isNamedRecruiterScreeningStep,
+} from "@/lib/onboarding/recruiter-screening-progress";
 import type { WorkflowStepDisplayStatus } from "@/lib/onboarding/assigned-workflow-steps";
 
 function step(stepType: string, displayStatus: WorkflowStepDisplayStatus) {
@@ -19,6 +22,18 @@ describe("applyQuickMatchScreeningProgress", () => {
   it("leaves the step alone before Quick Match runs", () => {
     const [screening] = applyQuickMatchScreeningProgress([step("recruiter-screening", "not_started")], false);
     expect(screening.displayStatus).toBe("not_started");
+  });
+
+  it("shows the AI Analysis embed only on the Recruiter Screening step", () => {
+    expect(isNamedRecruiterScreeningStep({ stepType: "recruiter-screening", title: "Recruiter Screening" })).toBe(
+      true
+    );
+    expect(isNamedRecruiterScreeningStep({ stepType: "recruiter-screening", title: "Contact History" })).toBe(
+      false
+    );
+    expect(isNamedRecruiterScreeningStep({ stepType: "manual-task-hr-action", title: "Recruiter Screening" })).toBe(
+      false
+    );
   });
 
   it("never downgrades a completed or rejected screening", () => {
