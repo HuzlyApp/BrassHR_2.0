@@ -89,7 +89,7 @@ const COPY: Record<StaffStepAction, ActionCopy> = {
     title: (step) => `Complete ${step}?`,
     description:
       "This marks the step as completed by you. If it was the only thing blocking the candidate, their next application step unlocks.",
-    confirm: "Mark complete",
+    confirm: "Mark as complete",
     confirmClass: "shadow-sm hover:brightness-[0.97]",
   },
   reject: {
@@ -112,7 +112,7 @@ const ON_BEHALF_COMPLETE_COPY: ActionCopy = {
   title: (step) => `Complete ${step} for the candidate?`,
   description:
     "Marks this step completed under your name and approves any documents uploaded for it. The candidate won't need to do this step in their portal.",
-  confirm: "Mark complete",
+  confirm: "Mark as complete",
   confirmClass: "shadow-sm hover:brightness-[0.97]",
 };
 

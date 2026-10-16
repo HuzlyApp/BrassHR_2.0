@@ -64,6 +64,8 @@ const INTERNAL_LIBRARY_STEP_IDS = new Set([
   "benefits-confirmation",
   "adverse-action-process",
   "conditional-branch-decision",
+  // Renamed canvas tasks (for example "Recruiter Offer Call") stay recruiter work.
+  "manual-task-hr-action",
   // parameterized-job-application is now applicant-facing: removed from internal steps
 ]);
 

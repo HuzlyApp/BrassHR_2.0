@@ -35,6 +35,7 @@ describe("resolveCompletionOwner", () => {
   it("keeps steps that are always staff work on Recruiter", () => {
     expect(resolveCompletionOwner("applicant", "recruiter-screening")).toBe("recruiter_or_hr");
     expect(resolveCompletionOwner("applicant", "reference-verification")).toBe("recruiter_or_hr");
+    expect(resolveCompletionOwner("applicant", "manual-task-hr-action")).toBe("recruiter_or_hr");
   });
 
   it("leaves the applicant's review step on Candidate", () => {

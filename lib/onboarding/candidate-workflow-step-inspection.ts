@@ -273,6 +273,10 @@ function asText(value: unknown): string | null {
   return text || null;
 }
 
+function isManualHrTask(stepType: string | null | undefined): boolean {
+  return String(stepType ?? "").trim().toLowerCase() === "manual-task-hr-action";
+}
+
 export function inspectionKindForStep(params: {
   stepType: string;
   onboardingType: string;
@@ -1276,6 +1280,11 @@ export async function loadCandidateWorkflowStepInspection(
       emptyState = `Waiting for ${staffAction.ownerLabel ?? "the internal team"} to verify the references. This step is optional and doesn't block the candidate's next stage.`;
     } else if (mapped.status === "in_progress") {
       emptyState = "References are marked as needing review. This doesn't block the candidate's next stage.";
+    }
+  } else if (staffAction.allowed && isManualHrTask(mapped.stepType)) {
+    if (mapped.status === "pending" || mapped.status === "in_progress") {
+      emptyState =
+        "This is a recruiter step. Add a note if you need to, then mark it complete. The candidate does not complete this step.";
     }
   } else if (staffAction.allowed && !mapped.required) {
     if (mapped.status === "pending" || mapped.status === "in_progress") {

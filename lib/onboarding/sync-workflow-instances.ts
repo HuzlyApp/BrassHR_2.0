@@ -1,5 +1,6 @@
 import type { OnboardingDbClient } from "@/lib/onboarding/load-tenant-config";
-import { stampHireStageOnStepSettings } from "@/lib/onboarding/hire-stage-catalog";
+import { hireLifecycleForPhase, stampHireStageOnStepSettings } from "@/lib/onboarding/hire-stage-catalog";
+import { isSerializableWorkflowState } from "@/lib/onboarding/workflow-builder-serialization";
 
 type SnapshotNode = Record<string, unknown>;
 
@@ -11,6 +12,7 @@ export type StepRecordRow = {
   title: string;
   step_type: string;
   is_required: boolean;
+  phase: "pre_hire" | "post_hire";
   settings: Record<string, unknown>;
 };
 
@@ -31,7 +33,7 @@ export type InstanceStepSyncPlan = {
 };
 
 const SYNC_RECORD_COLUMNS =
-  "id, tenant_id, workflow_instance_id, snapshot_step_id, position, title, step_type, is_required, settings, status, completed_at, status_changed_at, review_decision";
+  "id, tenant_id, workflow_instance_id, snapshot_step_id, position, title, step_type, is_required, phase, settings, status, completed_at, status_changed_at, review_decision";
 
 /** Unique-position constraint is not deferrable, so reorders park rows above any real position first. */
 const PARKED_POSITION_OFFSET = 100_000;
@@ -53,6 +55,30 @@ export function snapshotNodes(draft: unknown): SnapshotNode[] {
   return Array.isArray(nodes) ? (nodes as SnapshotNode[]) : [];
 }
 
+/**
+ * Node ids from a saved builder draft. Returns null when the draft is not a step canvas,
+ * so a partial payload cannot replace a candidate's steps.
+ */
+export function workflowDraftNodeIds(draft: unknown): string[] | null {
+  if (!isSerializableWorkflowState(draft) || !draft.nodes.length) return null;
+  const ids: string[] = [];
+  for (let index = 0; index < draft.nodes.length; index += 1) {
+    const node = draft.nodes[index];
+    if (!node || typeof node.stepId !== "string" || !node.stepId.trim()) return null;
+    const id = typeof node.id === "string" ? node.id.trim() : "";
+    ids.push(id || `step-${index + 1}`);
+  }
+  return ids;
+}
+
+/** True when the saved workflow canvas has a step the candidate instance does not. */
+export function workflowDraftHasNewSteps(recordStepIds: Iterable<string>, flowDraft: unknown): boolean {
+  const next = workflowDraftNodeIds(flowDraft);
+  if (!next) return false;
+  const have = new Set(recordStepIds);
+  return next.some((id) => !have.has(id));
+}
+
 function nodeSnapshotStepId(node: SnapshotNode, index: number): string {
   return String(node.id ?? `step-${index + 1}`);
 }
@@ -71,6 +97,7 @@ export function buildStepRecordRow(
         ? node.phase
         : "pre_hire";
   const stepType = String(node.stepId ?? "custom");
+  const stamped = stampHireStageOnStepSettings(stepType, { ...settings, phase });
   return {
     tenant_id: tenantId,
     workflow_instance_id: instanceId,
@@ -79,7 +106,8 @@ export function buildStepRecordRow(
     title: String(node.label ?? `Step ${index + 1}`),
     step_type: stepType,
     is_required: node.required === true,
-    settings: stampHireStageOnStepSettings(stepType, { ...settings, phase }),
+    phase: hireLifecycleForPhase(stamped.phase ?? phase) ?? "pre_hire",
+    settings: stamped,
   };
 }
 
@@ -112,6 +140,7 @@ function sameContent(a: StepRecordRow, b: StepRecordRow): boolean {
     a.title === b.title &&
     a.step_type === b.step_type &&
     a.is_required === b.is_required &&
+    a.phase === b.phase &&
     stableJson(a.settings) === stableJson(b.settings)
   );
 }
@@ -126,6 +155,7 @@ function existingRow(record: SyncableStepRecord, position: number): StepRecordRo
     title: record.title,
     step_type: record.step_type,
     is_required: record.is_required,
+    phase: record.phase === "post_hire" ? "post_hire" : "pre_hire",
     settings: asSettings(record.settings),
   };
 }
