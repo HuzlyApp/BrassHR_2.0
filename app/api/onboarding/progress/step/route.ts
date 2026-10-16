@@ -14,6 +14,10 @@ import { dispatchWorkflowIntegrationPartner } from "@/lib/onboarding/integration
 import { notifyHrOnOnboardingStepFailure } from "@/lib/onboarding/notify-hr-on-step-failure";
 import { shouldPauseFlowOnStepFailure } from "@/lib/onboarding/workflow-settings";
 import { isUploadResumeStep } from "@/lib/onboarding/enforce-upload-resume-first";
+import {
+  isCollectExtraFilesStep,
+  loadProfessionDocumentChecklist,
+} from "@/lib/onboarding/profession-document-checklist";
 import { isOnboardingStepSkippable } from "@/lib/onboarding/is-step-skippable";
 import { isValidStep1Email } from "@/lib/onboardingStep1Validation";
 import { getEnabledTenantSteps } from "@/lib/onboarding/tenant-step-navigation";
@@ -243,6 +247,21 @@ export async function POST(req: NextRequest) {
         { error: "This required step cannot be skipped." },
         { status: 400 }
       );
+    }
+
+    if (
+      (status === "completed" || status === "skipped") &&
+      (isCollectExtraFilesStep(candidateFacingStep) || isCollectExtraFilesStep(stepRow))
+    ) {
+      const checklist = await loadProfessionDocumentChecklist(supabase, ctx.tenantId, ctx.workerId);
+      if (checklist.missingRequired.length) {
+        return NextResponse.json(
+          {
+            error: `Upload the required documents before continuing: ${checklist.missingRequired.join(", ")}.`,
+          },
+          { status: 400 }
+        );
+      }
     }
 
     if (status === "completed" && stepRow && isUploadResumeStep(stepRow)) {
