@@ -108,6 +108,7 @@ import {
 import { tryGetFirmaSigningRequestDownload } from "@/lib/firma/client";
 import { resolveTenantFirmaWorkspaceId } from "@/lib/firma/resolve-tenant-workspace";
 import { isAgreementOrSignatureStep } from "@/lib/onboarding/is-agreement-step";
+import { isAgreementEsignStep } from "@/lib/onboarding/lock-post-hire";
 import {
   interviewStepStatus,
   isInterviewStep,
@@ -1069,13 +1070,25 @@ export async function loadCandidateWorkflowStepInspection(
 
     const signingRequestId = asText(session?.signing_request_id) ?? asText(progressData.signing_request_id);
     const firmaStatus = asText(session?.firma_status) ?? asText(progressData.firma_status);
-    const isSigned =
+    const authorizationEsign =
+      mapped.phase !== "post_hire" &&
+      isAgreementEsignStep({
+        snapshotStepId: mapped.snapshotStepId,
+        stepKey: mapped.stepKey,
+        stepType: mapped.stepType,
+        title: mapped.title,
+      });
+    const storedSignature =
       isFirmaSigningComplete(firmaStatus) ||
-      mapped.displayStatus === "completed" ||
-      mapped.displayStatus === "approved" ||
-      (mapped.displayStatus === "submitted" && mapped.status === "completed") ||
       progressData.firma_signed === true ||
-      progressData.authorization_agreed === true;
+      progressData.authorization_agreed === true ||
+      Boolean(asText(progressData.signed_document_url) || asText(progressData.download_url));
+    let isSigned = authorizationEsign
+      ? storedSignature
+      : storedSignature ||
+        mapped.displayStatus === "completed" ||
+        mapped.displayStatus === "approved" ||
+        (mapped.displayStatus === "submitted" && mapped.status === "completed");
 
     const completedDoc = documents.find((doc) => doc.verificationStatus === "approved") ?? documents[0] ?? null;
     let resolvedDownloadUrl =
@@ -1309,11 +1322,21 @@ export async function loadCandidateWorkflowStepInspection(
   }
 
   const candidateStep = !staffAction.allowed && mapped.candidateOwned === true;
+  const authorizationEsign =
+    phase !== "post_hire" &&
+    isAgreementEsignStep({
+      snapshotStepId: mapped.snapshotStepId,
+      stepKey: mapped.stepKey,
+      stepType: mapped.stepType,
+      title: mapped.title,
+    });
+  const signatureStored = agreement?.isSigned === true;
   const canVerify =
     candidateStep &&
     mapped.status === "completed" &&
     !mapped.verifiedAt &&
-    mapped.displayStatus === "submitted";
+    mapped.displayStatus === "submitted" &&
+    (!authorizationEsign || signatureStored);
   if (canVerify && (emptyState == null || emptyState === STEP_COMPLETED_WITHOUT_DOCUMENT_MESSAGE)) {
     emptyState = CANDIDATE_STEP_AWAITING_REVIEW_MESSAGE;
   }
@@ -1343,7 +1366,7 @@ export async function loadCandidateWorkflowStepInspection(
           ? reviewerLabel(verifiedByUserId, mapped.verifiedByName, reviewerById)
           : null,
         canVerify,
-        canComplete: mapped.status !== "completed" && !mapped.verifiedAt,
+        canComplete: authorizationEsign ? false : mapped.status !== "completed" && !mapped.verifiedAt,
       }
     : null;
   // A recruiter verifying a candidate step doesn't make them its completer; completing it

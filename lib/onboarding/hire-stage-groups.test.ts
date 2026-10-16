@@ -361,6 +361,57 @@ describe("groupStepsIntoHireStages", () => {
     expect(groups.map((g) => g.name)).toEqual(["Intake", "Approvals"]);
   });
 
+  it("puts the Complete milestone last and keeps payroll on its own stage", () => {
+    const groups = groupStepsIntoHireStages(
+      [
+        step({
+          id: "train",
+          title: "Knowledge Transfer / Training",
+          stepType: "training-modules-quiz",
+          phase: "post_hire",
+          settings: { stageName: "Training" },
+          displayStatus: "submitted",
+        }),
+        step({
+          id: "done",
+          title: "Complete",
+          stepType: "completion-milestone",
+          phase: "post_hire",
+          settings: { stageName: "Complete" },
+          displayStatus: "not_started",
+        }),
+        step({
+          id: "pay",
+          title: "Payroll Setup",
+          stepType: "direct-deposit-setup",
+          phase: "post_hire",
+          settings: { stageName: "Payroll & Compliance" },
+          displayStatus: "submitted",
+        }),
+        step({
+          id: "i9",
+          title: "I-9",
+          stepType: "i9-right-to-work-verification",
+          phase: "post_hire",
+          settings: { stageName: "Payroll & Compliance" },
+          displayStatus: "submitted",
+        }),
+      ],
+      "post_hire"
+    );
+
+    expect(groups.map((group) => group.name)).toEqual([
+      "Payroll & Tax",
+      "Training & Policy",
+      "Welcome & Complete",
+    ]);
+    expect(groups[2]?.steps.map((item) => item.title)).toEqual(["Complete"]);
+
+    const meta = hireStageProgressMeta(groups);
+    expect(meta.totalStages).toBe(3);
+    expect(meta.completedStages).toBe(2);
+  });
+
   it("places an Application stage first as Intake", () => {
     const groups = groupStepsIntoHireStages(
       [

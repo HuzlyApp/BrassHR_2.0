@@ -35,9 +35,7 @@ import {
   StepProgressConflictError,
 } from "@/lib/onboarding/step-progress-write";
 import {
-  autoConvertCandidateAfterAgreement,
   autoConvertCandidateAfterOfferAccepted,
-  ensureCandidateConvertedIfAgreementCompleted,
 } from "@/lib/onboarding/auto-convert-after-agreement";
 import {
   isOfferAcceptanceStep,
@@ -496,39 +494,19 @@ export async function POST(req: NextRequest) {
         }
       } else {
         try {
-          postHireConversion = await autoConvertCandidateAfterAgreement(supabase, {
+          await notifyRecruiterOnAgreementStepCompletion(supabase, {
             tenantId: ctx.tenantId,
             workerId: ctx.workerId,
             applicationId: applicationId || null,
             step: stepRow,
+            stepKey: body.stepKey,
+            data: body.data,
             origin: req.nextUrl.origin,
+            request: req,
           });
-          if (!postHireConversion?.ok) {
-            postHireConversion = await ensureCandidateConvertedIfAgreementCompleted(supabase, {
-              tenantId: ctx.tenantId,
-              workerId: ctx.workerId,
-              applicationId: applicationId || null,
-              origin: req.nextUrl.origin,
-            });
-          }
-        } catch (conversionError) {
-          console.error("[onboarding/progress/step] auto conversion failed", conversionError);
+        } catch (notifyError) {
+          console.warn("[onboarding/progress/step] recruiter agreement notification failed", notifyError);
         }
-      }
-
-      try {
-        await notifyRecruiterOnAgreementStepCompletion(supabase, {
-          tenantId: ctx.tenantId,
-          workerId: ctx.workerId,
-          applicationId: applicationId || null,
-          step: stepRow,
-          stepKey: body.stepKey,
-          data: body.data,
-          origin: req.nextUrl.origin,
-          request: req,
-        });
-      } catch (notifyError) {
-        console.warn("[onboarding/progress/step] recruiter agreement notification failed", notifyError);
       }
 
       try {

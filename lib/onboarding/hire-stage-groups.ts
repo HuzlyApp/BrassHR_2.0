@@ -253,10 +253,13 @@ const POST_HIRE_STAGE_ALIASES: Record<string, (typeof POST_HIRE_FIGMA_STAGES)[nu
   kickoff: "Welcome & Complete",
   paperwork: "Payroll & Tax",
   "payroll & pay": "Payroll & Tax",
+  "payroll & compliance": "Payroll & Tax",
   policies: "Training & Policy",
   "access & equipment": "Access & Systems",
   training: "Training & Policy",
   "day one ready": "Welcome & Complete",
+  complete: "Welcome & Complete",
+  "onboarding complete": "Welcome & Complete",
 };
 
 /**
