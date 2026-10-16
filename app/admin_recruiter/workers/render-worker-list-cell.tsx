@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import Link from "next/link"
 import { CandidateListAvatar } from "@/app/admin_recruiter/components/CandidateListAvatar"
+import { CandidatePreHireIconLink } from "@/app/admin_recruiter/candidates/CandidatePreHireIconLink"
 import { candidateMailHref } from "@/app/admin_recruiter/candidates/candidate-links"
 import { candidateStatusBadgeClassName } from "@/app/admin_recruiter/candidates/candidate-status-badge"
 import { adminWorkerProfileHref } from "./worker-profile-links"
@@ -33,9 +34,9 @@ export function renderWorkerListCell(
   switch (col) {
     case "name":
       return (
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="flex w-full min-w-0 items-center gap-3">
           <CandidateListAvatar name={w.name || "NA"} photoUrl={w.profilePhotoUrl} />
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <Link
               href={adminWorkerProfileHref(w.profileId)}
               className={`block text-sm font-medium text-black ${LINK_CLASS}`}
@@ -54,6 +55,13 @@ export function renderWorkerListCell(
             ) : (
               <div className="truncate text-xs text-[#4B5563]">—</div>
             )}
+          </div>
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            <CandidatePreHireIconLink
+              workerId={w.profileId}
+              candidateName={w.name}
+              tab="post_hire"
+            />
           </div>
         </div>
       )

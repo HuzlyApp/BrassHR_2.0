@@ -381,7 +381,7 @@ export default function CandidateWorkflowStepModal({
   const [activeInspectionOverride, setActiveInspectionOverride] = useState<WorkflowStepInspection | null>(null);
   const inspection = activeInspectionOverride ?? initialInspection;
   const currentInspection = inspection;
-  const title = inspection?.step.title ?? "Step details";
+  const title = inspection?.step.title ?? "Notes";
   const stepId = inspection?.step.id ?? null;
   const [pendingAction, setPendingAction] = useState<StaffStepAction | null>(null);
   const [pendingOnBehalf, setPendingOnBehalf] = useState(false);
