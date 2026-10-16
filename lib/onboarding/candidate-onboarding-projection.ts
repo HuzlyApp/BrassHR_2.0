@@ -127,6 +127,10 @@ export function computeCandidateOnboardingFrontier(params: {
 
   const statusByCandidateId = buildProgressStatusMaps(candidateSteps, progress);
   const candidateIndexById = new Map(candidateSteps.map((step, index) => [step.id, index]));
+  // Pre-hire recruiter gates still pause the candidate. Once post-hire has started,
+  // recruiter-owned steps must not raise the review modal or block later candidate steps.
+  const skipInternalWait =
+    progress?.workflowPhase === "post_hire" || progress?.workflowPhase === "completed";
 
   let maxCandidate = 0;
   let waitingOnInternal = false;
@@ -136,7 +140,7 @@ export function computeCandidateOnboardingFrontier(params: {
     const done = status === "completed" || status === "skipped";
 
     if (!entry.candidateVisible) {
-      if (done || !entry.required) continue;
+      if (skipInternalWait || done || !entry.required) continue;
       waitingOnInternal = true;
       break;
     }

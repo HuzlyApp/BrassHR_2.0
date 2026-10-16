@@ -81,7 +81,8 @@ export function useOnboardingStepNav() {
         currentStep && readStepLifecyclePhase(currentStep) === "post_hire"
           ? "post_hire"
           : "pre_hire";
-      if (onboarding?.waitingOnInternal) {
+      const inPostHire = onboarding?.workflowPhase === "post_hire" || onboarding?.workflowPhase === "completed";
+      if (onboarding?.waitingOnInternal && !inPostHire) {
         const query = new URLSearchParams({ completion });
         if (slug) query.set("tenant", slug);
         push(`${APPLICATION_ROUTES.applicationStatus}?${query.toString()}`);

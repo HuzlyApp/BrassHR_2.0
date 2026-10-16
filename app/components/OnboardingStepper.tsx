@@ -221,7 +221,9 @@ export default function OnboardingStepper({
           phase={onboarding?.workflowPhase ?? "pre_hire"}
           applicationId={onboarding?.applicationId}
         />
-        {onboarding?.waitingOnInternal ? (
+        {onboarding?.waitingOnInternal &&
+        onboarding.workflowPhase !== "post_hire" &&
+        onboarding.workflowPhase !== "completed" ? (
           <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
             {WAITING_ON_INTERNAL_MESSAGE}
           </div>
