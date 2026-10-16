@@ -15,6 +15,7 @@ export type PostHireScreenKind =
 
 export const POST_HIRE_SCREEN_KIND_BY_STEP_ID: Readonly<Record<string, PostHireScreenKind>> = {
   "direct-deposit-setup": "direct_deposit",
+  "payroll-profile-creation": "confirmation",
   "tax-forms": "tax_withholding",
   "i9-right-to-work-verification": "i9_attestation",
   "i9-section-1": "i9_attestation",

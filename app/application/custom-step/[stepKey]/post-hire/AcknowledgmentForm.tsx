@@ -12,7 +12,7 @@ import {
   type SignatureValue,
 } from "./fields";
 
-/** Policy / welcome packet / equipment acknowledgments (typed signature) and training completion (checkbox). */
+/** Policy acknowledgments (typed signature), training completion, and confirmation checkboxes. */
 export default function AcknowledgmentForm({
   mode,
   acknowledgmentText,
@@ -23,7 +23,7 @@ export default function AcknowledgmentForm({
   persistDraft,
   actions,
 }: {
-  mode: "acknowledgment" | "training";
+  mode: "acknowledgment" | "training" | "confirmation";
   acknowledgmentText: string;
   documentUrl: string | null;
   initialAgreed?: boolean;
@@ -57,8 +57,12 @@ export default function AcknowledgmentForm({
 
   async function handleSave() {
     setError("");
-    if (mode === "training" && !completed) {
-      setError("Confirm you completed this training to continue.");
+    if ((mode === "training" || mode === "confirmation") && !completed) {
+      setError(
+        mode === "training"
+          ? "Confirm you completed this training to continue."
+          : "Check the confirmation to continue."
+      );
       return;
     }
     if (mode === "acknowledgment" && !isSignatureComplete(signature)) {
@@ -73,7 +77,12 @@ export default function AcknowledgmentForm({
             { label: "Training completed", value: "Yes" },
             { label: "Completed on", value: today },
           ]
-        : [
+        : mode === "confirmation"
+          ? [
+              { label: "Confirmation", value: acknowledgmentText },
+              { label: "Confirmed", value: "Yes" },
+            ]
+          : [
             { label: "Confirmation", value: acknowledgmentText },
             { label: "Acknowledged", value: "Yes" },
             { label: "Document", value: documentUrl ?? "" },
@@ -89,7 +98,9 @@ export default function AcknowledgmentForm({
         confirmed_at: new Date().toISOString(),
         ...(mode === "training"
           ? { training_completed: true }
-          : { policy_acknowledged: true, signature_name: signature.name.trim() }),
+          : mode === "confirmation"
+            ? {}
+            : { policy_acknowledged: true, signature_name: signature.name.trim() }),
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save your response");
@@ -100,10 +111,10 @@ export default function AcknowledgmentForm({
 
   return (
     <>
-      {mode === "training" ? (
+      {mode === "training" || mode === "confirmation" ? (
         <Section>
           <CheckboxRow
-            id="training-complete"
+            id={mode === "confirmation" ? "step-confirm" : "training-complete"}
             checked={completed}
             onChange={(checked) => {
               setCompleted(checked);
@@ -130,7 +141,9 @@ export default function AcknowledgmentForm({
       {error ? <p className="mt-3 text-sm text-red-700">{error}</p> : null}
       <ActionRow
         {...actions}
-        primaryLabel={mode === "training" ? "Mark complete & continue" : "Sign & continue"}
+        primaryLabel={
+          mode === "training" ? "Mark complete & continue" : mode === "confirmation" ? "Continue" : "Sign & continue"
+        }
         onPrimary={() => void handleSave()}
         saving={saving}
       />

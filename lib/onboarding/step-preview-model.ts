@@ -24,6 +24,7 @@ import {
   lifecyclePhaseLabel,
   type EmploymentLifecyclePhase,
 } from "@/lib/onboarding/workflow-phase-groups";
+import { isCandidateCheckboxStep } from "@/lib/onboarding/candidate-checkbox-steps";
 import { stepUsesFirmaSigning } from "@/lib/onboarding/firma-step-settings";
 import {
   professionDocumentKindLabel,
@@ -58,6 +59,7 @@ export type StepPreviewKind =
   | "references"
   | "skills_intro"
   | "custom_question"
+  | "checkbox_confirmation"
   | "waiting_gate"
   | "screening"
   | "summary"
@@ -129,6 +131,7 @@ const CANDIDATE_KINDS = new Set<StepPreviewKind>([
   "references",
   "skills_intro",
   "custom_question",
+  "checkbox_confirmation",
   "summary",
 ]);
 
@@ -221,6 +224,14 @@ export function resolveStepPreviewKind(
     return "summary";
   }
   if (NOTIFICATION_LIBRARY_IDS.has(libraryId)) return "notification";
+  if (
+    isCandidateCheckboxStep({
+      ...step,
+      metadata: { ...step.metadata, workflow_step_id: libraryId || readLibraryId(step) },
+    })
+  ) {
+    return "checkbox_confirmation";
+  }
   if (libraryId === "custom-step" || libraryId === "custom-form") return "custom_question";
   if (libraryId === "collect-extra-files") return "document_upload";
   if (libraryId === "collect-references") return "references";

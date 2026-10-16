@@ -42,6 +42,11 @@ describe("resolveCompletionOwner", () => {
     expect(resolveCompletionOwner("applicant", "completion-milestone")).toBe("applicant");
   });
 
+  it("keeps Direct Deposit and HCM & Payroll Setup on Candidate", () => {
+    expect(resolveCompletionOwner("recruiter_or_hr", "direct-deposit-setup")).toBe("applicant");
+    expect(resolveCompletionOwner("hr_or_payroll", "payroll-profile-creation")).toBe("applicant");
+  });
+
   it("keeps runtime ownership unchanged for the canonical values", () => {
     expect(isApplicantCompletionOwner("applicant")).toBe(true);
     expect(isApplicantCompletionOwner("recruiter_or_hr")).toBe(false);

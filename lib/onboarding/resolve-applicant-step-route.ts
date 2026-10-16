@@ -4,6 +4,7 @@ import {
   POST_HIRE_COMPLETION_STEP_ID,
   PRE_HIRE_COMPLETION_STEP_ID,
 } from "@/lib/onboarding/phase-completion-steps";
+import { isCandidateCheckboxStep } from "@/lib/onboarding/candidate-checkbox-steps";
 import { candidatePostHireScreenKind } from "@/lib/onboarding/post-hire-step-screens";
 import type { OnboardingStepType, TenantOnboardingStep } from "@/lib/onboarding/types";
 import { withTenant } from "@/lib/tenant/with-tenant";
@@ -87,7 +88,7 @@ function baseRouteForStep(step: TenantOnboardingStep): string {
   if (libraryId === PRE_HIRE_COMPLETION_STEP_ID) return APPLICATION_ROUTES.preHireCompletion;
   if (libraryId === POST_HIRE_COMPLETION_STEP_ID) return APPLICATION_ROUTES.postHireCompletion;
 
-  if (candidatePostHireScreenKind(step)) {
+  if (candidatePostHireScreenKind(step) || isCandidateCheckboxStep(step)) {
     return APPLICATION_ROUTES.customStep(step.step_key);
   }
 

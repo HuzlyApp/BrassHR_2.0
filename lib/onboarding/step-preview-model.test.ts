@@ -80,6 +80,26 @@ describe("resolveStepPreviewKind", () => {
     ).toBe("job_application");
     expect(
       resolveStepPreviewKind(
+        tenantStep({
+          step_key: "profile_information",
+          step_type: "profile_information",
+          title: "Direct Deposit",
+        }),
+        "direct-deposit-setup"
+      )
+    ).toBe("checkbox_confirmation");
+    expect(
+      resolveStepPreviewKind(
+        tenantStep({
+          step_key: "profile_information_2",
+          step_type: "profile_information",
+          title: "HCM & Payroll Setup",
+        }),
+        "payroll-profile-creation"
+      )
+    ).toBe("checkbox_confirmation");
+    expect(
+      resolveStepPreviewKind(
         tenantStep({ step_key: "custom_question", step_type: "custom_question" }),
         "offer-acceptance"
       )

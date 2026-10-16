@@ -20,6 +20,7 @@ import {
   isInternalLibraryStepId,
   resolveCompletionOwner,
 } from "@/lib/onboarding/workflow-settings";
+import { isCandidateCheckboxStep } from "@/lib/onboarding/candidate-checkbox-steps";
 import { postHireScreenKindForStepId } from "@/lib/onboarding/post-hire-step-screens";
 import { FirmaTemplateSelect } from "@/app/components/onboarding/FirmaTemplateSelect";
 import { resolveHireLibraryIconPath } from "./hire-library-icons";
@@ -179,13 +180,21 @@ function SettingsBody({ node, onUpdate, onSaveStep, onCloneWorkflow, readOnly = 
     ? [...WORKFLOW_PROVIDER_OPTIONS]
     : (["Manual", "Third-party API"] as const);
   const showFirmaTemplatePicker = isFirmaAttachableWorkflowStepId(node.data.stepId);
+  const checkboxConfirmationStep = isCandidateCheckboxStep({
+    metadata: { workflow_step_id: node.data.stepId },
+    title: node.data.label,
+  });
   const candidateScreenKind =
-    settings.phase === "post_hire" ? postHireScreenKindForStepId(node.data.stepId) : null;
+    settings.phase === "post_hire"
+      ? postHireScreenKindForStepId(node.data.stepId) ?? (checkboxConfirmationStep ? "confirmation" : null)
+      : checkboxConfirmationStep
+        ? "confirmation"
+        : null;
+  const ownerLocked = isInternalLibraryStepId(node.data.stepId) || checkboxConfirmationStep;
   const stageName =
     typeof (settings as { stageName?: unknown }).stageName === "string"
       ? (settings as { stageName?: string }).stageName
       : null;
-  const ownerLocked = isInternalLibraryStepId(node.data.stepId);
   const themeColor = resolveCanvasStepThemeColor(node.data.stepId, stageName);
   const iconPath = resolveHireLibraryIconPath(node.data.stepId);
 
@@ -306,7 +315,9 @@ function SettingsBody({ node, onUpdate, onSaveStep, onCloneWorkflow, readOnly = 
                   ? "Completion statement"
                   : candidateScreenKind === "direct_deposit"
                     ? "Deposit authorization statement"
-                    : "Acknowledgment / attestation statement"
+                    : candidateScreenKind === "confirmation"
+                      ? "Confirmation message"
+                      : "Acknowledgment / attestation statement"
               }
               value={settings.acknowledgmentText ?? ""}
               onChange={(v) => patchSettings({ acknowledgmentText: v }, { skipHistory: true })}
@@ -352,9 +363,11 @@ function SettingsBody({ node, onUpdate, onSaveStep, onCloneWorkflow, readOnly = 
           )}
           disabled={ownerLocked}
           hint={
-            ownerLocked
-              ? "This step is always completed by the recruiter."
-              : "Candidate steps appear in the candidate portal. Recruiter steps appear only for staff."
+            checkboxConfirmationStep
+              ? "The candidate checks a confirmation message. Their answer is saved on this step."
+              : ownerLocked
+                ? "This step is always completed by the recruiter."
+                : "Candidate steps appear in the candidate portal. Recruiter steps appear only for staff."
           }
           onChange={(v) => patchSettings({ completionOwner: v })}
         />

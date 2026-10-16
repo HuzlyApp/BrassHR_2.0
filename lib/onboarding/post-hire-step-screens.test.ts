@@ -83,9 +83,14 @@ describe("candidatePostHireScreenKind", () => {
     ).toBe("training");
     expect(
       candidatePostHireScreenKind(
-        fullStep("payroll-profile-creation", { phase: "post_hire", completionOwner: "recruiter_or_hr" })
+        fullStep("payroll-profile-creation", { phase: "post_hire", completionOwner: "recruiter_or_hr" }, "HCM & Payroll Setup")
       )
-    ).toBeNull();
+    ).toBe("confirmation");
+    expect(
+      readPostHireScreenContent(
+        fullStep("payroll-profile-creation", { phase: "post_hire", completionOwner: "applicant" }, "HCM & Payroll Setup")
+      ).acknowledgmentText
+    ).toBe("I confirm that I have completed HCM & Payroll Setup.");
     expect(
       candidatePostHireScreenKind(fullStep("parking-permit", { phase: "pre_hire", completionOwner: "applicant" }))
     ).toBeNull();

@@ -10,6 +10,7 @@ import {
   type EnrollmentDecision,
 } from "@/lib/onboarding/enrollment-decision-step";
 import { workflowStepIdToOnboardingType } from "@/lib/onboarding/workflow-step-mapping";
+import { storedCheckboxQuestions } from "@/lib/onboarding/candidate-checkbox-steps";
 import {
   postHireScreenKindForStepId,
   readPostHireSubmission,
@@ -875,9 +876,11 @@ export async function loadCandidateWorkflowStepInspection(
     };
   }
 
+  const responseSubmittedAt = asText(progress?.updated_at) ?? asText(progress?.completed_at);
+  const checkboxQuestions = storedCheckboxQuestions(progressData, responseSubmittedAt);
   const postHireSubmission = enrollment ? null : readPostHireSubmission(progressData);
-  if (postHireSubmission) {
-    const submittedAt = postHireSubmission.submittedAt ?? asText(progress?.completed_at);
+  if (postHireSubmission && postHireSubmission.fields.length > 0) {
+    const submittedAt = postHireSubmission.submittedAt ?? responseSubmittedAt;
     let fields = postHireSubmission.fields;
     if (postHireSubmission.kind === "direct_deposit") {
       fields = filterDirectDepositInspectionFields(fields);
@@ -891,6 +894,8 @@ export async function loadCandidateWorkflowStepInspection(
         reviewResult: null,
       })),
     };
+  } else if (checkboxQuestions) {
+    form = { questions: checkboxQuestions };
   } else if (!form && phase === "post_hire" && progressData && Object.keys(progressData).length > 0) {
     const IGNORED_KEYS = new Set([
       "step_type",
@@ -927,14 +932,16 @@ export async function loadCandidateWorkflowStepInspection(
     }
 
     if (dynamicQuestions.length > 0) {
-      if (postHireScreenKindForStepId(mapped.stepType) === "direct_deposit") {
+      const screenKind = postHireScreenKindForStepId(mapped.stepType);
+      if (screenKind === "direct_deposit" || screenKind === "confirmation") {
+        const message = asText(progressData.checkbox_label) || asText(progressData.response);
         form = {
           questions: [
             {
-              label: "Deposit authorization",
+              label: message || mapped.title || "Confirmation",
               fieldType: "checkbox",
-              answer: "Authorized",
-              submittedAt: asText(progress?.updated_at) ?? asText(progress?.completed_at),
+              answer: "Confirmed",
+              submittedAt: responseSubmittedAt,
               reviewResult: null,
             },
           ],
@@ -948,16 +955,18 @@ export async function loadCandidateWorkflowStepInspection(
   if (
     !form &&
     hasPostHireScreen &&
-    postHireScreenKindForStepId(mapped.stepType) === "direct_deposit" &&
+    (postHireScreenKindForStepId(mapped.stepType) === "direct_deposit" ||
+      postHireScreenKindForStepId(mapped.stepType) === "confirmation") &&
     (mapped.status === "completed" || progress?.completed_at != null)
   ) {
+    const message = asText(progressData.checkbox_label) || asText(progressData.response);
     form = {
       questions: [
         {
-          label: "Deposit authorization",
+          label: message || mapped.title || "Confirmation",
           fieldType: "checkbox",
-          answer: "Authorized",
-          submittedAt: asText(progress?.updated_at) ?? asText(progress?.completed_at),
+          answer: "Confirmed",
+          submittedAt: responseSubmittedAt,
           reviewResult: null,
         },
       ],

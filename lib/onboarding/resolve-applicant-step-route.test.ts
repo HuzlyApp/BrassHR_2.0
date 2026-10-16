@@ -153,6 +153,25 @@ describe("resolve-applicant-step-route", () => {
     }
   });
 
+  it("routes Direct Deposit and HCM & Payroll Setup to the checkbox screen", () => {
+    for (const [libraryId, title] of [
+      ["direct-deposit-setup", "Direct Deposit"],
+      ["payroll-profile-creation", "HCM & Payroll Setup"],
+    ] as const) {
+      const s = step({
+        step_key: "profile_information",
+        step_type: "profile_information",
+        title,
+        metadata: {
+          workflow_step_id: libraryId,
+          workflow_settings: { phase: "pre_hire", completionOwner: "recruiter_or_hr" },
+        },
+      });
+      expect(routeForApplicantStep(s)).toContain("/application/custom-step/profile_information");
+      expect(dedicatedRouteForWorkflowStep(s)).toBeNull();
+    }
+  });
+
   it("sends Pre-Hire acknowledgment copies to the agreement signing screen", () => {
     const route = routeForApplicantStep(
       step({
