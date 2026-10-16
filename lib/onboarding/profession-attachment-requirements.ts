@@ -133,6 +133,29 @@ export function applyProfessionDocumentsToAttachments(
   return [...resumeRows, ...professionRows];
 }
 
+async function professionIdForFlows(
+  supabase: SupabaseClient,
+  tenantId: string,
+  flowIds: string[]
+): Promise<string | null> {
+  const ids = [...new Set(flowIds.filter(Boolean))];
+  if (!ids.length) return null;
+  const { data: flows, error } = await supabase
+    .from("onboarding_flows")
+    .select("id, profession_id")
+    .eq("tenant_id", tenantId)
+    .in("id", ids);
+  if (error) throw error;
+  const professionByFlow = new Map(
+    (flows ?? []).map((flow) => [String(flow.id), flow.profession_id ? String(flow.profession_id) : ""])
+  );
+  for (const id of ids) {
+    const professionId = professionByFlow.get(id);
+    if (professionId) return professionId;
+  }
+  return null;
+}
+
 function professionNameFromJob(row: { professions?: { name?: string | null } | { name?: string | null }[] | null }): string {
   const embedded = row.professions;
   const record = Array.isArray(embedded) ? embedded[0] : embedded;
@@ -163,21 +186,24 @@ export async function resolveWorkerTenantProfessionId(
         .filter(Boolean)
     ),
   ];
-  if (workflowIds.length) {
-    const { data: flows, error: flowError } = await supabase
-      .from("onboarding_flows")
-      .select("id, profession_id")
-      .eq("tenant_id", tenantId)
-      .in("id", workflowIds);
-    if (flowError) throw flowError;
-    const professionByFlow = new Map(
-      (flows ?? []).map((flow) => [String(flow.id), flow.profession_id ? String(flow.profession_id) : ""])
-    );
-    for (const application of applications ?? []) {
-      const professionId = professionByFlow.get(String(application.workflow_id ?? ""));
-      if (professionId) return professionId;
-    }
-  }
+  const fromApplicationWorkflow = await professionIdForFlows(supabase, tenantId, workflowIds);
+  if (fromApplicationWorkflow) return fromApplicationWorkflow;
+
+  const { data: instances, error: instanceError } = await supabase
+    .from("applicant_workflow_instances")
+    .select("workflow_id, onboarding_flow_id")
+    .eq("tenant_id", tenantId)
+    .eq("worker_id", workerId)
+    .order("created_at", { ascending: false })
+    .limit(8);
+  if (instanceError) throw instanceError;
+  const instanceFlowIds = (instances ?? []).flatMap((row) =>
+    [row.workflow_id, row.onboarding_flow_id]
+      .map((id) => (id ? String(id) : ""))
+      .filter(Boolean)
+  );
+  const fromAssignedWorkflow = await professionIdForFlows(supabase, tenantId, instanceFlowIds);
+  if (fromAssignedWorkflow) return fromAssignedWorkflow;
 
   const jobIds = [
     ...new Set(

@@ -3,17 +3,35 @@
 
 import { APPLICATION_ROUTES } from "@/lib/onboarding/application-routes"
 import { applicationPath } from "@/lib/tenant/with-tenant"
+import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import OnboardingLayout from "@/app/components/OnboardingLayout"
 import OnboardingStepper from "@/app/components/OnboardingStepper"
 import { useTenantBranding } from "@/app/components/tenant/TenantBrandingContext"
 import { brandingToCssVars } from "@/lib/tenant/tenant-branding"
 import { useOnboardingConfigOptional } from "@/app/components/onboarding/OnboardingConfigProvider"
+import { routeForApplicantStep } from "@/lib/onboarding/resolve-applicant-step-route"
+import {
+    firstSkippedRequiredCandidateStep,
+    resolvePostStepContinueRoute,
+} from "@/lib/onboarding/tenant-step-navigation"
 import { useOnboardingStepNav } from "@/lib/onboarding/use-onboarding-step-nav"
+import { readStepLifecyclePhase } from "@/lib/onboarding/workflow-phase"
 import {
   persistStepProgress,
   useMarkStepInProgressIfPending,
 } from "@/lib/onboarding/use-mark-step-in-progress-if-pending"
+
+function isResolvedStatus(status: string | null | undefined): boolean {
+    const norm = String(status ?? "").trim().toLowerCase()
+    return (
+        norm === "completed" ||
+        norm === "skipped" ||
+        norm === "approved" ||
+        norm === "signed" ||
+        norm === "complete"
+    )
+}
 
 export default function SkillAssessmentIntro() {
     const branding = useTenantBranding()
@@ -28,9 +46,52 @@ export default function SkillAssessmentIntro() {
       ) ??
       null
 
+    const postHireSkillStep = skillStep && readStepLifecyclePhase(skillStep) === "post_hire"
+    const stepsResolved =
+        (nav.enabledSteps?.length ?? 0) > 0 &&
+        (nav.enabledSteps ?? []).every((step) => {
+            const row = onboarding?.progress?.steps?.find(
+                (item) => item.onboarding_step_id === step.id || item.step_key === step.step_key
+            )
+            return isResolvedStatus(row?.status)
+        })
+
+    useEffect(() => {
+        if (nav.configLoading || !skillStep || !postHireSkillStep) return
+        const phase = "post_hire" as const
+        const remaining = firstSkippedRequiredCandidateStep(
+            nav.enabledSteps ?? [],
+            phase,
+            onboarding?.progress
+        )
+        const href =
+            stepsResolved && remaining
+                ? routeForApplicantStep(remaining, nav.slug)
+                : stepsResolved
+                  ? resolvePostStepContinueRoute(onboarding?.config, skillStep, nav.slug, {
+                        progress: onboarding?.progress,
+                        savedStepId: skillStep.id,
+                        savedStatus: "completed",
+                    })
+                  : routeForApplicantStep(skillStep, nav.slug)
+        if (!href.includes(APPLICATION_ROUTES.skillsIntro)) {
+            router.replace(href)
+        }
+    }, [
+        nav.configLoading,
+        nav.enabledSteps,
+        nav.slug,
+        onboarding?.config,
+        onboarding?.progress,
+        postHireSkillStep,
+        router,
+        skillStep,
+        stepsResolved,
+    ])
+
     useMarkStepInProgressIfPending({
       step: skillStep,
-      disabled: nav.configLoading,
+      disabled: nav.configLoading || Boolean(postHireSkillStep),
       updateStepStatus: onboarding?.updateStepStatus,
     })
 
@@ -43,7 +104,13 @@ export default function SkillAssessmentIntro() {
           /* continue even if progress sync fails */
         }
       }
-      if (nav.nextRoute) router.push(nav.nextRoute)
+      router.push(
+        resolvePostStepContinueRoute(onboarding?.config, skillStep, nav.slug, {
+          progress: onboarding?.progress,
+          savedStepId: skillStep?.id,
+          savedStatus: "skipped",
+        })
+      )
     }
 
     const proficiencyLevels = [

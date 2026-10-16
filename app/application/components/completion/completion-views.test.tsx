@@ -5,9 +5,11 @@ import PreHireCompletionView from "@/app/application/components/completion/PreHi
 import PostHireCompletionView from "@/app/application/components/completion/PostHireCompletionView";
 import type { WorkflowCompletionResult } from "@/lib/onboarding/workflow-completion-check";
 
+const { push } = vi.hoisted(() => ({ push: vi.fn() }));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
-    push: vi.fn(),
+    push,
     replace: vi.fn(),
   }),
   usePathname: () => "/application/pre-hire-completion",
@@ -51,6 +53,7 @@ describe("PreHireCompletionView", () => {
           phase: "pre_hire",
           status: "completed",
           isComplete: true,
+          isSkipped: false,
           isRequired: true,
         },
       ],
@@ -69,6 +72,7 @@ describe("PreHireCompletionView", () => {
           phase: "post_hire",
           status: "pending",
           isComplete: false,
+          isSkipped: false,
           isRequired: true,
         },
       ],
@@ -126,8 +130,14 @@ describe("PostHireCompletionView", () => {
     render(<PostHireCompletionView completionResult={mockResult} />);
 
     expect(screen.getByRole("heading", { name: /congratulations/i })).toBeDefined();
+    expect(screen.getByText(/onboarding 100% completed/i)).toBeDefined();
     expect(screen.getByText(/you completed all pre hire and post hire steps/i)).toBeDefined();
     expect(screen.getByText(/you can now continue work/i)).toBeDefined();
-    expect(screen.getByRole("button", { name: /go to dashboard/i })).toBeDefined();
+    expect(screen.queryByText(/ready for work/i)).toBeNull();
+    expect(screen.queryByText(/fully certified/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /go to dashboard/i })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /worker sign in/i }));
+    expect(push).toHaveBeenCalledWith("/worker-signin?tenant=subdomaintest");
   });
 });

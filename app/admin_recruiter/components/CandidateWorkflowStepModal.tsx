@@ -32,6 +32,7 @@ import {
   stepDisplayStatusLabel,
   type WorkflowStepDisplayStatus,
 } from "@/lib/onboarding/assigned-workflow-steps";
+import { isAgreementEsignStep } from "@/lib/onboarding/lock-post-hire";
 import {
   decisionLabel,
   isDecisionVariant,
@@ -43,7 +44,7 @@ import {
 } from "@/lib/onboarding/staff-step-review-shared";
 import { lifecyclePhaseLabel } from "@/lib/onboarding/workflow-phase-groups";
 import { workflowStepOwnershipCopy } from "@/lib/onboarding/workflow-step-ownership-copy";
-import { RECRUITER_SCREENING_STEP_TYPE } from "@/lib/onboarding/recruiter-screening-progress";
+import { isNamedRecruiterScreeningStep } from "@/lib/onboarding/recruiter-screening-progress";
 import {
   candidateInterviewStatusLabel,
   candidateInterviewStatusTone,
@@ -381,7 +382,7 @@ export default function CandidateWorkflowStepModal({
   const [activeInspectionOverride, setActiveInspectionOverride] = useState<WorkflowStepInspection | null>(null);
   const inspection = activeInspectionOverride ?? initialInspection;
   const currentInspection = inspection;
-  const title = inspection?.step.title ?? "Step details";
+  const title = inspection?.step.title ?? "Notes";
   const stepId = inspection?.step.id ?? null;
   const [pendingAction, setPendingAction] = useState<StaffStepAction | null>(null);
   const [pendingOnBehalf, setPendingOnBehalf] = useState(false);
@@ -495,10 +496,26 @@ export default function CandidateWorkflowStepModal({
   const documentUploads = currentInspection?.documentUploads ?? null;
   const candidateUploadStep = Boolean(documentUploads && !staffAction?.allowed);
   const candidateReview = currentInspection?.candidateReview ?? null;
-  const canVerifyCandidate = Boolean(workerId && candidateReview?.canVerify);
+  const authorizationEsign = Boolean(
+    inspection &&
+      inspection.phase !== "post_hire" &&
+      isAgreementEsignStep({
+        snapshotStepId: inspection.step.snapshotStepId,
+        stepKey: inspection.step.stepKey,
+        stepType: inspection.step.stepType,
+        title: inspection.step.title,
+      })
+  );
+  const authorizationAwaitingSignature = Boolean(
+    authorizationEsign && !inspection?.agreement?.isSigned
+  );
+  const canVerifyCandidate = Boolean(
+    workerId && candidateReview?.canVerify && (!authorizationEsign || inspection?.agreement?.isSigned)
+  );
   const canCompleteForCandidate = Boolean(
     workerId &&
       !canVerifyCandidate &&
+      !authorizationEsign &&
       (candidateReview?.canComplete || documentUploads?.canCompleteForCandidate)
   );
   // The candidate re-submitted after an earlier verification, so that verification no longer applies.
@@ -522,7 +539,9 @@ export default function CandidateWorkflowStepModal({
   });
   const stepSideLabel = ownership.badge;
   const screeningApplicationId =
-    currentInspection?.step.stepType === RECRUITER_SCREENING_STEP_TYPE ? currentInspection.applicationId : null;
+    currentInspection && isNamedRecruiterScreeningStep(currentInspection.step)
+      ? currentInspection.applicationId
+      : null;
   const formQuestions = useMemo(() => {
     const questions = inspection?.form?.questions ?? [];
     return screeningApplicationId
@@ -548,7 +567,8 @@ export default function CandidateWorkflowStepModal({
   const canEmailCandidate = Boolean(
     workerId &&
       inspection &&
-      ((isWelcomeEmailStep && inspection.phase === "post_hire") ||
+      (authorizationAwaitingSignature ||
+        (isWelcomeEmailStep && inspection.phase === "post_hire") ||
         (!staffAction?.allowed &&
           CANDIDATE_EMAIL_STATUSES.has(inspection.step.displayStatus)))
   );
@@ -1337,7 +1357,13 @@ export default function CandidateWorkflowStepModal({
                     }}
                   >
                     <Mail className="h-4 w-4" aria-hidden />
-                    {submitting ? "Sending…" : isWelcomeEmailStep ? "Send Welcome Email" : "Send Email"}
+                    {submitting
+                      ? "Sending…"
+                      : authorizationAwaitingSignature
+                        ? "Send email to candidate"
+                        : isWelcomeEmailStep
+                          ? "Send Welcome Email"
+                          : "Send Email"}
                   </button>
                 ) : null}
                 {canSchedule ? (
@@ -1387,7 +1413,9 @@ export default function CandidateWorkflowStepModal({
                     Mark as complete
                   </button>
                 ) : null}
-                {(canAct ? staffAction?.actions ?? [] : []).map((action) => (
+                {(canAct ? staffAction?.actions ?? [] : [])
+                  .filter((action) => !(authorizationEsign && action === "complete" && !inspection?.agreement?.isSigned))
+                  .map((action) => (
                   <button
                     key={action}
                     type="button"

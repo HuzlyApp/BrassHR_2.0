@@ -21,6 +21,27 @@ function step(partial: Partial<TenantOnboardingStep> & Pick<TenantOnboardingStep
 }
 
 describe("resolve-applicant-step-route", () => {
+  it("sends phase completion milestones to the existing completion screens", () => {
+    expect(WORKFLOW_STEP_APPLICANT_ROUTE["pre-hire-completion-milestone"]).toBe(
+      "/application/pre-hire-completion"
+    );
+    expect(WORKFLOW_STEP_APPLICANT_ROUTE["post-hire-completion-milestone"]).toBe(
+      "/application/post-hire-completion"
+    );
+    expect(
+      routeForApplicantStep(
+        step({
+          step_key: "custom_question_20",
+          step_type: "custom_question",
+          metadata: {
+            workflow_step_id: "post-hire-completion-milestone",
+            workflow_settings: { phase: "post_hire", completionOwner: "applicant" },
+          },
+        })
+      )
+    ).toContain("/application/post-hire-completion");
+  });
+
   it("maps collect-extra-files to professional license / document upload screen", () => {
     expect(WORKFLOW_STEP_APPLICANT_ROUTE["collect-extra-files"]).toBe(
       "/application/professional-license"
@@ -132,6 +153,25 @@ describe("resolve-applicant-step-route", () => {
     }
   });
 
+  it("routes Direct Deposit and HCM & Payroll Setup to the checkbox screen", () => {
+    for (const [libraryId, title] of [
+      ["direct-deposit-setup", "Direct Deposit"],
+      ["payroll-profile-creation", "HCM & Payroll Setup"],
+    ] as const) {
+      const s = step({
+        step_key: "profile_information",
+        step_type: "profile_information",
+        title,
+        metadata: {
+          workflow_step_id: libraryId,
+          workflow_settings: { phase: "pre_hire", completionOwner: "recruiter_or_hr" },
+        },
+      });
+      expect(routeForApplicantStep(s)).toContain("/application/custom-step/profile_information");
+      expect(dedicatedRouteForWorkflowStep(s)).toBeNull();
+    }
+  });
+
   it("sends Pre-Hire acknowledgment copies to the agreement signing screen", () => {
     const route = routeForApplicantStep(
       step({
@@ -192,5 +232,35 @@ describe("resolve-applicant-step-route", () => {
       steps
     );
     expect(current?.step_key).toBe("authorization_background_check");
+  });
+
+  it("sends post-hire training modules to the checkbox screen, not the skill quiz", () => {
+    const route = routeForApplicantStep(
+      step({
+        step_key: "skill_assessment_2",
+        step_type: "skill_assessment",
+        title: "Training Modules + Quiz",
+        metadata: {
+          workflow_step_id: "training-modules-quiz",
+          workflow_settings: { phase: "post_hire", completionOwner: "applicant" },
+        },
+      }),
+      "testcompany"
+    );
+    expect(route).toContain("/application/custom-step/skill_assessment_2");
+    expect(route).not.toContain("/application/skills-intro");
+    expect(
+      dedicatedRouteForWorkflowStep(
+        step({
+          step_key: "skill_assessment_2",
+          step_type: "skill_assessment",
+          title: "Training Modules + Quiz",
+          metadata: {
+            workflow_step_id: "training-modules-quiz",
+            workflow_settings: { phase: "post_hire", completionOwner: "applicant" },
+          },
+        })
+      )
+    ).toBeNull();
   });
 });

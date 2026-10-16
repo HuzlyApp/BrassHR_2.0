@@ -80,6 +80,26 @@ describe("resolveStepPreviewKind", () => {
     ).toBe("job_application");
     expect(
       resolveStepPreviewKind(
+        tenantStep({
+          step_key: "profile_information",
+          step_type: "profile_information",
+          title: "Direct Deposit",
+        }),
+        "direct-deposit-setup"
+      )
+    ).toBe("checkbox_confirmation");
+    expect(
+      resolveStepPreviewKind(
+        tenantStep({
+          step_key: "profile_information_2",
+          step_type: "profile_information",
+          title: "HCM & Payroll Setup",
+        }),
+        "payroll-profile-creation"
+      )
+    ).toBe("checkbox_confirmation");
+    expect(
+      resolveStepPreviewKind(
         tenantStep({ step_key: "custom_question", step_type: "custom_question" }),
         "offer-acceptance"
       )
@@ -213,6 +233,7 @@ describe("stepPreviewUsesProfessionDocuments", () => {
       true
     );
     expect(stepPreviewUsesProfessionDocuments("certification-upload", "professional_license")).toBe(true);
+    expect(stepPreviewUsesProfessionDocuments("collect-extra-files", "document_upload")).toBe(true);
     expect(stepPreviewUsesProfessionDocuments("document-upload", "document_upload")).toBe(false);
   });
 });

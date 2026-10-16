@@ -90,11 +90,14 @@ export function isPreHireWorkflowStep(params: {
     return true;
   }
 
-  // Agreement eSign (Welcome Packet & eSign follows its configured phase)
+  // Authorization e-sign / Agreement eSign (Welcome Packet & eSign follows its configured phase)
   if (
     key === "employee-agreement" ||
     id === "employee-agreement" ||
+    title.includes("authorization e-sign") ||
+    title.includes("authorization esign") ||
     title.includes("agreement esign") ||
+    title.includes("agreement signed") ||
     title.includes("employment agreement")
   ) {
     return true;

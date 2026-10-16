@@ -673,7 +673,7 @@ function PostHireSummaryBanner({
               James Michael Aragon
             </p>
             <p className="mt-0.5 text-sm text-[#6B7280]">
-              Agreement Signed • Worker record created
+              Authorization e-sign • Worker record created
             </p>
             <p className="mt-2 flex items-center gap-1.5 text-xs text-[#94A3B8]">
               <Icon src={ICONS.calendarDate} width={14} height={14} />

@@ -10,10 +10,12 @@ import {
   staffActionTargetStatus,
 } from "@/lib/onboarding/staff-step-review-shared";
 import {
+  agreementStepCompletedByStaff,
   canReviewUnlinkedRecord,
   findCandidateGateStep,
   resolveStaffStepEligibility,
   resolveUnlockedApplicantStep,
+  type StaffStepContext,
 } from "@/lib/onboarding/staff-workflow-step-review";
 import type {
   OnboardingStepStatus,
@@ -329,6 +331,67 @@ describe("staff workflow step review rules", () => {
       staffActionResultMessage("complete", { sent: false, skipped: true, reason: "RESEND_NOT_CONFIGURED" }).tone
     ).toBe("warning");
     expect(staffActionResultMessage("reject", null).message).toContain("rejected");
+  });
+});
+
+describe("agreementStepCompletedByStaff", () => {
+  function context(partial: {
+    phase: StaffStepContext["phase"];
+    title: string;
+    stepType: string;
+    snapshotStepId?: string;
+  }): StaffStepContext {
+    return {
+      ok: true,
+      record: {},
+      instance: {},
+      phase: partial.phase,
+      applicationId: "app-1",
+      tenantStep: null,
+      config: null,
+      mapped: {
+        id: "record-1",
+        snapshotStepId: partial.snapshotStepId ?? partial.stepType,
+        tenantStepId: null,
+        title: partial.title,
+        stepKey: partial.stepType,
+        stepType: partial.stepType,
+        onboardingType: "authorizations",
+        phase: partial.phase,
+        required: true,
+        status: "completed",
+        displayStatus: "completed",
+        inspectable: true,
+        unmatched: false,
+        assignedAt: null,
+        completedAt: null,
+        candidateOwned: true,
+      },
+    };
+  }
+
+  it("treats a recruiter-completed Authorization eSign as the conversion step", () => {
+    const step = agreementStepCompletedByStaff(
+      context({
+        phase: "pre_hire",
+        title: "Authorization e-sign",
+        stepType: "employee-agreement",
+      })
+    );
+    expect(step?.title).toBe("Authorization e-sign");
+    expect(step?.metadata.workflow_step_id).toBe("employee-agreement");
+  });
+
+  it("does not convert when a post-hire e-sign step is completed", () => {
+    expect(
+      agreementStepCompletedByStaff(
+        context({
+          phase: "post_hire",
+          title: "Welcome Packet & eSign",
+          stepType: "welcome-packet-esign",
+        })
+      )
+    ).toBeNull();
   });
 });
 

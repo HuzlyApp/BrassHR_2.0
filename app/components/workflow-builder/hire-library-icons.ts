@@ -59,6 +59,8 @@ export const HIRE_LIBRARY_ICON_PATHS: Record<string, string> = {
   "final-onboarding-call": `${POST_HIRE_BASE}/Welcome-icons/final-onboarding-call.svg`,
   "buddy-mentor-assignment": `${POST_HIRE_BASE}/Welcome-icons/buddy-mentor-assignment.svg`,
   "completion-milestone": `${POST_HIRE_BASE}/Welcome-icons/onboarding-complete.svg`,
+  "pre-hire-completion-milestone": `${POST_HIRE_BASE}/Welcome-icons/onboarding-complete.svg`,
+  "post-hire-completion-milestone": `${POST_HIRE_BASE}/Welcome-icons/onboarding-complete.svg`,
 };
 
 export function resolveHireLibraryIconPath(stepId: string, iconKey?: string): string | null {

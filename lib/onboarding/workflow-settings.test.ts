@@ -35,10 +35,16 @@ describe("resolveCompletionOwner", () => {
   it("keeps steps that are always staff work on Recruiter", () => {
     expect(resolveCompletionOwner("applicant", "recruiter-screening")).toBe("recruiter_or_hr");
     expect(resolveCompletionOwner("applicant", "reference-verification")).toBe("recruiter_or_hr");
+    expect(resolveCompletionOwner("applicant", "manual-task-hr-action")).toBe("recruiter_or_hr");
   });
 
   it("leaves the applicant's review step on Candidate", () => {
     expect(resolveCompletionOwner("applicant", "completion-milestone")).toBe("applicant");
+  });
+
+  it("keeps Direct Deposit and HCM & Payroll Setup on Candidate", () => {
+    expect(resolveCompletionOwner("recruiter_or_hr", "direct-deposit-setup")).toBe("applicant");
+    expect(resolveCompletionOwner("hr_or_payroll", "payroll-profile-creation")).toBe("applicant");
   });
 
   it("keeps runtime ownership unchanged for the canonical values", () => {

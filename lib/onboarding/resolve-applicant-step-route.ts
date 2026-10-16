@@ -1,6 +1,11 @@
 import { APPLICATION_ROUTES } from "@/lib/onboarding/application-routes";
 import { stepUsesFirmaSigning } from "@/lib/onboarding/firma-step-settings";
-import { postHireScreenKindForStep } from "@/lib/onboarding/post-hire-step-screens";
+import {
+  POST_HIRE_COMPLETION_STEP_ID,
+  PRE_HIRE_COMPLETION_STEP_ID,
+} from "@/lib/onboarding/phase-completion-steps";
+import { isCandidateCheckboxStep } from "@/lib/onboarding/candidate-checkbox-steps";
+import { candidatePostHireScreenKind } from "@/lib/onboarding/post-hire-step-screens";
 import type { OnboardingStepType, TenantOnboardingStep } from "@/lib/onboarding/types";
 import { withTenant } from "@/lib/tenant/with-tenant";
 
@@ -23,6 +28,8 @@ export const WORKFLOW_STEP_APPLICANT_ROUTE: Record<string, string> = {
   "equipment-badge-acknowledgment": APPLICATION_ROUTES.agreementSignature,
   "ssn-identity-verification": APPLICATION_ROUTES.identityVerification,
   "background-check": APPLICATION_ROUTES.authorizationsDocuments,
+  [PRE_HIRE_COMPLETION_STEP_ID]: APPLICATION_ROUTES.preHireCompletion,
+  [POST_HIRE_COMPLETION_STEP_ID]: APPLICATION_ROUTES.postHireCompletion,
 };
 
 /**
@@ -77,11 +84,14 @@ function baseRouteForStep(step: TenantOnboardingStep): string {
     return APPLICATION_ROUTES.applicationSummary;
   }
 
-  if (postHireScreenKindForStep(step)) {
+  const libraryId = workflowStepId(step);
+  if (libraryId === PRE_HIRE_COMPLETION_STEP_ID) return APPLICATION_ROUTES.preHireCompletion;
+  if (libraryId === POST_HIRE_COMPLETION_STEP_ID) return APPLICATION_ROUTES.postHireCompletion;
+
+  if (candidatePostHireScreenKind(step) || isCandidateCheckboxStep(step)) {
     return APPLICATION_ROUTES.customStep(step.step_key);
   }
 
-  const libraryId = workflowStepId(step);
   // Prefer dedicated library routes (e.g. background-check → Authorizations & Documents)
   // even when a Firma template is attached — Click and Sign lives on that screen.
   if (libraryId && WORKFLOW_STEP_APPLICANT_ROUTE[libraryId]) {
@@ -109,7 +119,7 @@ function baseRouteForStep(step: TenantOnboardingStep): string {
 }
 
 export function dedicatedRouteForWorkflowStep(step: TenantOnboardingStep): string | null {
-  if (postHireScreenKindForStep(step)) return null;
+  if (candidatePostHireScreenKind(step)) return null;
   const libraryId = workflowStepId(step);
   if (libraryId && WORKFLOW_STEP_APPLICANT_ROUTE[libraryId]) {
     return WORKFLOW_STEP_APPLICANT_ROUTE[libraryId];

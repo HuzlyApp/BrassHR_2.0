@@ -361,6 +361,92 @@ describe("groupStepsIntoHireStages", () => {
     expect(groups.map((g) => g.name)).toEqual(["Intake", "Approvals"]);
   });
 
+  it("puts the Complete milestone last and keeps payroll on its own stage", () => {
+    const groups = groupStepsIntoHireStages(
+      [
+        step({
+          id: "train",
+          title: "Knowledge Transfer / Training",
+          stepType: "training-modules-quiz",
+          phase: "post_hire",
+          settings: { stageName: "Training" },
+          displayStatus: "submitted",
+        }),
+        step({
+          id: "done",
+          title: "Complete",
+          stepType: "completion-milestone",
+          phase: "post_hire",
+          settings: { stageName: "Complete" },
+          displayStatus: "not_started",
+        }),
+        step({
+          id: "pay",
+          title: "Payroll Setup",
+          stepType: "direct-deposit-setup",
+          phase: "post_hire",
+          settings: { stageName: "Payroll & Compliance" },
+          displayStatus: "submitted",
+        }),
+        step({
+          id: "i9",
+          title: "I-9",
+          stepType: "i9-right-to-work-verification",
+          phase: "post_hire",
+          settings: { stageName: "Payroll & Compliance" },
+          displayStatus: "submitted",
+        }),
+      ],
+      "post_hire"
+    );
+
+    expect(groups.map((group) => group.name)).toEqual([
+      "Payroll & Tax",
+      "Training & Policy",
+      "Welcome & Complete",
+    ]);
+    expect(groups[2]?.steps.map((item) => item.title)).toEqual(["Complete"]);
+
+    const meta = hireStageProgressMeta(groups);
+    expect(meta.totalStages).toBe(3);
+    expect(meta.completedStages).toBe(2);
+  });
+
+  it("places an Application stage first as Intake", () => {
+    const groups = groupStepsIntoHireStages(
+      [
+        step({
+          id: "screen",
+          title: "Screening",
+          stepType: "recruiter-screening",
+          settings: { stageName: "Screening" },
+          displayStatus: "in_progress",
+        }),
+        step({
+          id: "resume",
+          title: "Resume & Basic Profile",
+          stepType: "resume-basic-profile",
+          settings: { stageName: "Application" },
+          displayStatus: "submitted",
+        }),
+        step({
+          id: "job",
+          title: "Parameterized Job Application",
+          stepType: "parameterized-job-application",
+          settings: { stageName: "Application" },
+          displayStatus: "submitted",
+        }),
+      ],
+      "pre_hire"
+    );
+
+    expect(groups.map((group) => group.name)).toEqual(["Intake", "Screening"]);
+    expect(groups[0]?.steps.map((item) => item.title)).toEqual([
+      "Resume & Basic Profile",
+      "Parameterized Job Application",
+    ]);
+  });
+
   it("lets an explicit stageName override the library map", () => {
     const groups = groupStepsIntoHireStages(
       [

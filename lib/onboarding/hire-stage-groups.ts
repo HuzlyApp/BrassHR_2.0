@@ -63,6 +63,7 @@ const PRE_HIRE_LIBRARY_STAGE: Record<string, (typeof PRE_HIRE_FIGMA_STAGES)[numb
   "employee-agreement": "Offer & Agreement",
   "agreement-esign": "Offer & Agreement",
   "i9-section-1": "Offer & Agreement",
+  "pre-hire-completion-milestone": "Offer & Agreement",
   "manager-facility-approval": "Approvals",
   "hr-final-approval": "Approvals",
   "completion-milestone": "Approvals",
@@ -151,6 +152,7 @@ const PRE_HIRE_RULES: Array<{ stage: (typeof PRE_HIRE_FIGMA_STAGES)[number]; pat
       /pay.?rate/,
       /hire.?date/,
       /i-?9.?section.?1/,
+      /pre.?hire.?completion/,
     ],
   },
   {
@@ -253,17 +255,30 @@ const POST_HIRE_STAGE_ALIASES: Record<string, (typeof POST_HIRE_FIGMA_STAGES)[nu
   kickoff: "Welcome & Complete",
   paperwork: "Payroll & Tax",
   "payroll & pay": "Payroll & Tax",
+  "payroll & compliance": "Payroll & Tax",
   policies: "Training & Policy",
   "access & equipment": "Access & Systems",
   training: "Training & Policy",
   "day one ready": "Welcome & Complete",
+  complete: "Welcome & Complete",
+  "onboarding complete": "Welcome & Complete",
+};
+
+/**
+ * Workflows sometimes stamp the first Pre-Hire steps as "Application".
+ * That name is Intake on the board, and it has to sort with Intake (first), not after the known stages.
+ */
+const PRE_HIRE_STAGE_ALIASES: Record<string, (typeof PRE_HIRE_FIGMA_STAGES)[number]> = {
+  application: "Intake",
+  "application & profile": "Intake",
+  "application and profile": "Intake",
 };
 
 /** Maps a stage name onto the board for this lifecycle; null when it belongs to the other board. */
 function boardStageName(name: string | null, lifecycle: HireStageLifecycle): string | null {
   if (!name || !hireStageFitsLifecycle(name, lifecycle)) return null;
   if (lifecycle === "post_hire") return POST_HIRE_STAGE_ALIASES[name.toLowerCase()] ?? name;
-  return name;
+  return PRE_HIRE_STAGE_ALIASES[name.toLowerCase()] ?? name;
 }
 
 /** Board stage for a published step, as shown to the candidate above the step title. */

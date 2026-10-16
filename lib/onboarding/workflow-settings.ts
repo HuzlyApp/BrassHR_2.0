@@ -1,4 +1,5 @@
 import type { StepSettings } from "@/app/components/workflow-builder/types";
+import { isCandidateCheckboxStep } from "@/lib/onboarding/candidate-checkbox-steps";
 import { evaluateConditionalLogic } from "@/lib/onboarding/evaluate-conditional-logic";
 import { normalizeWorkflowNodeSettings } from "@/lib/onboarding/normalize-workflow-settings";
 import type { TenantOnboardingStep } from "@/lib/onboarding/types";
@@ -55,7 +56,6 @@ const INTERNAL_LIBRARY_STEP_IDS = new Set([
   "status-update-notification",
   "manager-welcome-call",
   "final-onboarding-call",
-  "payroll-profile-creation",
   "pay-rate-hire-date",
   "schedule-assignment",
   "badge-equipment-issuance",
@@ -64,6 +64,8 @@ const INTERNAL_LIBRARY_STEP_IDS = new Set([
   "benefits-confirmation",
   "adverse-action-process",
   "conditional-branch-decision",
+  // Renamed canvas tasks (for example "Recruiter Offer Call") stay recruiter work.
+  "manual-task-hr-action",
   // parameterized-job-application is now applicant-facing: removed from internal steps
 ]);
 
@@ -123,6 +125,7 @@ export function resolveCompletionOwner(
   owner: string | null | undefined,
   libraryId: string | null | undefined
 ): CompletionOwnerValue {
+  if (isCandidateCheckboxStep({ metadata: { workflow_step_id: libraryId ?? "" } })) return "applicant";
   if (isInternalLibraryStepId(libraryId)) return "recruiter_or_hr";
   return isApplicantCompletionOwner(owner) ? "applicant" : "recruiter_or_hr";
 }
@@ -140,6 +143,7 @@ export function isInternalLibraryOnboardingStep(step: TenantOnboardingStep): boo
  * are not applicant tasks. Completing them in the portal does not hire the candidate.
  */
 export function isApplicantWaitingGateStep(step: TenantOnboardingStep): boolean {
+  if (isCandidateCheckboxStep(step)) return false;
   const settings = getWorkflowSettings(step);
   if (settings.phase === "transition") return true;
   if (isInternalLibraryOnboardingStep(step)) return true;

@@ -8,6 +8,7 @@ import { mergeOnboardingQuery } from "@/lib/onboarding/legacy-add-references-red
 import { routeForApplicantStep } from "@/lib/onboarding/resolve-applicant-step-route";
 import {
   computeMaxAllowedStepIndex,
+  firstSkippedRequiredCandidateStep,
   getEnabledTenantSteps,
   getLegacyFallbackSteps,
   resolveApplicantEnabledSteps,
@@ -206,18 +207,39 @@ export function resolveApplicantOnboardingRoute(
     return { status: "redirect", href };
   }
 
+  // Final screen is only for a phase whose required candidate steps are completed.
+  // A required step the candidate skipped comes back before that screen.
+  if (isPostSubmitAllowedPath(normalizedPath)) {
+    const requestedPhase = new URLSearchParams(search).get("completion") === "post_hire"
+      ? "post_hire"
+      : progress?.workflowPhase === "post_hire" || progress?.workflowPhase === "completed"
+        ? "post_hire"
+        : "pre_hire";
+    const remaining = firstSkippedRequiredCandidateStep(enabledSteps, requestedPhase, progress);
+    if (remaining) {
+      const href = mergeOnboardingQuery(routeForApplicantStep(remaining, tenantSlug), search);
+      if (!pathsEqual(href, normalizedPath)) {
+        return { status: "redirect", href };
+      }
+    }
+  }
+
   // Workflows without a Review & Submit step never set submittedAt, so finishing every
   // candidate step must still open the completion screen instead of looping on the last step.
   if (!currentStep && allApplicantStepsFinished(enabledSteps, progress)) {
+    const lastStep = enabledSteps[enabledSteps.length - 1]!;
+    const phase = readStepLifecyclePhase(lastStep) === "post_hire" ? "post_hire" : "pre_hire";
+    const remaining = firstSkippedRequiredCandidateStep(enabledSteps, phase, progress);
+    if (remaining) {
+      const href = mergeOnboardingQuery(routeForApplicantStep(remaining, tenantSlug), search);
+      if (!pathsEqual(href, normalizedPath)) {
+        return { status: "redirect", href };
+      }
+    }
     if (isPostSubmitAllowedPath(normalizedPath)) {
       return { status: "allow" };
     }
-    const lastStep = enabledSteps[enabledSteps.length - 1]!;
-    return completionRedirect(
-      readStepLifecyclePhase(lastStep) === "post_hire" ? "post_hire" : "pre_hire",
-      tenantSlug,
-      search
-    );
+    return completionRedirect(phase, tenantSlug, search);
   }
 
   if (!currentStep) {

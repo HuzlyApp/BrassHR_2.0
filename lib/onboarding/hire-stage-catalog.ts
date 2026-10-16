@@ -37,6 +37,7 @@ export const HIRE_STAGE_BY_STEP_KEY: Record<string, string> = {
   "pay-rate-accepted": "Offer & Agreement",
   "employee-agreement": "Offer & Agreement",
   "i9-right-to-work-verification": "Offer & Agreement",
+  "pre-hire-completion-milestone": "Offer & Agreement",
 
   "manager-facility-approval": "Approvals",
   "hr-final-approval": "Approvals",
@@ -71,6 +72,7 @@ export const HIRE_STAGE_BY_STEP_KEY: Record<string, string> = {
   "final-onboarding-call": "Day One Ready",
   "buddy-mentor-assignment": "Day One Ready",
   "completion-milestone": "Day One Ready",
+  "post-hire-completion-milestone": "Day One Ready",
 };
 
 export type HireLifecycle = "pre_hire" | "post_hire";
@@ -134,6 +136,7 @@ export const PRE_HIRE_STAGE_STEP_ORDER: Record<
     "pay-rate-accepted",
     "i9-right-to-work-verification",
     "i9-section-1",
+    "pre-hire-completion-milestone",
   ],
   Approvals: ["manager-facility-approval", "hr-final-approval", "completion-milestone"],
 };

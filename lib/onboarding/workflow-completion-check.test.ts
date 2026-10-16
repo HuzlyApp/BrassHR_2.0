@@ -21,6 +21,29 @@ function mockStep(id: string, key: string, title: string, phase: "pre_hire" | "p
 }
 
 describe("evaluateWorkflowCompletion", () => {
+  it("treats the Pre-Hire completion screen as done once the other Pre-Hire steps are done", () => {
+    const steps = [
+      mockStep("s1", "resume_upload", "Resume", "pre_hire"),
+      {
+        ...mockStep("s2", "pre_hire_done", "Pre Hire Completion / Milestone", "pre_hire"),
+        metadata: {
+          workflow_step_id: "pre-hire-completion-milestone",
+          workflow_settings: { phase: "pre_hire", completionOwner: "applicant" },
+        },
+      },
+    ];
+    const progress: WorkerOnboardingProgressPayload = {
+      progressId: "p1",
+      status: "in_progress",
+      steps: [
+        { onboarding_step_id: "s1", status: "completed", completed_at: new Date().toISOString(), data: {} },
+      ],
+    };
+    const result = evaluateWorkflowCompletion({ allSteps: steps, progress, tenantSlug: "acme" });
+    expect(result.preHire.isComplete).toBe(true);
+    expect(result.preHire.total).toBe(1);
+  });
+
   it("detects pre-hire incomplete when steps are pending", () => {
     const steps = [
       mockStep("s1", "resume_upload", "Resume", "pre_hire"),
@@ -113,6 +136,38 @@ describe("evaluateWorkflowCompletion", () => {
     expect(result.postHire.isComplete).toBe(true);
     expect(result.allComplete).toBe(true);
     expect(result.hasPostHireSteps).toBe(true);
+  });
+
+  it("excludes skipped steps from completed count and percent while keeping phase complete", () => {
+    const steps = [
+      mockStep("s1", "resume_upload", "Resume", "pre_hire"),
+      mockStep("s2", "credential", "Credential / License Verification", "pre_hire", false),
+      mockStep("s3", "ssn", "SSN / Identity Verification", "pre_hire", false),
+      mockStep("s4", "i9_form", "I-9", "post_hire"),
+    ];
+
+    const progress: WorkerOnboardingProgressPayload = {
+      progressId: "p1",
+      status: "in_progress",
+      steps: [
+        { onboarding_step_id: "s1", status: "completed", completed_at: new Date().toISOString(), data: {} },
+        { onboarding_step_id: "s2", status: "skipped", completed_at: null, data: {} },
+        { onboarding_step_id: "s3", status: "skipped", completed_at: null, data: {} },
+      ],
+    };
+
+    const result = evaluateWorkflowCompletion({
+      allSteps: steps,
+      progress,
+      tenantSlug: "acme",
+    });
+
+    expect(result.preHire.isComplete).toBe(true);
+    expect(result.preHire.completedCount).toBe(1);
+    expect(result.preHire.total).toBe(3);
+    expect(result.preHire.percent).toBe(33);
+    expect(result.preHire.steps.filter((s) => s.isSkipped)).toHaveLength(2);
+    expect(result.preHire.steps.find((s) => s.id === "s2")?.isComplete).toBe(false);
   });
 
   it("handles workflow with only pre-hire steps", () => {

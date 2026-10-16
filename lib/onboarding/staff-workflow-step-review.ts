@@ -26,6 +26,7 @@ import { loadApplicantConfigForJobToken } from "@/lib/onboarding/load-config-for
 import { loadTenantOnboardingConfig } from "@/lib/onboarding/load-tenant-config";
 import { canStaffAccessPostHireSteps } from "@/lib/onboarding/resolve-candidate-hire-gate";
 import { ensureCandidateConvertedIfAgreementCompleted } from "@/lib/onboarding/auto-convert-after-agreement";
+import { isAgreementEsignStep } from "@/lib/onboarding/lock-post-hire";
 import { loadApplicationWorkflowPhase } from "@/lib/onboarding/resolve-application-workflow-phase";
 import { resolveInstanceApplicationId } from "@/lib/onboarding/scoped-step-progress";
 import { RECRUITER_SCREENING_STEP_TYPE } from "@/lib/onboarding/recruiter-screening-progress";
@@ -753,6 +754,43 @@ function staffEligibilityFor(ctx: StaffStepContext): StaffStepActionEligibility 
   });
 }
 
+/**
+ * Authorization eSign completed by a recruiter uses the same conversion as a candidate signature.
+ * Post-hire e-sign steps stay on their own phase and do not convert the candidate.
+ */
+export function agreementStepCompletedByStaff(ctx: StaffStepContext): TenantOnboardingStep | null {
+  if (ctx.phase === "post_hire") return null;
+  const snapshotId = ctx.mapped.snapshotStepId;
+  const title = ctx.tenantStep?.title ?? ctx.mapped.title;
+  const stepKey = ctx.tenantStep?.step_key ?? ctx.mapped.stepKey;
+  const workflowStepId = String(ctx.tenantStep?.metadata?.workflow_step_id ?? snapshotId ?? "");
+  if (
+    !isAgreementEsignStep({
+      snapshotStepId: workflowStepId,
+      stepKey,
+      stepType: ctx.mapped.stepType,
+      title,
+    })
+  ) {
+    return null;
+  }
+  if (ctx.tenantStep) return ctx.tenantStep;
+  return {
+    id: ctx.mapped.tenantStepId ?? ctx.mapped.id,
+    step_key: stepKey || "employee-agreement",
+    title,
+    description: null,
+    step_type: "authorizations",
+    sort_order: 0,
+    is_required: ctx.mapped.required,
+    is_enabled: true,
+    metadata: {
+      workflow_step_id: workflowStepId || "employee-agreement",
+      workflow_settings: { phase: "pre_hire" },
+    },
+  };
+}
+
 function notStaffOwned(eligibility: StaffStepActionEligibility): StepFailure {
   return {
     ok: false,
@@ -797,6 +835,15 @@ export async function applyStaffWorkflowStepAction(
     ctx.mapped.candidateOwned === true &&
     params.onBehalfOfCandidate === true &&
     action === "complete";
+  if (action === "complete" && agreementStepCompletedByStaff(ctx)) {
+    return {
+      ok: false,
+      status: 409,
+      code: "AGREEMENT_AWAITING_CANDIDATE_SIGNATURE",
+      error:
+        "The candidate has to sign Authorization eSign first. After their signature is saved, review the signed document and mark the step complete.",
+    };
+  }
   if (!initial.allowed && !onBehalf) return notStaffOwned(initial);
 
   // Unlinked internal steps still gate the candidate on the job workflow's step, so mirror there.

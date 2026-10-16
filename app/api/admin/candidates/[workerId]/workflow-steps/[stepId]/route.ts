@@ -113,6 +113,7 @@ export async function POST(req: Request, context: CandidateStepRouteContext) {
         stepRecordId: resolved.stepId,
         note: body.note ?? null,
         actor: { userId: resolved.auth.userId, email: resolved.auth.email },
+        origin: resolveApplicantEmailAppOrigin(req, body.clientOrigin),
         request: req,
       });
       if (!verified.ok) {

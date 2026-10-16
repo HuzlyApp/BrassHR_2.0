@@ -92,11 +92,18 @@ function OnboardingRouteGuardInner({ children }: { children: React.ReactNode }) 
     if (lastRedirectRef.current === decision.href) return;
     lastRedirectRef.current = decision.href;
     // The application-status page explains the wait itself; only bounces back to a step need the modal.
-    if (waitingOnInternal && !decision.href.startsWith(APPLICATION_ROUTES.applicationStatus)) {
+    // Post-hire candidate steps continue without the pre-hire recruiter-review modal.
+    const inPostHire =
+      onboarding?.workflowPhase === "post_hire" || onboarding?.workflowPhase === "completed";
+    if (
+      waitingOnInternal &&
+      !inPostHire &&
+      !decision.href.startsWith(APPLICATION_ROUTES.applicationStatus)
+    ) {
       setAwaitingReviewOpen(true);
     }
     replace(decision.href);
-  }, [decision, replace, waitingOnInternal]);
+  }, [decision, replace, waitingOnInternal, onboarding?.workflowPhase]);
 
   const showLoading =
     decision.status === "loading" &&

@@ -1,3 +1,4 @@
+import { isPhaseCompletionMilestoneStep } from "@/lib/onboarding/phase-completion-steps";
 import { routeForApplicantStep } from "@/lib/onboarding/resolve-applicant-step-route";
 import { readStepLifecyclePhase } from "@/lib/onboarding/workflow-phase";
 import { buildProgressStatusMaps } from "@/lib/onboarding/compute-max-allowed-from-progress";
@@ -14,7 +15,10 @@ export type StepCompletionItem = {
   stepType: string;
   phase: "pre_hire" | "post_hire";
   status: string;
+  /** True only for truly completed statuses (not skipped). Used for % display. */
   isComplete: boolean;
+  /** Candidate skipped this step — counts toward phase progress, not completion %. */
+  isSkipped: boolean;
   isRequired: boolean;
 };
 
@@ -36,11 +40,19 @@ export type WorkflowCompletionResult = {
   nextIncompletePostHireRoute: string | null;
 };
 
-function isCompleteStatus(status: string | null | undefined): boolean {
-  const norm = String(status ?? "").trim().toLowerCase();
+function normalizeStatus(status: string | null | undefined): string {
+  return String(status ?? "").trim().toLowerCase();
+}
+
+function isSkippedStatus(status: string | null | undefined): boolean {
+  return normalizeStatus(status) === "skipped";
+}
+
+/** Truly finished by the candidate (excludes skipped). */
+function isCompletedStatus(status: string | null | undefined): boolean {
+  const norm = normalizeStatus(status);
   return (
     norm === "completed" ||
-    norm === "skipped" ||
     norm === "approved" ||
     norm === "signed" ||
     norm === "complete"
@@ -58,7 +70,9 @@ export function evaluateWorkflowCompletion(params: {
   const { allSteps, progress, tenantSlug } = params;
 
   // Filter only enabled steps
-  const enabled = (allSteps ?? []).filter((s) => s.is_enabled);
+  const enabled = (allSteps ?? []).filter(
+    (step) => step.is_enabled && !isPhaseCompletionMilestoneStep(step)
+  );
 
   const preHireSteps: TenantOnboardingStep[] = [];
   const postHireSteps: TenantOnboardingStep[] = [];
@@ -79,7 +93,6 @@ export function evaluateWorkflowCompletion(params: {
     phase: "pre_hire" | "post_hire"
   ): StepCompletionItem => {
     const status = statusByStepId.get(step.id) ?? "pending";
-    const isComplete = isCompleteStatus(status);
     return {
       id: step.id,
       stepKey: step.step_key,
@@ -87,28 +100,32 @@ export function evaluateWorkflowCompletion(params: {
       stepType: step.step_type,
       phase,
       status,
-      isComplete,
+      isComplete: isCompletedStatus(status),
+      isSkipped: isSkippedStatus(status),
       isRequired: isTenantStepBlocking(step),
     };
   };
 
+  const isStepResolved = (item: StepCompletionItem) => item.isComplete || item.isSkipped;
+
   const preHireItems = preHireSteps.map((s) => mapStepItem(s, "pre_hire"));
   const postHireItems = postHireSteps.map((s) => mapStepItem(s, "post_hire"));
 
+  // Display % only counts truly completed steps — skipped are not "completed".
   const preHireCompletedCount = preHireItems.filter((item) => item.isComplete).length;
   const postHireCompletedCount = postHireItems.filter((item) => item.isComplete).length;
 
-  // Pre-hire is complete if all required steps are complete (or if all enabled steps are complete)
+  // Pre-hire phase is done when every required step is completed or skipped.
   const isPreHireComplete =
     preHireSteps.length > 0
-      ? preHireItems.every((item) => !item.isRequired || item.isComplete)
+      ? preHireItems.every((item) => !item.isRequired || isStepResolved(item))
       : Boolean(progress?.submittedAt);
 
   const hasPostHireSteps = postHireSteps.length > 0;
 
-  // Post-hire is complete if there are post-hire steps and all required ones are complete
+  // Post-hire is complete if there are post-hire steps and all required ones are resolved
   const isPostHireComplete = hasPostHireSteps
-    ? postHireItems.every((item) => !item.isRequired || item.isComplete)
+    ? postHireItems.every((item) => !item.isRequired || isStepResolved(item))
     : false;
 
   const allComplete = hasPostHireSteps
@@ -121,7 +138,7 @@ export function evaluateWorkflowCompletion(params: {
     : null;
 
   const firstIncompletePostHire =
-    postHireItems.find((item) => !item.isComplete) ?? null;
+    postHireItems.find((item) => !isStepResolved(item)) ?? null;
   const nextIncompletePostHireStep = firstIncompletePostHire
     ? postHireSteps.find((s) => s.id === firstIncompletePostHire.id) ?? null
     : null;

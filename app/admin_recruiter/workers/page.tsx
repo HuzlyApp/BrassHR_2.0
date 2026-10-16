@@ -691,31 +691,41 @@ export default function WorkersPage() {
                     <table className="min-w-[760px] w-full border-collapse">
                       <thead className="bg-[#F3F4F6]">
                         <tr className="border-b border-[#E5E7EB]">
-                          {cols.map((colId) => (
+                          {cols.map((colId, colIndex) => {
+                            const isLast = colIndex === cols.length - 1;
+                            return (
                             <th
                               key={colId}
                               className={`bg-[#F3F4F6] px-4 py-3 text-sm font-medium uppercase tracking-[0.08em] text-black first:pl-6 last:pr-6 ${
+                                isLast ? "border-r-0" : "border-r border-[#E5E7EB]"
+                              } ${
                                 colId === "name" ? "text-left" : "text-center"
                               } ${colId === "createdDate" ? "min-w-[140px] whitespace-nowrap" : ""}`}
                             >
                               {workerColumnLabel(colId)}
                             </th>
-                          ))}
+                            );
+                          })}
                         </tr>
                       </thead>
                       <tbody>
                         {filtered.map((w) => (
                           <tr key={w.id} className="border-b border-[#E9EDF3] hover:bg-[#F9FBFB]">
-                            {cols.map((colId) => (
+                            {cols.map((colId, colIndex) => {
+                              const isLast = colIndex === cols.length - 1;
+                              return (
                               <td
                                 key={colId}
                                 className={`px-4 py-4 align-middle first:pl-6 last:pr-6 ${
+                                  isLast ? "border-r-0" : "border-r border-[#EEF2F7]"
+                                } ${
                                   colId === "name" ? "text-left" : "text-center"
                                 } ${colId === "createdDate" ? "min-w-[140px] whitespace-nowrap" : ""}`}
                               >
                                 {renderWorkerListCell(colId, w, formatDateShort)}
                               </td>
-                            ))}
+                              );
+                            })}
                           </tr>
                         ))}
                       </tbody>

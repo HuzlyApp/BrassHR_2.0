@@ -4,12 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
-  Circle,
   ArrowRight,
   ClipboardCheck,
   FileCheck,
-  ChevronDown,
-  ChevronUp,
   Loader2,
   ShieldCheck,
 } from "lucide-react";
@@ -25,7 +22,9 @@ import {
   APPLICANT_SHELL_TALL_CLASS,
   APPLICANT_TITLE_CLASS,
 } from "@/app/application/applicant-onboarding-responsive";
-import { stepStatusLabel } from "@/app/application/components/completion/step-status-label";
+import { CompletionDetailsToggle } from "@/app/application/components/completion/CompletionDetailsToggle";
+import { CompletionStepStatusRow } from "@/app/application/components/completion/CompletionStepStatusRow";
+import { useMarkPhaseCompletionStep } from "@/app/application/components/completion/useMarkPhaseCompletionStep";
 
 type Props = {
   completionResult?: WorkflowCompletionResult | null;
@@ -44,6 +43,7 @@ export default function PreHireCompletionView({
   const branding = useTenantBranding();
   const { slug } = useOnboardingTenant();
   const onboarding = useOnboardingConfigOptional();
+  useMarkPhaseCompletionStep("pre_hire");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -192,15 +192,10 @@ export default function PreHireCompletionView({
               </div>
 
               {preHireSteps.length > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => setShowStepList(!showStepList)}
-                  className="inline-flex items-center gap-1 text-xs font-medium text-emerald-800 hover:text-emerald-950"
-                  aria-expanded={showStepList}
-                >
-                  <span>{showStepList ? "Hide details" : "View steps"}</span>
-                  {showStepList ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                </button>
+                <CompletionDetailsToggle
+                  expanded={showStepList}
+                  onToggle={() => setShowStepList(!showStepList)}
+                />
               ) : null}
             </div>
 
@@ -208,23 +203,7 @@ export default function PreHireCompletionView({
             {showStepList && preHireSteps.length > 0 ? (
               <div className="mt-3.5 pt-3 border-t border-emerald-200/80 space-y-2">
                 {preHireSteps.map((item, idx) => (
-                  <div key={item.id || idx} className="flex items-center justify-between text-xs text-slate-700">
-                    <span className="flex items-center gap-2">
-                      {item.isComplete ? (
-                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                      ) : (
-                        <Circle className="h-3.5 w-3.5 text-slate-400" />
-                      )}
-                      <span className="font-medium">{item.title}</span>
-                    </span>
-                    <span
-                      className={`text-[11px] font-semibold ${
-                        item.isComplete ? "text-emerald-700" : "text-slate-500"
-                      }`}
-                    >
-                      {stepStatusLabel(item.status)}
-                    </span>
-                  </div>
+                  <CompletionStepStatusRow key={item.id || idx} item={item} />
                 ))}
               </div>
             ) : null}

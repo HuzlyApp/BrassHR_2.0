@@ -13,7 +13,7 @@ export type WorkerColumnId =
 
 export const WORKER_COLUMN_OPTIONS: { id: WorkerColumnId; label: string }[] = [
   { id: "name", label: "Name" },
-  { id: "jobRole", label: "Job Role" },
+  { id: "jobRole", label: "Job name" },
   { id: "location", label: "Location" },
   { id: "status", label: "Status" },
   { id: "email", label: "Email" },

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Download, Eye } from "lucide-react";
 import { useOnboardingConfigOptional } from "@/app/components/onboarding/OnboardingConfigProvider";
 import { persistStepProgress } from "@/lib/onboarding/use-mark-step-in-progress-if-pending";
@@ -11,6 +11,8 @@ import { isAgreementOrSignatureStep } from "@/lib/onboarding/is-agreement-step";
 import { useApplicantSigningEmail } from "@/lib/onboarding/use-applicant-signing-email";
 import {
   buildPostHireSubmissionData,
+  effectivePostHireProgressStatus,
+  hasCandidatePostHireEvidence,
   readPostHireScreenContent,
   readPostHireSubmission,
   type PostHireScreenKind,
@@ -28,7 +30,8 @@ import TaxWithholdingForm from "./TaxWithholdingForm";
 type UpdateStepStatus = (
   stepKey: string,
   status: OnboardingStepStatus,
-  data?: Record<string, unknown>
+  data?: Record<string, unknown>,
+  stepId?: string
 ) => Promise<void>;
 
 const FIRMA_CAPABLE_KINDS: ReadonlySet<PostHireScreenKind> = new Set([
@@ -50,7 +53,7 @@ export default function PostHireStepScreen({
   tenantSlug: string | null;
   updateStepStatus: UpdateStepStatus | undefined;
   onBack: () => void;
-  onContinue: () => void;
+  onContinue: (savedStatus?: "completed" | "skipped") => void;
 }) {
   const onboarding = useOnboardingConfigOptional();
   const applicantId = onboarding?.applicantId ?? null;
@@ -59,30 +62,83 @@ export default function PostHireStepScreen({
   const signer = useApplicantSigningEmail({ applicantId, tenantSlug });
 
   const progressRows = onboarding?.progress?.steps ?? [];
-  const progressRow =
-    progressRows.find((row) => row.onboarding_step_id === step.id) ??
-    progressRows.find((row) => row.step_key === step.step_key);
+  // Prefer step id only — shared step_key prefixes (custom_question_N) must not cross-match.
+  const progressRow = progressRows.find((row) => row.onboarding_step_id === step.id) ?? null;
   const submission = progressRow ? readPostHireSubmission(progressRow.data) : null;
-  const done = progressRow?.status === "completed";
+  const effectiveStatus = effectivePostHireProgressStatus(kind, progressRow?.status, progressRow?.data);
+  const done = effectiveStatus === "completed" && hasCandidatePostHireEvidence(kind, progressRow?.data);
   const content = readPostHireScreenContent(step);
   const usesFirma = FIRMA_CAPABLE_KINDS.has(kind) && stepUsesFirmaSigning(step);
   const fullName = `${signer.firstName} ${signer.lastName}`.trim();
+  const healAttemptedRef = useRef<string | null>(null);
+
+  // Heal false "completed" rows (no checkbox / submission) so candidate sees the form again.
+  useEffect(() => {
+    if (!progressRow || !updateStepStatus || usesFirma) return;
+    if (progressRow.status !== "completed") return;
+    if (hasCandidatePostHireEvidence(kind, progressRow.data)) return;
+    if (healAttemptedRef.current === step.id) return;
+    healAttemptedRef.current = step.id;
+    void persistStepProgress(
+      updateStepStatus,
+      step.step_key,
+      "pending",
+      completingRef,
+      {
+        step_type: step.step_type,
+        false_completion_reset: true,
+        reset_at: new Date().toISOString(),
+      },
+      step.id
+    ).catch(() => {
+      healAttemptedRef.current = null;
+    });
+  }, [progressRow, updateStepStatus, usesFirma, kind, step.id, step.step_key, step.step_type]);
 
   async function submit(fields: PostHireSubmissionField[], extra?: Record<string, unknown>) {
-    await persistStepProgress(updateStepStatus, step.step_key, "completed", completingRef, {
-      ...extra,
-      ...buildPostHireSubmissionData(kind, fields),
-      step_type: step.step_type,
-    });
+    await persistStepProgress(
+      updateStepStatus,
+      step.step_key,
+      "completed",
+      completingRef,
+      {
+        ...extra,
+        ...buildPostHireSubmissionData(kind, fields),
+        step_type: step.step_type,
+      },
+      step.id
+    );
     setEditing(false);
     onContinue();
+  }
+
+  /** Persist checkbox / partial response without marking the step completed. */
+  async function persistCheckboxDraft(extra: Record<string, unknown>) {
+    if (done || !updateStepStatus) return;
+    await persistStepProgress(
+      updateStepStatus,
+      step.step_key,
+      "in_progress",
+      completingRef,
+      {
+        ...extra,
+        step_type: step.step_type,
+      },
+      step.id
+    );
   }
 
   const actions: ActionRowProps = {
     onBack,
     onSkip:
       !done && isOnboardingStepSkippable(step)
-        ? () => void skipOnboardingStep({ step, updateStepStatus, completingRef, onNavigate: onContinue })
+        ? () =>
+            void skipOnboardingStep({
+              step,
+              updateStepStatus,
+              completingRef,
+              onNavigate: () => onContinue("skipped"),
+            })
         : undefined,
   };
 
@@ -199,6 +255,7 @@ export default function PostHireStepScreen({
       ) : kind === "direct_deposit" ? (
         <DirectDepositForm
           stepKey={step.step_key}
+          stepId={step.id}
           applicantId={applicantId}
           applicationId={onboarding?.applicationId ?? null}
           tenantSlug={tenantSlug}
@@ -206,6 +263,7 @@ export default function PostHireStepScreen({
           authorizationText={content.acknowledgmentText}
           isPreview={Boolean(onboarding?.isDraftPreview)}
           submit={submit}
+          persistDraft={persistCheckboxDraft}
           actions={actions}
         />
       ) : kind === "tax_withholding" ? (
@@ -214,19 +272,22 @@ export default function PostHireStepScreen({
         <I9AttestationForm
           prefill={{ firstName: signer.firstName, lastName: signer.lastName, email: signer.email }}
           attestationText={content.acknowledgmentText}
+          stepId={step.id}
           submit={submit}
+          persistDraft={persistCheckboxDraft}
           actions={actions}
         />
       ) : (
         <AcknowledgmentForm
-          mode={kind === "training" ? "training" : "acknowledgment"}
+          mode={kind === "acknowledgment" ? "acknowledgment" : kind === "confirmation" ? "confirmation" : "training"}
           acknowledgmentText={content.acknowledgmentText}
           documentUrl={content.documentUrl}
-          initialAgreed={done || submission != null}
+          initialAgreed={hasCandidatePostHireEvidence(kind, progressRow?.data)}
           initialSignatureName={
             submission?.fields.find((f) => f.label === "Signature")?.value || fullName
           }
           submit={submit}
+          persistDraft={persistCheckboxDraft}
           actions={actions}
         />
       )}

@@ -10,6 +10,7 @@ import {
   type EnrollmentDecision,
 } from "@/lib/onboarding/enrollment-decision-step";
 import { workflowStepIdToOnboardingType } from "@/lib/onboarding/workflow-step-mapping";
+import { storedCheckboxQuestions } from "@/lib/onboarding/candidate-checkbox-steps";
 import {
   postHireScreenKindForStepId,
   readPostHireSubmission,
@@ -108,6 +109,7 @@ import {
 import { tryGetFirmaSigningRequestDownload } from "@/lib/firma/client";
 import { resolveTenantFirmaWorkspaceId } from "@/lib/firma/resolve-tenant-workspace";
 import { isAgreementOrSignatureStep } from "@/lib/onboarding/is-agreement-step";
+import { isAgreementEsignStep } from "@/lib/onboarding/lock-post-hire";
 import {
   interviewStepStatus,
   isInterviewStep,
@@ -270,6 +272,10 @@ export type WorkflowStepInspection = {
 function asText(value: unknown): string | null {
   const text = String(value ?? "").trim();
   return text || null;
+}
+
+function isManualHrTask(stepType: string | null | undefined): boolean {
+  return String(stepType ?? "").trim().toLowerCase() === "manual-task-hr-action";
 }
 
 export function inspectionKindForStep(params: {
@@ -870,9 +876,11 @@ export async function loadCandidateWorkflowStepInspection(
     };
   }
 
+  const responseSubmittedAt = asText(progress?.updated_at) ?? asText(progress?.completed_at);
+  const checkboxQuestions = storedCheckboxQuestions(progressData, responseSubmittedAt);
   const postHireSubmission = enrollment ? null : readPostHireSubmission(progressData);
-  if (postHireSubmission) {
-    const submittedAt = postHireSubmission.submittedAt ?? asText(progress?.completed_at);
+  if (postHireSubmission && postHireSubmission.fields.length > 0) {
+    const submittedAt = postHireSubmission.submittedAt ?? responseSubmittedAt;
     let fields = postHireSubmission.fields;
     if (postHireSubmission.kind === "direct_deposit") {
       fields = filterDirectDepositInspectionFields(fields);
@@ -886,6 +894,8 @@ export async function loadCandidateWorkflowStepInspection(
         reviewResult: null,
       })),
     };
+  } else if (checkboxQuestions) {
+    form = { questions: checkboxQuestions };
   } else if (!form && phase === "post_hire" && progressData && Object.keys(progressData).length > 0) {
     const IGNORED_KEYS = new Set([
       "step_type",
@@ -922,14 +932,16 @@ export async function loadCandidateWorkflowStepInspection(
     }
 
     if (dynamicQuestions.length > 0) {
-      if (postHireScreenKindForStepId(mapped.stepType) === "direct_deposit") {
+      const screenKind = postHireScreenKindForStepId(mapped.stepType);
+      if (screenKind === "direct_deposit" || screenKind === "confirmation") {
+        const message = asText(progressData.checkbox_label) || asText(progressData.response);
         form = {
           questions: [
             {
-              label: "Deposit authorization",
+              label: message || mapped.title || "Confirmation",
               fieldType: "checkbox",
-              answer: "Authorized",
-              submittedAt: asText(progress?.updated_at) ?? asText(progress?.completed_at),
+              answer: "Confirmed",
+              submittedAt: responseSubmittedAt,
               reviewResult: null,
             },
           ],
@@ -943,16 +955,18 @@ export async function loadCandidateWorkflowStepInspection(
   if (
     !form &&
     hasPostHireScreen &&
-    postHireScreenKindForStepId(mapped.stepType) === "direct_deposit" &&
+    (postHireScreenKindForStepId(mapped.stepType) === "direct_deposit" ||
+      postHireScreenKindForStepId(mapped.stepType) === "confirmation") &&
     (mapped.status === "completed" || progress?.completed_at != null)
   ) {
+    const message = asText(progressData.checkbox_label) || asText(progressData.response);
     form = {
       questions: [
         {
-          label: "Deposit authorization",
+          label: message || mapped.title || "Confirmation",
           fieldType: "checkbox",
-          answer: "Authorized",
-          submittedAt: asText(progress?.updated_at) ?? asText(progress?.completed_at),
+          answer: "Confirmed",
+          submittedAt: responseSubmittedAt,
           reviewResult: null,
         },
       ],
@@ -1069,13 +1083,25 @@ export async function loadCandidateWorkflowStepInspection(
 
     const signingRequestId = asText(session?.signing_request_id) ?? asText(progressData.signing_request_id);
     const firmaStatus = asText(session?.firma_status) ?? asText(progressData.firma_status);
-    const isSigned =
+    const authorizationEsign =
+      mapped.phase !== "post_hire" &&
+      isAgreementEsignStep({
+        snapshotStepId: mapped.snapshotStepId,
+        stepKey: mapped.stepKey,
+        stepType: mapped.stepType,
+        title: mapped.title,
+      });
+    const storedSignature =
       isFirmaSigningComplete(firmaStatus) ||
-      mapped.displayStatus === "completed" ||
-      mapped.displayStatus === "approved" ||
-      (mapped.displayStatus === "submitted" && mapped.status === "completed") ||
       progressData.firma_signed === true ||
-      progressData.authorization_agreed === true;
+      progressData.authorization_agreed === true ||
+      Boolean(asText(progressData.signed_document_url) || asText(progressData.download_url));
+    let isSigned = authorizationEsign
+      ? storedSignature
+      : storedSignature ||
+        mapped.displayStatus === "completed" ||
+        mapped.displayStatus === "approved" ||
+        (mapped.displayStatus === "submitted" && mapped.status === "completed");
 
     const completedDoc = documents.find((doc) => doc.verificationStatus === "approved") ?? documents[0] ?? null;
     let resolvedDownloadUrl =
@@ -1264,6 +1290,11 @@ export async function loadCandidateWorkflowStepInspection(
     } else if (mapped.status === "in_progress") {
       emptyState = "References are marked as needing review. This doesn't block the candidate's next stage.";
     }
+  } else if (staffAction.allowed && isManualHrTask(mapped.stepType)) {
+    if (mapped.status === "pending" || mapped.status === "in_progress") {
+      emptyState =
+        "This is a recruiter step. Add a note if you need to, then mark it complete. The candidate does not complete this step.";
+    }
   } else if (staffAction.allowed && !mapped.required) {
     if (mapped.status === "pending" || mapped.status === "in_progress") {
       emptyState = `Waiting for ${staffAction.ownerLabel ?? "the internal team"} to complete this step. It's optional, so it doesn't block the candidate's next stage.`;
@@ -1309,11 +1340,21 @@ export async function loadCandidateWorkflowStepInspection(
   }
 
   const candidateStep = !staffAction.allowed && mapped.candidateOwned === true;
+  const authorizationEsign =
+    phase !== "post_hire" &&
+    isAgreementEsignStep({
+      snapshotStepId: mapped.snapshotStepId,
+      stepKey: mapped.stepKey,
+      stepType: mapped.stepType,
+      title: mapped.title,
+    });
+  const signatureStored = agreement?.isSigned === true;
   const canVerify =
     candidateStep &&
     mapped.status === "completed" &&
     !mapped.verifiedAt &&
-    mapped.displayStatus === "submitted";
+    mapped.displayStatus === "submitted" &&
+    (!authorizationEsign || signatureStored);
   if (canVerify && (emptyState == null || emptyState === STEP_COMPLETED_WITHOUT_DOCUMENT_MESSAGE)) {
     emptyState = CANDIDATE_STEP_AWAITING_REVIEW_MESSAGE;
   }
@@ -1343,7 +1384,7 @@ export async function loadCandidateWorkflowStepInspection(
           ? reviewerLabel(verifiedByUserId, mapped.verifiedByName, reviewerById)
           : null,
         canVerify,
-        canComplete: mapped.status !== "completed" && !mapped.verifiedAt,
+        canComplete: authorizationEsign ? false : mapped.status !== "completed" && !mapped.verifiedAt,
       }
     : null;
   // A recruiter verifying a candidate step doesn't make them its completer; completing it

@@ -1,7 +1,5 @@
 "use client";
 
-import { APPLICATION_ROUTES } from "@/lib/onboarding/application-routes"
-import { applicationPath } from "@/lib/tenant/with-tenant";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { TenantRequiredDocument } from "@/lib/onboarding/types";
@@ -26,9 +24,10 @@ import { brandingToCssVars } from "@/lib/tenant/tenant-branding";
 import { useOnboardingConfigOptional } from "@/app/components/onboarding/OnboardingConfigProvider";
 import {
   findProfessionalLicenseStep,
-  nextStepRouteAfter,
   requiredDocumentsForStep,
 } from "@/lib/onboarding/professional-license-step";
+import { isTenantStepBlocking } from "@/lib/onboarding/reference-verification";
+import { resolvePostStepContinueRoute } from "@/lib/onboarding/tenant-step-navigation";
 import { readStepKeyFromSearch } from "@/lib/onboarding/find-applicant-step";
 import {
   resolveApplicantId,
@@ -275,15 +274,21 @@ export default function Step2License() {
     completingRef,
   });
 
+  const stepRequiresUpload = licenseStep ? isTenantStepBlocking(licenseStep) : false;
+
+  const routeAfterThisStep = (savedStatus: "completed" | "skipped") =>
+    resolvePostStepContinueRoute(onboarding?.config, licenseStep, tenantSlug, {
+      progress: onboarding?.progress,
+      savedStepId: licenseStep?.id,
+      savedStatus,
+    });
+
   const skipProfessionalLicense = () => {
-    const next =
-      nextStepRouteAfter(onboarding?.config, licenseStep, tenantSlug) ??
-      applicationPath(APPLICATION_ROUTES.skillsIntro);
     void skipOnboardingStep({
       step: licenseStep,
       updateStepStatus: onboarding?.updateStepStatus,
       completingRef,
-      onNavigate: () => router.push(next),
+      onNavigate: () => router.push(routeAfterThisStep("skipped")),
     });
   };
 
@@ -480,7 +485,7 @@ export default function Step2License() {
         <div className="flex items-center justify-between gap-3">
           <p className="text-[16px] font-semibold leading-6 text-slate-800">
             {doc.title}
-            {doc.is_required ? <span className="text-red-500"> *</span> : null}
+            {stepRequiresUpload && doc.is_required ? <span className="text-red-500"> *</span> : null}
           </p>
           {hint ? (
             <p className="text-[10px] font-normal leading-4 text-slate-500">{hint}</p>
@@ -709,13 +714,12 @@ export default function Step2License() {
           onboarding?.updateStepStatus,
           licenseStep.step_key,
           hasAnyUpload ? "completed" : "skipped",
-          completingRef
+          completingRef,
+          undefined,
+          licenseStep.id
         );
       }
-      const nextRoute =
-        nextStepRouteAfter(onboarding?.config, licenseStep, tenantSlug) ??
-        applicationPath(APPLICATION_ROUTES.skillsIntro);
-      router.push(nextRoute);
+      router.push(routeAfterThisStep(hasAnyUpload ? "completed" : "skipped"));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {

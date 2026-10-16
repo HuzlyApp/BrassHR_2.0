@@ -28,8 +28,14 @@ import { resolveCustomStepContinue } from "@/lib/onboarding/custom-step-continue
 import { isOfferAcceptanceStepType } from "@/lib/onboarding/offer-acceptance";
 import { isEnrollmentDecisionStep } from "@/lib/onboarding/enrollment-decision-step";
 import {
+  candidateCheckboxMessage,
+  isCandidateCheckboxStep,
+  isDirectDepositCheckboxStep,
+  isPayrollSetupCheckboxStep,
+} from "@/lib/onboarding/candidate-checkbox-steps";
+import {
   POST_HIRE_SCREEN_SUBTITLE,
-  postHireScreenKindForStep,
+  candidatePostHireScreenKind,
 } from "@/lib/onboarding/post-hire-step-screens";
 import { hireStageLabelForStep } from "@/lib/onboarding/hire-stage-groups";
 import { workflowStepIdFromMetadata } from "@/lib/onboarding/firma-step-settings";
@@ -71,7 +77,7 @@ export default function CustomOnboardingStepPage() {
     typeof step?.metadata?.workflow_step_id === "string" &&
     isOfferAcceptanceStepType(step.metadata.workflow_step_id);
   const isEnrollmentStep = isEnrollmentDecisionStep(step);
-  const postHireKind = postHireScreenKindForStep(step);
+  const postHireKind = candidatePostHireScreenKind(step);
   const rawWorkflowSettings = step?.metadata?.workflow_settings as Record<string, unknown> | null | undefined;
   const stageLabel =
     step && postHireKind
@@ -125,8 +131,8 @@ export default function CustomOnboardingStepPage() {
     if (key.includes("401k") || id.includes("401k") || lowerTitle.includes("401k") || key.includes("retirement") || lowerTitle.includes("retirement")) {
       return "I confirm that I have completed 401K / Retirement Enrollment.";
     }
-    if (key.includes("direct-deposit") || id.includes("direct-deposit") || lowerTitle.includes("direct deposit")) {
-      return "I confirm that I have completed Direct Deposit Setup.";
+    if (isCandidateCheckboxStep(step)) {
+      return candidateCheckboxMessage(step);
     }
     if (id === "compliance-training" || key.includes("compliance")) {
       return "I have completed the compliance training and understand my obligations.";
@@ -178,6 +184,7 @@ export default function CustomOnboardingStepPage() {
       title.includes("training") ||
       title.includes("orientation") ||
       title.includes("quiz") ||
+      isCandidateCheckboxStep(step) ||
       isGenericCustom ||
       showCustomForm
     );
@@ -204,6 +211,7 @@ export default function CustomOnboardingStepPage() {
       data.k401_enrollment_confirmed === true ||
       data.i9_section_1_confirmed === true ||
       data.direct_deposit_confirmed === true ||
+      data.payroll_setup_confirmed === true ||
       data.authorized === true ||
       data.enrollment_decision === "agreed";
 
@@ -215,7 +223,14 @@ export default function CustomOnboardingStepPage() {
   }, [progressRow, isCheckboxStep, dynamicCheckboxLabel, answer]);
 
   const shouldRedirectToDedicatedScreen = useMemo(() => {
-    if (!step || showCustomForm || isEnrollmentDecisionStep(step) || postHireScreenKindForStep(step) || isI9Section1Step(step)) {
+    if (
+      !step ||
+      showCustomForm ||
+      isEnrollmentDecisionStep(step) ||
+      candidatePostHireScreenKind(step) ||
+      isCandidateCheckboxStep(step) ||
+      isI9Section1Step(step)
+    ) {
       return false;
     }
     if (step.step_type !== "custom_question") return true;
@@ -264,10 +279,8 @@ export default function CustomOnboardingStepPage() {
         step.metadata?.workflow_step_id === "401k-enrollment" ||
         (step.title || "").toLowerCase().includes("401k");
       const isI9 = isI9Section1Step(step);
-      const isDirectDeposit =
-        step.step_key.includes("direct-deposit") ||
-        step.metadata?.workflow_step_id === "direct-deposit-setup" ||
-        (step.title || "").toLowerCase().includes("direct deposit");
+      const isDirectDeposit = isDirectDepositCheckboxStep(step);
+      const isPayrollSetup = isPayrollSetupCheckboxStep(step) && !isDirectDeposit;
 
       await persistStepProgress(
         nav.updateStepStatus,
@@ -328,14 +341,27 @@ export default function CustomOnboardingStepPage() {
                 post_hire_submission: {
                   kind: "direct_deposit",
                   fields: [
-                    { label: "Deposit authorization", value: "Authorized" },
                     { label: "Confirmation", value: dynamicCheckboxLabel },
                   ],
                   submitted_at: new Date().toISOString(),
                 },
               }
             : {}),
-        }
+          ...(isPayrollSetup
+            ? {
+                payroll_setup_confirmed: true,
+                post_hire_submission: {
+                  kind: "confirmation",
+                  fields: [
+                    { label: step.title || "HCM & Payroll Setup", value: "Confirmed" },
+                    { label: "Confirmation", value: dynamicCheckboxLabel },
+                  ],
+                  submitted_at: new Date().toISOString(),
+                },
+              }
+            : {}),
+        },
+        step.id
       );
       nav.goNext();
     } catch (e) {
@@ -404,7 +430,7 @@ export default function CustomOnboardingStepPage() {
               tenantSlug={nav.slug || null}
               updateStepStatus={nav.updateStepStatus}
               onBack={() => nav.goPrev()}
-              onContinue={() => nav.goNext()}
+              onContinue={(status) => nav.goNext(status)}
             />
           ) : step && isOfferStep ? (
             <OfferAcceptanceStep
@@ -452,6 +478,23 @@ export default function CustomOnboardingStepPage() {
                       checked={Boolean(answer && answer === dynamicCheckboxLabel)}
                       onChange={(checked) => {
                         setAnswer(checked ? dynamicCheckboxLabel : "");
+                        if (!step) return;
+                        void persistStepProgress(
+                          nav.updateStepStatus,
+                          step.step_key,
+                          "in_progress",
+                          completingRef,
+                          {
+                            checkbox_confirmed: checked,
+                            checkbox_label: dynamicCheckboxLabel,
+                            response: checked ? dynamicCheckboxLabel : "",
+                            confirmed_at: checked ? new Date().toISOString() : null,
+                            step_type: step.step_type,
+                          },
+                          step.id
+                        ).catch(() => {
+                          // Draft save failures should not block the candidate from continuing.
+                        });
                       }}
                     >
                       <span className="text-sm leading-5 text-slate-700">

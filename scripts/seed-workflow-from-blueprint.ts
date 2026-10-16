@@ -43,6 +43,17 @@ type BlueprintStep = {
   settings?: Record<string, unknown>;
 };
 
+type BlueprintDocument = {
+  code: string;
+  name: string;
+  isRequired?: boolean;
+  hasExpiration?: boolean;
+  collectIssuingOrganization?: boolean;
+  collectScope?: boolean;
+  collectValidity?: boolean;
+  sortOrder?: number;
+};
+
 type Blueprint = {
   key: string;
   name: string;
@@ -50,6 +61,7 @@ type Blueprint = {
   librarySlug?: string;
   stepDefaults?: Record<string, unknown>;
   templates?: BlueprintTemplate[];
+  documents?: BlueprintDocument[];
   steps: BlueprintStep[];
 };
 
@@ -224,6 +236,13 @@ async function main() {
       problems.push(`template ${def.key}: source file not found (${def.sourceFile})`);
     }
   }
+  const documentCode = /^[A-Z][A-Z0-9_]{1,62}$/;
+  for (const doc of blueprint.documents ?? []) {
+    if (!documentCode.test(doc.code?.trim().toUpperCase() ?? "")) {
+      problems.push(`document ${doc.code || "(blank)"}: code must be uppercase letters, numbers, and underscores`);
+    }
+    if (!doc.name?.trim()) problems.push(`document ${doc.code}: name is required`);
+  }
   if (problems.length) {
     throw new Error(`Blueprint is not valid for this tenant:\n  - ${problems.join("\n  - ")}`);
   }
@@ -381,6 +400,16 @@ async function main() {
     );
   }
 
+  const documents = blueprint.documents ?? [];
+  if (documents.length) {
+    console.log("\nDocuments:");
+    for (const doc of documents) {
+      const expiry = doc.hasExpiration ? "expiry required" : "no expiry";
+      const required = doc.isRequired === false ? "optional" : "required";
+      console.log(`  - ${doc.name} (${doc.code}) ${required}, ${expiry}`);
+    }
+  }
+
   if (dryRun) {
     console.log("\nDry run complete. Nothing was written.");
     return;
@@ -425,6 +454,49 @@ async function main() {
       .eq("id", flowId)
       .eq("tenant_id", tenantId);
     if (error) throw error;
+  }
+
+  if (documents.length) {
+    const { data: existingDocs, error: docsError } = await sb
+      .from("workflow_required_documents")
+      .select("id, code")
+      .eq("tenant_id", tenantId)
+      .eq("flow_id", flowId);
+    if (docsError) throw docsError;
+    const existingByCode = new Map(
+      (existingDocs ?? []).map((row) => [String(row.code).toUpperCase(), String(row.id)])
+    );
+    for (const [index, doc] of documents.entries()) {
+      const code = doc.code.trim().toUpperCase();
+      const row = {
+        name: doc.name.trim(),
+        is_required: doc.isRequired !== false,
+        has_expiration: doc.hasExpiration === true,
+        collect_issuing_organization: doc.collectIssuingOrganization === true,
+        collect_scope: doc.collectScope === true,
+        collect_validity: doc.collectValidity === true || doc.hasExpiration === true,
+        sort_order: doc.sortOrder ?? (index + 1) * 10,
+        is_active: true,
+      };
+      const existingId = existingByCode.get(code);
+      if (existingId) {
+        const { error } = await sb
+          .from("workflow_required_documents")
+          .update(row)
+          .eq("id", existingId)
+          .eq("tenant_id", tenantId);
+        if (error) throw error;
+      } else {
+        const { error } = await sb.from("workflow_required_documents").insert({
+          ...row,
+          tenant_id: tenantId,
+          flow_id: flowId,
+          code,
+        });
+        if (error) throw error;
+      }
+    }
+    console.log(`Documents:  ${documents.length} saved on the flow`);
   }
 
   await publishOnboardingFromWorkflow(db, tenantId, draft, actor, blueprint.name);

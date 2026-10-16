@@ -200,10 +200,7 @@ export default function ReferencesPage() {
       step: referencesStep,
       updateStepStatus: nav.updateStepStatus,
       completingRef,
-      onNavigate: () => {
-        if (nav.nextRoute) nav.push(nav.nextRoute)
-        else router.push(applicationPath(APPLICATION_ROUTES.applicationSummary))
-      },
+      onNavigate: () => nav.goNext("skipped"),
     })
   }
 
@@ -307,11 +304,7 @@ export default function ReferencesPage() {
       }
     }
 
-    if (nav.nextRoute) {
-      nav.push(nav.nextRoute)
-    } else {
-      router.push(applicationPath(APPLICATION_ROUTES.applicationSummary))
-    }
+    nav.goNext()
     setSaving(false)
   }
 

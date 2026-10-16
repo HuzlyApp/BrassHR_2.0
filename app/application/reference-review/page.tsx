@@ -94,10 +94,7 @@ export default function ReferenceReviewPage() {
       step: referencesStep,
       updateStepStatus: nav.updateStepStatus,
       completingRef,
-      onNavigate: () => {
-        if (nav.nextRoute) router.push(nav.nextRoute)
-        else router.push(applicationPath(APPLICATION_ROUTES.applicationSummary))
-      },
+      onNavigate: () => nav.goNext("skipped"),
     })
   }
 
@@ -123,8 +120,7 @@ export default function ReferenceReviewPage() {
       )
     }
 
-    if (nav.nextRoute) router.push(nav.nextRoute)
-    else router.push(applicationPath(APPLICATION_ROUTES.applicationSummary))
+    nav.goNext()
   }
 
   return (

@@ -292,9 +292,13 @@ export function HireStageBoard({
                   : "Hired / Post-Hire Onboarding"
               }
               hiredAt={formatLongDate(phaseView?.hiredAt)}
-              percent={progressMeta.percent}
-              completedSteps={stages.reduce((sum, stage) => sum + stage.completedCount, 0)}
-              totalSteps={stages.reduce((sum, stage) => sum + stage.steps.length, 0)}
+              percent={
+                progressMeta.totalStages > 0
+                  ? Math.round((progressMeta.completedStages / progressMeta.totalStages) * 100)
+                  : 0
+              }
+              completedSteps={progressMeta.completedStages}
+              totalSteps={progressMeta.totalStages}
               lastUpdated={formatLongDate(phaseView?.phaseStartedAt ?? assignment?.assignedAt)}
               aiAnalysisHref={aiAnalysisHref}
             />

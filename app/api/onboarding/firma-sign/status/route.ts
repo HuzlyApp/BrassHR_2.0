@@ -18,7 +18,6 @@ import {
   E_SIGNATURE_USER_ERRORS,
   sanitizeESignatureUserMessage,
 } from "@/lib/e-signature/user-facing";
-import { autoConvertCandidateAfterAgreement } from "@/lib/onboarding/auto-convert-after-agreement";
 import { notifyRecruiterOnAgreementStepCompletion } from "@/lib/onboarding/notify-recruiter-on-agreement-step";
 
 export const runtime = "nodejs";
@@ -216,20 +215,7 @@ export async function GET(req: NextRequest) {
       if (insErr) throw insErr;
     }
 
-    let postHireConversion: Awaited<ReturnType<typeof autoConvertCandidateAfterAgreement>> | null = null;
     if (completed && !wasAlreadyCompleted) {
-      try {
-        postHireConversion = await autoConvertCandidateAfterAgreement(supabase, {
-          tenantId: resolved.tenantId,
-          workerId,
-          applicationId: applicationId || null,
-          step: resolved.step,
-          origin: req.nextUrl.origin,
-        });
-      } catch (conversionError) {
-        console.error("[onboarding/firma-sign/status] auto conversion failed", conversionError);
-      }
-
       try {
         await notifyRecruiterOnAgreementStepCompletion(supabase, {
           tenantId: resolved.tenantId,
@@ -251,7 +237,6 @@ export async function GET(req: NextRequest) {
       onboarding_status: onboardingStatus,
       completed,
       download_url: downloadUrl,
-      postHireConversion,
     });
   } catch (err: unknown) {
     if (err instanceof FirmaOnboardingSigningError) {

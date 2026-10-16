@@ -10,6 +10,7 @@ import {
   APPLICANT_BTN_PRIMARY,
   APPLICANT_FORM_GRID,
 } from "@/app/application/applicant-onboarding-responsive";
+import { candidateCheckboxMessage } from "@/lib/onboarding/candidate-checkbox-steps";
 import {
   integrationProviderLabel,
   isApplicantWaitingGateStep,
@@ -582,6 +583,34 @@ function CustomQuestionBody({ model, previewState }: { model: StepPreviewModel; 
   );
 }
 
+function CheckboxConfirmationBody({
+  model,
+  previewState,
+}: {
+  model: StepPreviewModel;
+  previewState: StepPreviewState;
+}) {
+  const required = model.settings.required === true || model.step.is_required;
+  const message = candidateCheckboxMessage(model.step);
+  return (
+    <>
+      <PreviewPageHeader
+        title={model.step.title}
+        description={model.step.description || "Check the confirmation below to complete this step."}
+      />
+      <div className="mt-6">
+        <OnboardingCheckbox alignFirstLine checked={filled(previewState)} onChange={() => undefined} disabled>
+          <span className="text-sm leading-5 text-slate-700">
+            {message}
+            {required ? <span className="text-red-600"> *</span> : null}
+          </span>
+        </OnboardingCheckbox>
+      </div>
+      <PreviewActionRow primaryLabel="Continue" />
+    </>
+  );
+}
+
 function WaitingOrScreeningBody({
   model,
   previewState,
@@ -723,6 +752,8 @@ export function StepPreviewBody({
       return <SkillsIntroBody model={model} previewState={previewState} />;
     case "custom_question":
       return <CustomQuestionBody model={model} previewState={previewState} />;
+    case "checkbox_confirmation":
+      return <CheckboxConfirmationBody model={model} previewState={previewState} />;
     case "waiting_gate":
     case "screening":
       return <WaitingOrScreeningBody model={model} previewState={previewState} />;

@@ -1,6 +1,8 @@
 import { workflowStepIdFromMetadata } from "@/lib/onboarding/firma-step-settings";
-import { hireLifecycleForPhase } from "@/lib/onboarding/hire-stage-catalog";
+import { POST_HIRE_COMPLETION_STEP_ID } from "@/lib/onboarding/phase-completion-steps";
 import type { TenantOnboardingStep } from "@/lib/onboarding/types";
+import { readStepLifecyclePhase } from "@/lib/onboarding/workflow-phase";
+import { isWorkerPerformableStep } from "@/lib/onboarding/workflow-settings";
 
 /** Candidate screen families for Post-Hire library steps that the applicant completes. */
 export type PostHireScreenKind =
@@ -8,10 +10,12 @@ export type PostHireScreenKind =
   | "tax_withholding"
   | "i9_attestation"
   | "acknowledgment"
-  | "training";
+  | "training"
+  | "confirmation";
 
 export const POST_HIRE_SCREEN_KIND_BY_STEP_ID: Readonly<Record<string, PostHireScreenKind>> = {
   "direct-deposit-setup": "direct_deposit",
+  "payroll-profile-creation": "confirmation",
   "tax-forms": "tax_withholding",
   "i9-right-to-work-verification": "i9_attestation",
   "i9-section-1": "i9_attestation",
@@ -37,14 +41,38 @@ function rawWorkflowSettings(metadata: Record<string, unknown> | null | undefine
   return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
 }
 
+type PostHireScreenStep = Pick<TenantOnboardingStep, "metadata"> &
+  Partial<Pick<TenantOnboardingStep, "step_key" | "title">>;
+
 /** Pre-Hire copies of these library steps keep their existing applicant screens. */
 export function postHireScreenKindForStep(
-  step: Pick<TenantOnboardingStep, "metadata"> | null | undefined
+  step: PostHireScreenStep | null | undefined
 ): PostHireScreenKind | null {
   if (!step) return null;
   const kind = postHireScreenKindForStepId(workflowStepIdFromMetadata(step.metadata));
   if (!kind) return null;
-  return hireLifecycleForPhase(rawWorkflowSettings(step.metadata).phase) === "post_hire" ? kind : null;
+  const phaseStep = {
+    step_key: step.step_key ?? "",
+    title: step.title ?? "",
+    metadata: step.metadata,
+  } as TenantOnboardingStep;
+  return readStepLifecyclePhase(phaseStep) === "post_hire" ? kind : null;
+}
+
+/**
+ * Screen for a post-hire step the candidate completes.
+ * Known library steps keep their dedicated screens. Any other candidate-owned
+ * post-hire step falls back to a checkbox confirmation built from the step title.
+ * Recruiter / HR steps stay on the waiting-gate screen.
+ */
+export function candidatePostHireScreenKind(
+  step: TenantOnboardingStep | null | undefined
+): PostHireScreenKind | null {
+  if (!step) return null;
+  if (readStepLifecyclePhase(step) !== "post_hire") return null;
+  if (!isWorkerPerformableStep(step)) return null;
+  if (workflowStepIdFromMetadata(step.metadata) === POST_HIRE_COMPLETION_STEP_ID) return null;
+  return postHireScreenKindForStep(step) ?? "confirmation";
 }
 
 /** Shown under the step title when the step has no description of its own. */
@@ -54,6 +82,7 @@ export const POST_HIRE_SCREEN_SUBTITLE: Readonly<Record<PostHireScreenKind, stri
   i9_attestation: "Complete Section 1 of Form I-9 to confirm your identity and eligibility to work in the U.S.",
   acknowledgment: "Review the material below and sign to acknowledge it.",
   training: "Complete the training below, then confirm you're done.",
+  confirmation: "Confirm you have completed this step.",
 };
 
 const DEFAULT_ACKNOWLEDGMENT_BY_STEP_ID: Readonly<Record<string, string>> = {
@@ -80,6 +109,7 @@ const DEFAULT_ACKNOWLEDGMENT_BY_KIND: Readonly<Record<PostHireScreenKind, string
     "I am aware that federal law provides for imprisonment and/or fines for false statements, or the use of false documents, in connection with the completion of this form. I attest, under penalty of perjury, that the information I have provided is true and correct.",
   acknowledgment: "I have read and acknowledge the material above.",
   training: "I have completed this training.",
+  confirmation: "I confirm that I have completed this step.",
 };
 
 export type PostHireScreenContent = {
@@ -112,8 +142,10 @@ export function readPostHireScreenContent(
 ): PostHireScreenContent {
   const settings = rawWorkflowSettings(step.metadata);
   const stepId = workflowStepIdFromMetadata(step.metadata);
-  const kind = postHireScreenKindForStepId(stepId) ?? "acknowledgment";
-  const dynamicAck = step.title ? `I confirm that I have completed ${step.title}.` : undefined;
+  const mappedKind = postHireScreenKindForStepId(stepId);
+  const kind = mappedKind ?? "confirmation";
+  const title = step.title?.trim();
+  const dynamicAck = title ? `I confirm that I have completed ${title}.` : undefined;
   return {
     instructions: readTrimmed(settings, "applicantInstructions"),
     contentUrl: safeHttpUrl(readTrimmed(settings, "contentUrl")),
@@ -245,7 +277,8 @@ function isScreenKind(value: unknown): value is PostHireScreenKind {
     value === "tax_withholding" ||
     value === "i9_attestation" ||
     value === "acknowledgment" ||
-    value === "training"
+    value === "training" ||
+    value === "confirmation"
   );
 }
 
@@ -269,6 +302,51 @@ export function readPostHireSubmission(data: unknown): PostHireSubmission | null
     fields,
     submittedAt: typeof record.submitted_at === "string" ? record.submitted_at : null,
   };
+}
+
+/** Checkbox-style post-hire steps that must not show Completed without a candidate response. */
+const CHECKBOX_EVIDENCE_KINDS: ReadonlySet<PostHireScreenKind> = new Set([
+  "training",
+  "acknowledgment",
+  "i9_attestation",
+  "direct_deposit",
+  "confirmation",
+]);
+
+/** True when progress data includes a real candidate confirmation / submission. */
+export function hasCandidatePostHireEvidence(
+  kind: PostHireScreenKind | null | undefined,
+  data: unknown
+): boolean {
+  const submission = readPostHireSubmission(data);
+  if (submission && submission.fields.length > 0) return true;
+  if (!data || typeof data !== "object" || Array.isArray(data)) return false;
+  const row = data as Record<string, unknown>;
+  if (row.checkbox_confirmed === true) return true;
+  if (kind === "tax_withholding") {
+    return (
+      row.firma_status === "completed" ||
+      row.firma_status === "signed" ||
+      typeof row.w4_filing_status === "string" ||
+      Boolean(row.signing_request_id)
+    );
+  }
+  return false;
+}
+
+/**
+ * Downgrades a false "completed" status when a checkbox-style post-hire step has no
+ * candidate confirmation. Prevents stepper/check UI from showing Completed incorrectly.
+ */
+export function effectivePostHireProgressStatus(
+  kind: PostHireScreenKind | null | undefined,
+  status: string | null | undefined,
+  data: unknown
+): string {
+  const norm = String(status ?? "pending").trim().toLowerCase() || "pending";
+  if (norm !== "completed") return norm;
+  if (!kind || !CHECKBOX_EVIDENCE_KINDS.has(kind)) return norm;
+  return hasCandidatePostHireEvidence(kind, data) ? norm : "pending";
 }
 
 export const W4_FILING_STATUS_OPTIONS = [

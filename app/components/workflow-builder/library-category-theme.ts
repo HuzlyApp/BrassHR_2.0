@@ -147,6 +147,7 @@ const PRE_HIRE_STEP_IDS = new Set([
   "offer-acceptance",
   "pay-rate-hire-date",
   "i9-right-to-work-verification",
+  "pre-hire-completion-milestone",
   "manager-facility-approval",
   "hr-final-approval",
   "conditional-branch-decision",
@@ -185,6 +186,7 @@ const POST_HIRE_STEP_IDS = new Set([
   "facility-access-setup",
   "benefits-confirmation",
   "completion-milestone",
+  "post-hire-completion-milestone",
 ]);
 
 function resolveCategoryConfig(categoryId: string, categoryLabel: string) {
@@ -486,8 +488,8 @@ export const FIGMA_PRE_HIRE_GROUPS: FigmaLibraryGroupDef[] = [
       },
       {
         id: "employee-agreement",
-        label: "Agreement eSign",
-        description: "Collect employee agreement signatures.",
+        label: "Authorization e-sign",
+        description: "Collect authorization e-sign signatures.",
         iconKey: "agreement-esign",
         defaultPhase: "pre_hire",
       },
@@ -503,6 +505,13 @@ export const FIGMA_PRE_HIRE_GROUPS: FigmaLibraryGroupDef[] = [
         label: "I-9 section 1",
         description: "Complete I-9 Section 1 for the candidate.",
         iconKey: "i9-section-1",
+        defaultPhase: "pre_hire",
+      },
+      {
+        id: "pre-hire-completion-milestone",
+        label: "Pre Hire Completion / Milestone",
+        description: "Shows the Pre-Hire completion screen after the candidate finishes the other Pre-Hire steps.",
+        iconKey: "completion-milestone",
         defaultPhase: "pre_hire",
       },
     ],
@@ -718,6 +727,13 @@ export const FIGMA_POST_HIRE_GROUPS: FigmaLibraryGroupDef[] = [
         id: "completion-milestone",
         label: "Onboarding Complete",
         description: "Mark onboarding complete.",
+        iconKey: "completion-milestone",
+        defaultPhase: "post_hire",
+      },
+      {
+        id: "post-hire-completion-milestone",
+        label: "Post hire Completion / Milestone",
+        description: "Shows the Post-Hire completion screen after the candidate finishes the other Post-Hire steps.",
         iconKey: "completion-milestone",
         defaultPhase: "post_hire",
       },

@@ -511,16 +511,61 @@ export function isCandidateOwnedAssignedStep(
   return !isStaffOwnedAssignedRecord(record);
 }
 
+/**
+ * Authorization and background-check signing refresh `completed_at` after the candidate
+ * has already submitted (Firma status, a second save of the same signature). That refresh
+ * is not a new submission, so a recruiter verification on these steps stays Completed.
+ */
+export function recruiterVerificationStaysAfterRefresh(step: {
+  snapshotStepId?: string | null;
+  stepKey?: string | null;
+  stepType?: string | null;
+  title?: string | null;
+}): boolean {
+  const hay = [step.snapshotStepId, step.stepKey, step.stepType]
+    .map((value) => String(value ?? "").trim().toLowerCase())
+    .join(" ");
+  if (
+    hay.includes("background-check") ||
+    hay.includes("background_check") ||
+    hay.includes("employee-agreement") ||
+    hay.includes("agreement-esign") ||
+    hay.includes("agreement_signature") ||
+    hay.includes("authorization")
+  ) {
+    return true;
+  }
+  const title = String(step.title ?? "").trim().toLowerCase();
+  return (
+    title.includes("auth release") ||
+    title.includes("authorization") ||
+    title.includes("agreement e")
+  );
+}
+
 /** A recruiter's Mark as complete on a candidate step holds until the candidate submits it again. */
 export function candidateStepVerifiedAt(
-  record: Pick<AssignedStepRecordInput, "review_decision" | "status_changed_at">,
+  record: Pick<
+    AssignedStepRecordInput,
+    "review_decision" | "status_changed_at" | "snapshot_step_id" | "step_type" | "title"
+  >,
   progress: Pick<ProgressRowInput, "completed_at"> | undefined
 ): string | null {
   if (asText(record.review_decision) !== "complete") return null;
   const verifiedAt = timeOf(record.status_changed_at);
   if (Number.isNaN(verifiedAt)) return null;
   const submittedAt = timeOf(progress?.completed_at);
-  if (!Number.isNaN(submittedAt) && submittedAt > verifiedAt) return null;
+  if (
+    !recruiterVerificationStaysAfterRefresh({
+      snapshotStepId: record.snapshot_step_id,
+      stepType: record.step_type,
+      title: record.title,
+    }) &&
+    !Number.isNaN(submittedAt) &&
+    submittedAt > verifiedAt
+  ) {
+    return null;
+  }
   return record.status_changed_at ?? null;
 }
 
