@@ -300,7 +300,8 @@ export function stepPreviewUsesProfessionDocuments(
   return (
     stepType === "professional_license" ||
     libraryId === "credential-license-verification" ||
-    libraryId === "certification-upload"
+    libraryId === "certification-upload" ||
+    libraryId === "collect-extra-files"
   );
 }
 

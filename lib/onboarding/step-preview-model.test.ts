@@ -213,6 +213,7 @@ describe("stepPreviewUsesProfessionDocuments", () => {
       true
     );
     expect(stepPreviewUsesProfessionDocuments("certification-upload", "professional_license")).toBe(true);
+    expect(stepPreviewUsesProfessionDocuments("collect-extra-files", "document_upload")).toBe(true);
     expect(stepPreviewUsesProfessionDocuments("document-upload", "document_upload")).toBe(false);
   });
 });
