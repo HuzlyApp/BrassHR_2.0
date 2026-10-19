@@ -36,26 +36,64 @@ export type PreHireProgressStep = {
   status?: OnboardingStepStatus | string | null;
 };
 
-/** Detects whether a pre-hire step is an Agreement eSign / Employee Agreement step. */
+function esignStepIds(step: {
+  snapshotStepId?: string | null;
+  stepKey?: string | null;
+  stepType?: string | null;
+}): string[] {
+  return [step.snapshotStepId, step.stepKey, step.stepType]
+    .map((value) => String(value ?? "").trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/**
+ * Compliance Authorization e-sign. The candidate signing this does not hire them.
+ * A step titled Authorization e-sign stays in this family even if an older key was employee-agreement.
+ */
+export function isAuthorizationEsignStep(step: {
+  snapshotStepId?: string | null;
+  stepKey?: string | null;
+  stepType?: string | null;
+  title?: string | null;
+}): boolean {
+  const ids = esignStepIds(step);
+  if (
+    ids.some(
+      (id) =>
+        id === "authorization-esign" ||
+        id === "authorization_esign" ||
+        id.includes("authorization-esign")
+    )
+  ) {
+    return true;
+  }
+  const title = String(step.title ?? "").trim().toLowerCase();
+  return title.includes("authorization e-sign") || title.includes("authorization esign");
+}
+
+/** Offer-stage Agreement e-sign. Recruiter Mark as complete on this step hires the candidate. */
 export function isAgreementEsignStep(step: {
   snapshotStepId?: string | null;
   stepKey?: string | null;
   stepType?: string | null;
   title?: string | null;
 }): boolean {
+  if (isAuthorizationEsignStep(step)) return false;
+
+  const ids = esignStepIds(step);
   const key = String(step.stepKey ?? "").trim().toLowerCase();
   const snapshotId = String(step.snapshotStepId ?? "").trim().toLowerCase();
   const title = String(step.title ?? "").trim().toLowerCase();
 
   if (
-    snapshotId === "employee-agreement" ||
-    snapshotId === "agreement-esign" ||
-    snapshotId === "agreement_signature" ||
+    ids.some(
+      (id) =>
+        id === "employee-agreement" ||
+        id === "agreement-esign" ||
+        id === "agreement_signature" ||
+        id === "agreement-signature"
+    ) ||
     snapshotId.includes("agreement") ||
-    key === "employee-agreement" ||
-    key === "agreement-esign" ||
-    key === "agreement_signature" ||
-    key === "agreement-signature" ||
     key === "authorizations_2" ||
     key.includes("agreement")
   ) {
@@ -63,8 +101,6 @@ export function isAgreementEsignStep(step: {
   }
 
   return (
-    title.includes("authorization e-sign") ||
-    title.includes("authorization esign") ||
     title.includes("agreement esign") ||
     title.includes("agreement e-sign") ||
     title.includes("agreement signed") ||
@@ -74,16 +110,20 @@ export function isAgreementEsignStep(step: {
     title.includes("contract e-sign") ||
     title.includes("agreement signature") ||
     title.includes("agreement / signature") ||
-    (title.includes("agreement") && (title.includes("sign") || title.includes("w2") || title.includes("nexus") || title.includes("employment")))
+    (title.includes("agreement") &&
+      (title.includes("sign") || title.includes("w2") || title.includes("nexus") || title.includes("employment")))
   );
 }
 
-/** Returns true if the Pre-Hire Agreement eSign step has been completed. */
+/**
+ * Agreement e-sign counts only after the recruiter marks it complete.
+ * A candidate signature stays Submitted and does not hire them.
+ */
 export function hasCompletedAgreementEsignStep(steps: PreHireProgressStep[]): boolean {
   return steps.some((step) => {
     if (!isAgreementEsignStep(step)) return false;
-    const status = (step.displayStatus ?? step.status ?? "pending") as WorkflowStepDisplayStatus;
-    return isCompleteDisplayStatus(status);
+    const status = String(step.displayStatus ?? step.status ?? "pending").trim().toLowerCase();
+    return status === "completed" || status === "approved";
   });
 }
 
@@ -111,7 +151,7 @@ export function areRequiredPreHireStepsAlmostComplete(steps: PreHireProgressStep
 /**
  * Staff hire-journey Post-Hire tab:
  * - after conversion (Approve as Worker), or
- * - after candidate completes the Agreement eSign step in Pre-Hire, or
+ * - after the recruiter marks Agreement e-sign complete, or
  * - after application is Selected (hired) and required Pre-Hire steps are nearly complete.
  */
 export function canRevealPostHireForStaffJourney(params: {

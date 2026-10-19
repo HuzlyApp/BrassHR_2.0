@@ -93,46 +93,37 @@ export async function canStaffAccessPostHireSteps(
     return true;
   }
 
-  // If candidate has completed the Agreement eSign step in pre-hire, Post-Hire is accessible.
+  // Post-Hire opens after the recruiter marks Agreement e-sign complete, not when the candidate signs.
   try {
-    const { data: stepProgress } = await supabase
-      .from("worker_onboarding_step_progress")
-      .select("onboarding_step_id, status")
-      .eq("worker_id", params.workerId)
-      .in("status", ["completed", "approved"]);
-    if (stepProgress && stepProgress.length > 0) {
-      const ids = stepProgress.map((r) => r.onboarding_step_id).filter(Boolean);
-      const { data: steps } = await supabase
-        .from("tenant_onboarding_steps")
-        .select("id, step_key, step_type, title, metadata")
-        .in("id", ids);
-      const signed = (steps ?? []).some((s) =>
-        isAgreementEsignStep({
-          snapshotStepId: String(s.metadata?.workflow_step_id ?? ""),
-          stepKey: s.step_key,
-          stepType: s.step_type,
-          title: s.title,
-        })
-      );
-      if (signed) return true;
-    }
+    const { data: instances } = await supabase
+      .from("applicant_workflow_instances")
+      .select("id")
+      .eq("tenant_id", params.tenantId)
+      .eq("worker_id", params.workerId);
+    const instanceIds = (instances ?? []).map((row) => row.id).filter(Boolean);
+    if (!instanceIds.length) return false;
 
     const { data: stepRecords } = await supabase
       .from("applicant_workflow_step_records")
-      .select("step_key, step_type, title, status, metadata, phase")
+      .select("step_type, title, phase, settings, snapshot_step_id, review_decision")
       .eq("tenant_id", params.tenantId)
+      .in("workflow_instance_id", instanceIds)
+      .eq("review_decision", "complete")
       .in("status", ["completed", "approved"]);
-    const signedRecord = (stepRecords ?? []).some((record) => {
+    const recruiterCompletedAgreement = (stepRecords ?? []).some((record) => {
       if (record.phase === "post_hire") return false;
-      const meta = record.metadata as Record<string, unknown> | null | undefined;
+      const settings =
+        record.settings && typeof record.settings === "object" && !Array.isArray(record.settings)
+          ? (record.settings as Record<string, unknown>)
+          : null;
       return isAgreementEsignStep({
-        snapshotStepId: String(meta?.workflow_step_id ?? ""),
-        stepKey: record.step_key,
+        snapshotStepId: String(settings?.workflow_step_id ?? record.snapshot_step_id ?? ""),
+        stepKey: record.step_type,
         stepType: record.step_type,
         title: record.title,
       });
     });
-    if (signedRecord) return true;
+    if (recruiterCompletedAgreement) return true;
   } catch {
     /* ignore fallback query error */
   }

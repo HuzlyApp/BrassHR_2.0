@@ -564,10 +564,12 @@ export default function CandidateWorkflowStepModal({
     Boolean(hireStageName && isPreHireStatusStageName(hireStageName));
   const isWelcomeEmailStep =
     inspection ? isWelcomeEmailWorkflowStep(inspection.step.stepType) : false;
+  const agreementPendingReview = Boolean(authorizationEsign && !candidateReview?.verified);
   const canEmailCandidate = Boolean(
     workerId &&
       inspection &&
       (authorizationAwaitingSignature ||
+        agreementPendingReview ||
         (isWelcomeEmailStep && inspection.phase === "post_hire") ||
         (!staffAction?.allowed &&
           CANDIDATE_EMAIL_STATUSES.has(inspection.step.displayStatus)))
@@ -1391,6 +1393,17 @@ export default function CandidateWorkflowStepModal({
                     }}
                     disabled={submitting}
                     className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold shadow-sm transition hover:brightness-[0.97] disabled:opacity-50"
+                    style={{ background: "var(--step-modal-cta)", color: "var(--step-modal-on-primary)" }}
+                  >
+                    <CheckCircle2 className="h-4 w-4" aria-hidden />
+                    Mark as complete
+                  </button>
+                ) : agreementPendingReview ? (
+                  <button
+                    type="button"
+                    disabled
+                    title="Available after the candidate signs the agreement"
+                    className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold shadow-sm opacity-50"
                     style={{ background: "var(--step-modal-cta)", color: "var(--step-modal-on-primary)" }}
                   >
                     <CheckCircle2 className="h-4 w-4" aria-hidden />
