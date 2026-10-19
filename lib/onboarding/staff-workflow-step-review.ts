@@ -6,6 +6,7 @@ import {
   contextToTemplateVariables,
 } from "@/lib/email/applicant-email-context";
 import { sendStepReadyEmail } from "@/lib/onboarding/step-ready-email";
+import { sendConfiguredStepCompletionEmail, readStepEmailTemplateKey } from "@/lib/onboarding/step-completion-email";
 import {
   ASSIGNED_STEP_RECORD_COLUMNS,
   POST_HIRE_NOT_AVAILABLE_CODE,
@@ -755,8 +756,8 @@ function staffEligibilityFor(ctx: StaffStepContext): StaffStepActionEligibility 
 }
 
 /**
- * Authorization eSign completed by a recruiter uses the same conversion as a candidate signature.
- * Post-hire e-sign steps stay on their own phase and do not convert the candidate.
+ * Agreement e-sign completed by a recruiter is what hires the candidate.
+ * Authorization e-sign and post-hire e-sign steps do not.
  */
 export function agreementStepCompletedByStaff(ctx: StaffStepContext): TenantOnboardingStep | null {
   if (ctx.phase === "post_hire") return null;
@@ -814,6 +815,8 @@ export async function applyStaffWorkflowStepAction(
     request?: Request;
     /** Staff completing a candidate's upload step after collecting the documents themselves. */
     onBehalfOfCandidate?: boolean;
+    /** The caller already sent this step's email before marking it complete. */
+    skipConfiguredCompletionEmail?: boolean;
   }
 ): Promise<StaffStepActionResult> {
   const { workerId, tenantId, action } = params;
@@ -841,7 +844,7 @@ export async function applyStaffWorkflowStepAction(
       status: 409,
       code: "AGREEMENT_AWAITING_CANDIDATE_SIGNATURE",
       error:
-        "The candidate has to sign Authorization eSign first. After their signature is saved, review the signed document and mark the step complete.",
+        "The candidate has to sign Agreement e-sign first. After their signature is saved, preview the signed document and mark the step complete.",
     };
   }
   if (!initial.allowed && !onBehalf) return notStaffOwned(initial);
@@ -1009,6 +1012,21 @@ export async function applyStaffWorkflowStepAction(
         console.error("[staff-workflow-step-review] selected status update failed", statusError);
       }
     }
+  }
+
+  const configuredTemplateKey = readStepEmailTemplateKey(ctx.record.settings);
+  const welcomeAlreadySent =
+    params.skipConfiguredCompletionEmail === true && configuredTemplateKey === "welcome";
+  if (action === "complete" && currentStatus !== "completed" && !welcomeAlreadySent) {
+    await sendConfiguredStepCompletionEmail(supabase, {
+      tenantId,
+      workerId,
+      origin: params.origin,
+      settings: ctx.record.settings,
+      stepTitle: ctx.mapped.title,
+      stepId: String(ctx.record.id),
+      request: params.request,
+    });
   }
 
   const email =

@@ -194,7 +194,9 @@ export function resolveApplicantOnboardingRoute(
     return { status: "redirect", href };
   }
   const maxAllowed = computeMaxAllowedStepIndex(config, progress, normalizedPath);
-  if (maxAllowed < 1) {
+  // A submitted pre-hire application still continues into post-hire. Don't send that
+  // screen back to Verification Status when an earlier recruiter step has not been marked.
+  if (maxAllowed < 1 && !isPostHireStep && !isPostHirePhase) {
     const href = mergeOnboardingQuery(
       tenantSlug
         ? `${APPLICATION_ROUTES.applicationStatus}?tenant=${encodeURIComponent(tenantSlug)}`

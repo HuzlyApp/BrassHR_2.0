@@ -370,16 +370,28 @@ describe("agreementStepCompletedByStaff", () => {
     };
   }
 
-  it("treats a recruiter-completed Authorization eSign as the conversion step", () => {
+  it("treats recruiter-completed Agreement e-sign as the conversion step", () => {
     const step = agreementStepCompletedByStaff(
       context({
         phase: "pre_hire",
-        title: "Authorization e-sign",
+        title: "Agreement e-sign",
         stepType: "employee-agreement",
       })
     );
-    expect(step?.title).toBe("Authorization e-sign");
+    expect(step?.title).toBe("Agreement e-sign");
     expect(step?.metadata.workflow_step_id).toBe("employee-agreement");
+  });
+
+  it("does not convert when Authorization e-sign is completed", () => {
+    expect(
+      agreementStepCompletedByStaff(
+        context({
+          phase: "pre_hire",
+          title: "Authorization e-sign",
+          stepType: "authorization-esign",
+        })
+      )
+    ).toBeNull();
   });
 
   it("does not convert when a post-hire e-sign step is completed", () => {

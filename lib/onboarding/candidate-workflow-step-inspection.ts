@@ -109,7 +109,7 @@ import {
 import { tryGetFirmaSigningRequestDownload } from "@/lib/firma/client";
 import { resolveTenantFirmaWorkspaceId } from "@/lib/firma/resolve-tenant-workspace";
 import { isAgreementOrSignatureStep } from "@/lib/onboarding/is-agreement-step";
-import { isAgreementEsignStep } from "@/lib/onboarding/lock-post-hire";
+import { isAgreementEsignStep, isAuthorizationEsignStep } from "@/lib/onboarding/lock-post-hire";
 import {
   interviewStepStatus,
   isInterviewStep,
@@ -376,11 +376,25 @@ function signatureStatusLabel(raw: string | null): string {
   const value = String(raw ?? "").trim().toLowerCase();
   if (value === "completed" || value === "signed") return "Signed";
   if (value === "viewed") return "Viewed";
-  if (value === "sent" || value === "pending") return "Sent";
+  if (value === "sent") return "Sent";
+  if (value === "pending" || value === "draft") return "Not started";
   if (value === "declined") return "Declined";
   if (value === "expired") return "Expired";
   if (!value) return "Not started";
   return value.replaceAll("_", " ");
+}
+
+/** Recruiter signature panel only when this step actually has a signature template or request. */
+export function esignInspectionHasSignatureFields(params: {
+  firmaTemplateId?: string | null;
+  sessionTemplateId?: string | null;
+  signingRequestId?: string | null;
+}): boolean {
+  return Boolean(
+    params.firmaTemplateId?.trim() ||
+      params.sessionTemplateId?.trim() ||
+      params.signingRequestId?.trim()
+  );
 }
 
 export type StaffMember = { name: string; role: StaffConsoleRole };
@@ -1123,10 +1137,19 @@ export async function loadCandidateWorkflowStepInspection(
       }
     }
 
-    if (session || signingRequestId || isAgreementStep) {
+    const firmaTemplateId =
+      asText(recordSettings.firmaRecruiterTemplateId) ??
+      (tenantStep ? getFirmaRecruiterTemplateId(tenantStep) : null);
+    const hasSignatureFields = esignInspectionHasSignatureFields({
+      firmaTemplateId,
+      sessionTemplateId: asText(session?.recruiter_template_id),
+      signingRequestId,
+    });
+
+    if (hasSignatureFields) {
       agreement = {
         documentName: mapped.title,
-        signatureStatus: signatureStatusLabel(firmaStatus ?? (isSigned ? "completed" : "pending")),
+        signatureStatus: signatureStatusLabel(firmaStatus ?? (isSigned ? "completed" : null)),
         sentAt: asText(session?.created_at) ?? asText(mapped.assignedAt),
         viewedAt: null,
         signedAt: isSigned
@@ -1141,7 +1164,7 @@ export async function loadCandidateWorkflowStepInspection(
         isSigned,
         auditHistory: [
           {
-            status: signatureStatusLabel(firmaStatus ?? (isSigned ? "completed" : "pending")),
+            status: signatureStatusLabel(firmaStatus ?? (isSigned ? "completed" : null)),
             at: asText(session?.updated_at) ?? asText(progress?.completed_at) ?? asText(session?.created_at),
           },
         ],
@@ -1348,13 +1371,21 @@ export async function loadCandidateWorkflowStepInspection(
       stepType: mapped.stepType,
       title: mapped.title,
     });
+  const authorizationConfirmation =
+    phase !== "post_hire" &&
+    isAuthorizationEsignStep({
+      snapshotStepId: mapped.snapshotStepId,
+      stepKey: mapped.stepKey,
+      stepType: mapped.stepType,
+      title: mapped.title,
+    });
   const signatureStored = agreement?.isSigned === true;
   const canVerify =
     candidateStep &&
     mapped.status === "completed" &&
     !mapped.verifiedAt &&
     mapped.displayStatus === "submitted" &&
-    (!authorizationEsign || signatureStored);
+    (authorizationConfirmation || !authorizationEsign || signatureStored);
   if (canVerify && (emptyState == null || emptyState === STEP_COMPLETED_WITHOUT_DOCUMENT_MESSAGE)) {
     emptyState = CANDIDATE_STEP_AWAITING_REVIEW_MESSAGE;
   }
@@ -1384,7 +1415,10 @@ export async function loadCandidateWorkflowStepInspection(
           ? reviewerLabel(verifiedByUserId, mapped.verifiedByName, reviewerById)
           : null,
         canVerify,
-        canComplete: authorizationEsign ? false : mapped.status !== "completed" && !mapped.verifiedAt,
+        canComplete:
+          authorizationConfirmation || !authorizationEsign
+            ? mapped.status !== "completed" && !mapped.verifiedAt
+            : false,
       }
     : null;
   // A recruiter verifying a candidate step doesn't make them its completer; completing it

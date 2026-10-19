@@ -370,3 +370,61 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const body = (await req.json()) as {
+      applicantId?: string;
+      uploadId?: string;
+      tenantSlug?: string;
+    };
+    const applicantId = body.applicantId?.trim() ?? "";
+    const uploadId = body.uploadId?.trim() ?? "";
+    if (!applicantId || !uploadId) {
+      return NextResponse.json({ error: "applicantId and uploadId are required" }, { status: 400 });
+    }
+
+    const url = getSupabaseUrl();
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !key) {
+      return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
+    }
+
+    const supabase = createClient(url, key);
+    const ctx = await resolveOnboardingWorker(supabase, applicantId, body.tenantSlug?.trim() || null);
+    if (!ctx) {
+      return NextResponse.json({ error: "Worker not found" }, { status: 404 });
+    }
+
+    const { data: row, error: readError } = await supabase
+      .from("worker_profession_document_uploads")
+      .select("id, file_url")
+      .eq("id", uploadId)
+      .eq("tenant_id", ctx.tenantId)
+      .eq("worker_id", ctx.workerId)
+      .maybeSingle();
+    if (readError) throw readError;
+    if (!row?.id) {
+      return NextResponse.json({ error: "Uploaded file not found" }, { status: 404 });
+    }
+
+    const fileUrl = typeof row.file_url === "string" ? row.file_url.trim() : "";
+    if (fileUrl) {
+      await supabase.storage.from(WORKER_REQUIRED_FILES_BUCKET).remove([fileUrl]);
+    }
+
+    const { error: deleteError } = await supabase
+      .from("worker_profession_document_uploads")
+      .delete()
+      .eq("id", uploadId)
+      .eq("tenant_id", ctx.tenantId)
+      .eq("worker_id", ctx.workerId);
+    if (deleteError) throw deleteError;
+
+    return NextResponse.json({ success: true });
+  } catch (err: unknown) {
+    console.error("[onboarding/documents/upload DELETE]", err);
+    const msg = err instanceof Error ? err.message : "Failed to delete uploaded file";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}

@@ -5,7 +5,11 @@ import { routeForApplicantStep } from "@/lib/onboarding/resolve-applicant-step-r
 import { firstOnboardingStepRoute } from "@/lib/onboarding/tenant-step-navigation";
 import type { TenantOnboardingConfig } from "@/lib/onboarding/types";
 
-const REFERENCE_LIBRARY_IDS = new Set(["references-collection", "reference-verification"]);
+const REFERENCE_LIBRARY_IDS = new Set([
+  "references-collection",
+  "collect-references",
+  "reference-verification",
+]);
 
 export function isReferencesWorkflowStep(step: TenantOnboardingStep): boolean {
   if (step.step_type === "references") return true;

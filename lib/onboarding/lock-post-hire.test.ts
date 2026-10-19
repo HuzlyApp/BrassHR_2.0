@@ -117,48 +117,52 @@ describe("lock-post-hire", () => {
     ).toBe(true);
   });
 
-  it("reveals staff Post-Hire when Authorization e-sign step in Pre-Hire is completed", () => {
-    const withAgreementPending = [
+  it("reveals staff Post-Hire only after the recruiter completes Agreement e-sign", () => {
+    const authorizationSigned = [
       {
-        snapshotStepId: "employee-agreement",
-        title: "Authorization e-sign",
-        required: true,
-        displayStatus: "pending" as const,
-      },
-      {
-        snapshotStepId: "manager-facility-approval",
-        title: "Facility Approval",
-        required: true,
-        displayStatus: "not_started" as const,
-      },
-    ];
-    expect(
-      canRevealPostHireForStaffJourney({
-        convertedVisible: false,
-        applicationHired: false,
-        preHireSteps: withAgreementPending,
-      })
-    ).toBe(false);
-
-    const withAgreementDone = [
-      {
-        snapshotStepId: "employee-agreement",
+        snapshotStepId: "authorization-esign",
         title: "Authorization e-sign",
         required: true,
         displayStatus: "completed" as const,
       },
+    ];
+    expect(
+      canRevealPostHireForStaffJourney({
+        convertedVisible: false,
+        applicationHired: false,
+        preHireSteps: authorizationSigned,
+      })
+    ).toBe(false);
+
+    const agreementSubmitted = [
       {
-        snapshotStepId: "manager-facility-approval",
-        title: "Facility Approval",
+        snapshotStepId: "employee-agreement",
+        title: "Agreement e-sign",
         required: true,
-        displayStatus: "not_started" as const,
+        displayStatus: "submitted" as const,
       },
     ];
     expect(
       canRevealPostHireForStaffJourney({
         convertedVisible: false,
         applicationHired: false,
-        preHireSteps: withAgreementDone,
+        preHireSteps: agreementSubmitted,
+      })
+    ).toBe(false);
+
+    const agreementCompleted = [
+      {
+        snapshotStepId: "employee-agreement",
+        title: "Agreement e-sign",
+        required: true,
+        displayStatus: "completed" as const,
+      },
+    ];
+    expect(
+      canRevealPostHireForStaffJourney({
+        convertedVisible: false,
+        applicationHired: false,
+        preHireSteps: agreementCompleted,
       })
     ).toBe(true);
   });
