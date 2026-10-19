@@ -86,6 +86,7 @@ async function sendWelcomeEmailFromPostHireStep(
       notifyCandidate: false,
       origin: params.origin,
       request: params.request,
+      skipConfiguredCompletionEmail: true,
     }).catch((error) => {
       console.error("[candidate-step-email] welcome step complete after send failed", error);
     });

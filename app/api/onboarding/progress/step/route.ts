@@ -16,6 +16,7 @@ import {
 import { normalizeJobToken } from "@/lib/jobs/public-application-routing";
 import { dispatchWorkflowIntegrationPartner } from "@/lib/onboarding/integration-partner-dispatch";
 import { notifyHrOnOnboardingStepFailure } from "@/lib/onboarding/notify-hr-on-step-failure";
+import { sendConfiguredStepCompletionEmail } from "@/lib/onboarding/step-completion-email";
 import { shouldPauseFlowOnStepFailure } from "@/lib/onboarding/workflow-settings";
 import { isUploadResumeStep } from "@/lib/onboarding/enforce-upload-resume-first";
 import {
@@ -532,6 +533,18 @@ export async function POST(req: NextRequest) {
 
     let postHireConversion: Awaited<ReturnType<typeof autoConvertCandidateAfterOfferAccepted>> | null = null;
     if (status === "completed") {
+      if (existingStatus !== "completed") {
+        await sendConfiguredStepCompletionEmail(supabase, {
+          tenantId: ctx.tenantId,
+          workerId: ctx.workerId,
+          origin: req.nextUrl.origin,
+          settings: stepRow?.metadata?.workflow_settings,
+          stepTitle: stepRow?.title ?? null,
+          stepId: stepRow?.id ?? stepId,
+          request: req,
+        });
+      }
+
       const isOfferStep = isOfferAcceptanceStep({
         snapshotStepId: String(stepRow?.metadata?.workflow_step_id ?? ""),
         stepKey: stepRow?.step_key ?? body.stepKey,
