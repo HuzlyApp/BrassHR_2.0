@@ -35,7 +35,6 @@ export const HIRE_STAGE_BY_STEP_KEY: Record<string, string> = {
   "credential-license-verification": "Compliance",
   "ssn-identity-verification": "Compliance",
   "adverse-action-process": "Compliance",
-  "record-selection": "Compliance",
 
   "pay-rate-hire-date": "Offer & Agreement",
   "offer-prep": "Offer & Agreement",
@@ -75,6 +74,7 @@ export const HIRE_STAGE_BY_STEP_KEY: Record<string, string> = {
   "health-screening-waiver": "Training",
 
   "buddy-mentor-assignment": "Day One Ready",
+  "record-selection": "Day One Ready",
   "post-hire-completion-milestone": "Day One Ready",
 
   "document-upload": "Paperwork",
@@ -140,7 +140,6 @@ export const PRE_HIRE_STAGE_STEP_ORDER: Record<
     "credential-license-verification",
     "ssn-identity-verification",
     "adverse-action-process",
-    "record-selection",
   ],
   "Offer & Agreement": [
     "pay-rate-hire-date",
