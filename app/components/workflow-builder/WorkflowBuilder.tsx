@@ -40,11 +40,13 @@ import {
 } from "./constants";
 import { applyWorkflowNodeDataPatch } from "@/lib/onboarding/apply-workflow-node-patch";
 import { cloneWorkflowState } from "@/lib/onboarding/clone-workflow-state";
-import type {
-  StepCategory,
-  WorkflowCanvasNodeData,
-  WorkflowNodeData,
-  WorkflowState,
+import { excludeUsedLibrarySteps } from "./filter-step-library";
+import {
+  isStepNode,
+  type StepCategory,
+  type WorkflowCanvasNodeData,
+  type WorkflowNodeData,
+  type WorkflowState,
 } from "./types";
 import { withLeafDropZones } from "./workflow-canvas-utils";
 
@@ -285,6 +287,13 @@ function WorkflowBuilderInner({
     if (n?.type === "step") return n as Node<WorkflowNodeData>;
     return null;
   }, [nodes, selectedNodeId]);
+
+  const availableLibrary = useMemo(() => {
+    const usedStepIds = new Set(
+      nodes.filter(isStepNode).map((node) => node.data.stepId)
+    );
+    return excludeUsedLibrarySteps(stepLibrary, usedStepIds);
+  }, [nodes, stepLibrary]);
 
   const currentState: WorkflowState = useMemo(
     () => ({ nodes, edges }),
@@ -567,7 +576,7 @@ function WorkflowBuilderInner({
         ) : null}
 
         <StepsLibrary
-          categories={stepLibrary}
+          categories={availableLibrary}
           searchTerm={searchTerm}
           onSearchTermChange={setSearchTerm}
           readOnly={readOnly}
@@ -702,7 +711,7 @@ function WorkflowBuilderInner({
               setEdges={setEdges}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
-              categories={stepLibrary}
+              categories={availableLibrary}
               selectedNodeId={selectedNodeId}
               onSelectNode={setSelectedNodeId}
               onBeforeChange={recordChange}

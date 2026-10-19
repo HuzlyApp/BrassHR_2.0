@@ -39,6 +39,8 @@ import type {
   StepDefinition,
   WorkflowInsertionPoint,
 } from "./types";
+import { CUSTOM_STEP_ID } from "./library-category-theme";
+import { alienStageWarningForStep } from "@/lib/onboarding/validate-workflow-step-stages";
 import {
   isDropZoneNode,
   isStepNode,
@@ -302,11 +304,12 @@ export default function StepsCanvas({
       const currentNodes = nodesRef.current;
       const currentEdges = edgesRef.current;
 
-      if (isUploadResumeWorkflowStepId(def.id)) {
-        const hasResume = onlyStepNodes(currentNodes).some(
-          (n) => isStepNode(n) && isUploadResumeWorkflowStepId(n.data.stepId)
+      // Catalog steps may only appear once; Custom Step can be reused.
+      if (def.id !== CUSTOM_STEP_ID) {
+        const alreadyUsed = onlyStepNodes(currentNodes).some(
+          (n) => isStepNode(n) && n.data.stepId === def.id
         );
-        if (hasResume) return;
+        if (alreadyUsed) return;
       }
 
       insertInFlight.current = true;
@@ -649,12 +652,21 @@ export default function StepsCanvas({
             : n.id === firstPreHireId
               ? "pre_hire"
               : null;
+        const stageName =
+          typeof (n.data.settings as { stageName?: unknown }).stageName === "string"
+            ? (n.data.settings as { stageName?: string }).stageName
+            : undefined;
         return {
           ...n,
           selected: n.id === selectedNodeId,
           data: {
             ...n.data,
             phaseBanner,
+            alienStageWarning: alienStageWarningForStep({
+              stepId: n.data.stepId,
+              phase: n.data.settings.phase,
+              stageName,
+            }),
             onDelete:
               readOnly ||
               n.data.lockedFirstStep === true ||

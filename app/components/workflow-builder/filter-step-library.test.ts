@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { filterStepLibrary, flattenStepLibrary, stepMatchesSearch } from "./filter-step-library";
+import {
+  excludeUsedLibrarySteps,
+  filterStepLibrary,
+  flattenStepLibrary,
+  stepMatchesSearch,
+} from "./filter-step-library";
 import type { StepCategory } from "./types";
 
 const library: StepCategory[] = [
@@ -78,5 +83,33 @@ describe("filterStepLibrary", () => {
     const step = filtered[0].steps[0];
     expect(step.id).toBe("policy-acknowledgment");
     expect(step.label).toBe("Policy Acknowledgment");
+  });
+});
+
+describe("excludeUsedLibrarySteps", () => {
+  it("hides steps already on the canvas and restores empty categories", () => {
+    const filtered = excludeUsedLibrarySteps(library, [
+      "document-upload",
+      "tax-forms",
+      "policy-acknowledgment",
+    ]);
+    const ids = flattenStepLibrary(filtered).map((s) => s.id);
+    expect(ids).toEqual([
+      "custom-step",
+      "references-collection",
+      "reference-verification",
+    ]);
+    expect(filtered.some((c) => c.id === "document-esign")).toBe(false);
+  });
+
+  it("keeps Custom Step available even when already used", () => {
+    const filtered = excludeUsedLibrarySteps(library, ["custom-step", "tax-forms"]);
+    const ids = flattenStepLibrary(filtered).map((s) => s.id);
+    expect(ids).toContain("custom-step");
+    expect(ids).not.toContain("tax-forms");
+  });
+
+  it("returns the original library when nothing is used", () => {
+    expect(excludeUsedLibrarySteps(library, [])).toBe(library);
   });
 });
