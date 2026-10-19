@@ -15,6 +15,7 @@ export const WORKFLOW_STEP_APPLICANT_ROUTE: Record<string, string> = {
   "parameterized-job-application": APPLICATION_ROUTES.jobScreening,
   "collect-extra-files": APPLICATION_ROUTES.collectExtraFiles,
   "references-collection": APPLICATION_ROUTES.addReferences,
+  "collect-references": APPLICATION_ROUTES.addReferences,
   "reference-verification": APPLICATION_ROUTES.addReferences,
   "skill-qualification-assessment": APPLICATION_ROUTES.skillsIntro,
   "training-modules-quiz": APPLICATION_ROUTES.skillsIntro,

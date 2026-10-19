@@ -42,9 +42,9 @@ describe("resolve-applicant-step-route", () => {
     ).toContain("/application/post-hire-completion");
   });
 
-  it("maps collect-extra-files to professional license / document upload screen", () => {
+  it("maps collect-extra-files to the upload documents screen", () => {
     expect(WORKFLOW_STEP_APPLICANT_ROUTE["collect-extra-files"]).toBe(
-      "/application/professional-license"
+      "/application/collect-extra-files"
     );
     const route = routeForApplicantStep(
       step({
@@ -54,7 +54,7 @@ describe("resolve-applicant-step-route", () => {
       }),
       "testcompany"
     );
-    expect(route).toContain("/application/professional-license");
+    expect(route).toContain("/application/collect-extra-files");
     expect(route).toContain("stepKey=document_upload");
   });
 
@@ -181,6 +181,26 @@ describe("resolve-applicant-step-route", () => {
       })
     );
     expect(route).toContain("/application/agreement-signature");
+  });
+
+  it("sends Collect references to the reference form", () => {
+    const route = routeForApplicantStep(
+      step({
+        step_key: "custom_question",
+        step_type: "custom_question",
+        title: "Collect references",
+        metadata: { workflow_step_id: "collect-references" },
+      })
+    );
+    expect(route).toContain("/application/add-references");
+    expect(route).toContain("stepKey=custom_question");
+    expect(dedicatedRouteForWorkflowStep(
+      step({
+        step_key: "custom_question",
+        step_type: "custom_question",
+        metadata: { workflow_step_id: "collect-references" },
+      })
+    )).toBe("/application/add-references");
   });
 
   it("resolves current step from stepKey query param", () => {

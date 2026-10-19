@@ -12,7 +12,7 @@ import {
   renameWorkerDocumentFile,
   saveProfessionDocuments,
 } from "@/lib/professions/profession-documents";
-import { listTenantProfessions } from "@/lib/professions/service";
+import { listAvailableCatalogProfessions, listTenantProfessions } from "@/lib/professions/service";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 export const runtime = "nodejs";
@@ -45,11 +45,13 @@ export async function GET(req: NextRequest) {
 
   try {
     const workerId = req.nextUrl.searchParams.get("workerId")?.trim() || "";
-    const [catalog, documents, workerProfessionId, savedProfessionId] = await Promise.all([
+    const [catalog, documents, workerProfessionId, savedProfessionId, availableProfessions] =
+      await Promise.all([
       listTenantProfessions(supabase, tenantId),
       listProfessionDocuments(supabase, tenantId),
       workerId ? resolveWorkerTenantProfessionId(supabase, tenantId, workerId) : Promise.resolve(null),
       workerId ? savedWorkerProfessionId(supabase, tenantId, workerId) : Promise.resolve(null),
+      listAvailableCatalogProfessions(supabase, tenantId, industryLabelForKey),
     ]);
     return NextResponse.json({
       canManage: auth.role === "admin" || auth.godAdmin,
@@ -57,6 +59,7 @@ export async function GET(req: NextRequest) {
       industryLabel: industryLabelForKey(catalog.industryKey),
       workerProfessionId,
       savedProfessionId,
+      availableProfessions,
       professions: catalog.professions.map((profession) => ({
         id: profession.id,
         name: profession.name,

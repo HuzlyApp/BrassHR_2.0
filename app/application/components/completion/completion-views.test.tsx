@@ -90,14 +90,14 @@ describe("PreHireCompletionView", () => {
     expect(screen.getByRole("heading", { name: /congratulations/i })).toBeDefined();
     expect(screen.getByText(/your all pre hire steps are completed/i)).toBeDefined();
     expect(screen.getByText(/you continue with post hire steps/i)).toBeDefined();
-    expect(screen.getByRole("button", { name: /complete post hire/i })).toBeDefined();
+    expect(screen.getByRole("button", { name: /continue with post hire/i })).toBeDefined();
   });
 
-  it("triggers continue callback when Complete Post Hire button is clicked", () => {
+  it("triggers continue callback when Continue with post hire is clicked", () => {
     const onContinue = vi.fn();
     render(<PreHireCompletionView completionResult={mockResult} onContinuePostHire={onContinue} />);
 
-    const button = screen.getByRole("button", { name: /complete post hire/i });
+    const button = screen.getByRole("button", { name: /continue with post hire/i });
     fireEvent.click(button);
     expect(onContinue).toHaveBeenCalled();
   });

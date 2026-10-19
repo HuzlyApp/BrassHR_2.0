@@ -69,6 +69,9 @@ export type StepSettings = {
   conditionalLogic: string;
   firmaRecruiterTemplateId?: string;
   firmaRecruiterTemplateName?: string;
+  /** Optional candidate email sent when this step is completed. Empty means no email. */
+  emailTemplateKey?: string;
+  emailTemplateName?: string;
   /** Candidate screen content for Post-Hire steps (see lib/onboarding/post-hire-step-screens.ts). */
   applicantInstructions?: string;
   contentUrl?: string;
@@ -137,4 +140,6 @@ export const DEFAULT_STEP_SETTINGS: StepSettings = {
   conditionalLogic: "If result = fail → Pause flow + notify",
   firmaRecruiterTemplateId: "",
   firmaRecruiterTemplateName: "",
+  emailTemplateKey: "",
+  emailTemplateName: "",
 };

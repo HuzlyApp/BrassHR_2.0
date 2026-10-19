@@ -42,6 +42,235 @@ export async function listTenantProfessions(supabase: Db, tenantId: string) {
   };
 }
 
+export type CatalogProfessionOption = {
+  key: string;
+  name: string;
+  industryKey: string;
+  industryLabel: string | null;
+};
+
+function isDuplicateProfessionError(error: { message?: string; code?: string }): boolean {
+  const message = typeof error.message === "string" ? error.message : "";
+  const code = String(error.code ?? "");
+  return code === "23505" || /duplicate key|unique constraint/i.test(message);
+}
+
+export type CatalogProfessionChoice = {
+  key: string;
+  name: string;
+  industryKey: string;
+  professionId: string | null;
+};
+
+/** Every active catalog profession, with the tenant row id when it is already added. */
+export async function listCatalogProfessionChoices(
+  supabase: Db,
+  tenantId: string
+): Promise<CatalogProfessionChoice[]> {
+  const [{ data: catalog, error: catalogError }, { data: existing, error: existingError }] =
+    await Promise.all([
+      supabase
+        .from("profession_catalog")
+        .select("key, name, industry_key")
+        .eq("is_active", true)
+        .order("name", { ascending: true }),
+      supabase
+        .from("tenant_professions")
+        .select("id, name, catalog_key")
+        .eq("tenant_id", tenantId)
+        .eq("is_active", true),
+    ]);
+  if (catalogError) throw catalogError;
+  if (existingError) throw existingError;
+
+  const byKey = new Map<string, string>();
+  const byName = new Map<string, string>();
+  for (const row of existing ?? []) {
+    const id = String(row.id);
+    const catalogKey = row.catalog_key ? String(row.catalog_key) : "";
+    if (catalogKey) byKey.set(catalogKey, id);
+    const name = String(row.name ?? "").trim().toLowerCase();
+    if (name && !byName.has(name)) byName.set(name, id);
+  }
+
+  return (catalog ?? []).map((row) => {
+    const key = String(row.key);
+    const name = String(row.name ?? "").trim();
+    return {
+      key,
+      name,
+      industryKey: String(row.industry_key),
+      professionId: byKey.get(key) ?? byName.get(name.toLowerCase()) ?? null,
+    };
+  });
+}
+
+const PROFESSION_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Flow creation stores tenant_professions.id. The picker can send that id or a catalog key.
+ * A catalog key is added to the tenant the first time it is chosen.
+ */
+export async function resolveFlowProfessionId(
+  supabase: Db,
+  tenantId: string,
+  professionRef: string
+): Promise<string> {
+  const value = professionRef.trim();
+  if (!value) throw new Error("Choose a profession.");
+
+  if (PROFESSION_UUID.test(value)) {
+    const { data, error } = await supabase
+      .from("tenant_professions")
+      .select("id")
+      .eq("id", value)
+      .eq("tenant_id", tenantId)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data?.id) throw new Error("That profession is not available.");
+    return String(data.id);
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from("tenant_professions")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .eq("catalog_key", value)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (existingError) throw existingError;
+  if (existing?.id) return String(existing.id);
+
+  const { data: catalogRow, error: catalogError } = await supabase
+    .from("profession_catalog")
+    .select("name")
+    .eq("key", value)
+    .maybeSingle();
+  if (catalogError) throw catalogError;
+  const catalogName = String(catalogRow?.name ?? "").trim();
+  if (catalogName) {
+    const { data: named, error: namedError } = await supabase
+      .from("tenant_professions")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("is_active", true)
+      .ilike("name", catalogName)
+      .maybeSingle();
+    if (namedError) throw namedError;
+    if (named?.id) return String(named.id);
+  }
+
+  try {
+    const created = await addTenantProfessionFromCatalog(supabase, tenantId, value);
+    return String(created.id);
+  } catch (error) {
+    if (!(error instanceof Error) || !/already exists/i.test(error.message)) throw error;
+    const { data: raced, error: racedError } = await supabase
+      .from("tenant_professions")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("catalog_key", value)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (racedError) throw racedError;
+    if (!raced?.id) throw error;
+    return String(raced.id);
+  }
+}
+
+export async function listAvailableCatalogProfessions(
+  supabase: Db,
+  tenantId: string,
+  industryLabel: (industryKey: string) => string | null
+): Promise<CatalogProfessionOption[]> {
+  const [{ data: catalog, error: catalogError }, { data: existing, error: existingError }] =
+    await Promise.all([
+      supabase
+        .from("profession_catalog")
+        .select("key, name, industry_key")
+        .eq("is_active", true)
+        .order("name", { ascending: true }),
+      supabase
+        .from("tenant_professions")
+        .select("name, catalog_key")
+        .eq("tenant_id", tenantId)
+        .eq("is_active", true),
+    ]);
+  if (catalogError) throw catalogError;
+  if (existingError) throw existingError;
+
+  const takenKeys = new Set(
+    (existing ?? []).map((row) => (row.catalog_key ? String(row.catalog_key) : "")).filter(Boolean)
+  );
+  const takenNames = new Set(
+    (existing ?? []).map((row) => String(row.name ?? "").trim().toLowerCase()).filter(Boolean)
+  );
+
+  return (catalog ?? [])
+    .filter((row) => {
+      const key = String(row.key);
+      const name = String(row.name ?? "").trim().toLowerCase();
+      return !takenKeys.has(key) && !takenNames.has(name);
+    })
+    .map((row) => {
+      const industryKey = String(row.industry_key);
+      return {
+        key: String(row.key),
+        name: String(row.name),
+        industryKey,
+        industryLabel: industryLabel(industryKey),
+      };
+    });
+}
+
+export async function addTenantProfessionFromCatalog(
+  supabase: Db,
+  tenantId: string,
+  catalogKey: string
+) {
+  const key = catalogKey.trim();
+  if (!/^[a-z][a-z0-9_]{1,62}$/.test(key)) throw new Error("Choose a profession.");
+
+  const { data: tenant, error: tenantError } = await supabase
+    .from("tenants")
+    .select("primary_industry_key")
+    .eq("id", tenantId)
+    .maybeSingle();
+  if (tenantError) throw tenantError;
+  const industryKey = (tenant?.primary_industry_key as string | null)?.trim();
+  if (!industryKey) throw new Error("Set the tenant industry before adding a profession.");
+
+  const { data: catalog, error: catalogError } = await supabase
+    .from("profession_catalog")
+    .select("key, name, is_active")
+    .eq("key", key)
+    .maybeSingle();
+  if (catalogError) throw catalogError;
+  if (!catalog || catalog.is_active !== true) throw new Error("That profession is not available.");
+
+  const name = String(catalog.name ?? "").trim();
+  if (!name) throw new Error("That profession is not available.");
+
+  const { data, error } = await supabase
+    .from("tenant_professions")
+    .insert({
+      tenant_id: tenantId,
+      industry_key: industryKey,
+      catalog_key: key,
+      name,
+      is_active: true,
+    })
+    .select("id, name, catalog_key, industry_key, is_active")
+    .single();
+  if (error) {
+    if (isDuplicateProfessionError(error)) throw new Error("This profession already exists.");
+    throw error;
+  }
+  return data;
+}
+
 export async function addTenantProfession(
   supabase: Db,
   tenantId: string,
@@ -70,7 +299,10 @@ export async function addTenantProfession(
     })
     .select("id, name, catalog_key, industry_key, is_active")
     .single();
-  if (error) throw error;
+  if (error) {
+    if (isDuplicateProfessionError(error)) throw new Error("This profession already exists.");
+    throw error;
+  }
   return data;
 }
 

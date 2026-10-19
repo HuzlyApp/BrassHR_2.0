@@ -603,4 +603,63 @@ describe("resolveApplicantOnboardingRoute", () => {
       expect(decision.href).toContain("application-status");
     }
   });
+
+  it("keeps a submitted applicant on the first post-hire step", () => {
+    const welcome: TenantOnboardingStep = {
+      id: "welcome",
+      step_key: "authorizations_2",
+      title: "Welcome packet",
+      description: null,
+      step_type: "custom_question",
+      sort_order: 10,
+      is_required: true,
+      is_enabled: true,
+      metadata: {
+        workflow_step_id: "welcome-packet-esign",
+        workflow_settings: { phase: "post_hire", completionOwner: "applicant" },
+      },
+    };
+    const config: TenantOnboardingConfig = {
+      configId: "cfg-post",
+      tenantId: "tenant-zippy",
+      version: 1,
+      steps: [welcome],
+      requiredDocuments: [],
+      skillAssessments: [],
+      candidateEngineOrder: [
+        {
+          id: "recruiter-gate",
+          step_key: "internal_review",
+          sort_order: 1,
+          required: true,
+          candidateVisible: false,
+        },
+        {
+          id: welcome.id,
+          step_key: welcome.step_key,
+          sort_order: 10,
+          required: true,
+          candidateVisible: true,
+        },
+      ],
+    };
+    const progress: WorkerOnboardingProgressPayload = {
+      progressId: "prog-post",
+      status: "in_progress",
+      submittedAt: "2026-10-19T12:00:00.000Z",
+      steps: [],
+    };
+
+    const decision = resolveApplicantOnboardingRoute(
+      baseInput({
+        config,
+        progress,
+        tenantSlug: "zippycorp",
+        pathname: "/application/custom-step/authorizations_2",
+        search: "?stepKey=authorizations_2&tenant=zippycorp&job_token=job-1",
+      })
+    );
+
+    expect(decision.status).toBe("allow");
+  });
 });

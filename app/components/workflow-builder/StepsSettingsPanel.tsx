@@ -23,6 +23,7 @@ import {
 import { isCandidateCheckboxStep } from "@/lib/onboarding/candidate-checkbox-steps";
 import { postHireScreenKindForStepId } from "@/lib/onboarding/post-hire-step-screens";
 import { alienStageWarningForStep } from "@/lib/onboarding/validate-workflow-step-stages";
+import { EmailTemplateSelect } from "@/app/components/onboarding/EmailTemplateSelect";
 import { FirmaTemplateSelect } from "@/app/components/onboarding/FirmaTemplateSelect";
 import { resolveHireLibraryIconPath } from "./hire-library-icons";
 import { resolveCanvasStepThemeColor } from "./library-category-theme";
@@ -288,6 +289,23 @@ function SettingsBody({ node, onUpdate, onSaveStep, onCloneWorkflow, readOnly = 
             />
           </div>
         ) : null}
+        <div
+          className="rounded-xl border p-3"
+          style={{ borderColor: CARD_BORDER, backgroundColor: "rgba(255, 255, 255, 0.7)" }}
+          data-testid="email-template-settings"
+        >
+          <EmailTemplateSelect
+            value={settings.emailTemplateKey ?? ""}
+            templateName={settings.emailTemplateName}
+            disabled={readOnly}
+            onChange={({ key, name }) =>
+              patchSettings({
+                emailTemplateKey: key,
+                emailTemplateName: name,
+              })
+            }
+          />
+        </div>
         {candidateScreenKind ? (
           <div
             className="flex flex-col gap-3 rounded-xl border p-3"

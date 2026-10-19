@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  esignInspectionHasSignatureFields,
   inspectionKindForStep,
   resumeUploaderLabel,
   reviewerLabel,
@@ -10,6 +11,23 @@ import {
   LEGACY_UNMATCHED_STEP_MESSAGE,
   STEP_COMPLETED_WITHOUT_DOCUMENT_MESSAGE,
 } from "@/lib/onboarding/assigned-workflow-steps";
+
+describe("esign inspection signature fields", () => {
+  it("hides the signature panel when Authorization e-sign has no signature template", () => {
+    expect(
+      esignInspectionHasSignatureFields({
+        firmaTemplateId: null,
+        sessionTemplateId: null,
+        signingRequestId: null,
+      })
+    ).toBe(false);
+  });
+
+  it("shows the signature panel when a template or signing request exists", () => {
+    expect(esignInspectionHasSignatureFields({ firmaTemplateId: "tmpl-1" })).toBe(true);
+    expect(esignInspectionHasSignatureFields({ signingRequestId: "req-1" })).toBe(true);
+  });
+});
 
 describe("workflow step inspection kinds", () => {
   it("opens the resume, license, assessment, reference, agreement, form, and final review kinds", () => {

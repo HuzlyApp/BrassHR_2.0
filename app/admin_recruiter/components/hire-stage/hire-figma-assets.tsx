@@ -1,3 +1,7 @@
+"use client";
+
+import { BrandColoredSvg } from "./BrandColoredSvg";
+
 /** Shared Figma Pre-hire / Post-hire visual assets for hire-journey. */
 
 export const PRE_HIRE_UI_ICONS = {
@@ -55,8 +59,14 @@ export function HireFigmaIcon({
   alt?: string;
   className?: string;
 }) {
+  if (src.endsWith(".svg")) {
+    return (
+      <BrandColoredSvg src={src} width={width} height={height} alt={alt} className={className} />
+    );
+  }
+
   return (
-    // eslint-disable-next-line @next/next/no-img-element -- Figma SVG/PNG assets need exact pixel sizes
+    // eslint-disable-next-line @next/next/no-img-element -- Figma PNG stage art needs exact pixel sizes
     <img
       src={src}
       alt={alt}

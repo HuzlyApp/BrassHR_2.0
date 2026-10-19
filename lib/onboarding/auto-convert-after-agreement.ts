@@ -378,8 +378,8 @@ export async function autoConvertCandidateAfterOfferAccepted(
 }
 
 /**
- * Converts a candidate after a recruiter verifies Authorization eSign.
- * A candidate signature alone leaves the step submitted and does not hire them.
+ * Converts a candidate after a recruiter marks Agreement e-sign complete.
+ * A candidate signature, including Authorization e-sign, leaves the step submitted and does not hire them.
  * Requires Pay Rate Accepted completion if that step is part of the workflow.
  */
 export async function ensureCandidateConvertedIfAgreementCompleted(

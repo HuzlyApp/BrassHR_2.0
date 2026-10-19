@@ -32,7 +32,7 @@ import {
   stepDisplayStatusLabel,
   type WorkflowStepDisplayStatus,
 } from "@/lib/onboarding/assigned-workflow-steps";
-import { isAgreementEsignStep } from "@/lib/onboarding/lock-post-hire";
+import { isAgreementEsignStep, isAuthorizationEsignStep } from "@/lib/onboarding/lock-post-hire";
 import {
   decisionLabel,
   isDecisionVariant,
@@ -506,11 +506,23 @@ export default function CandidateWorkflowStepModal({
         title: inspection.step.title,
       })
   );
+  const authorizationConfirmation = Boolean(
+    inspection &&
+      inspection.phase !== "post_hire" &&
+      isAuthorizationEsignStep({
+        snapshotStepId: inspection.step.snapshotStepId,
+        stepKey: inspection.step.stepKey,
+        stepType: inspection.step.stepType,
+        title: inspection.step.title,
+      })
+  );
   const authorizationAwaitingSignature = Boolean(
     authorizationEsign && !inspection?.agreement?.isSigned
   );
   const canVerifyCandidate = Boolean(
-    workerId && candidateReview?.canVerify && (!authorizationEsign || inspection?.agreement?.isSigned)
+    workerId &&
+      candidateReview?.canVerify &&
+      (authorizationConfirmation || !authorizationEsign || inspection?.agreement?.isSigned)
   );
   const canCompleteForCandidate = Boolean(
     workerId &&
@@ -564,10 +576,14 @@ export default function CandidateWorkflowStepModal({
     Boolean(hireStageName && isPreHireStatusStageName(hireStageName));
   const isWelcomeEmailStep =
     inspection ? isWelcomeEmailWorkflowStep(inspection.step.stepType) : false;
+  const agreementPendingReview = Boolean(authorizationEsign && !candidateReview?.verified);
+  const authorizationOpen = Boolean(authorizationConfirmation && !candidateReview?.verified);
   const canEmailCandidate = Boolean(
     workerId &&
       inspection &&
-      (authorizationAwaitingSignature ||
+      (authorizationOpen ||
+        authorizationAwaitingSignature ||
+        agreementPendingReview ||
         (isWelcomeEmailStep && inspection.phase === "post_hire") ||
         (!staffAction?.allowed &&
           CANDIDATE_EMAIL_STATUSES.has(inspection.step.displayStatus)))
@@ -1359,7 +1375,7 @@ export default function CandidateWorkflowStepModal({
                     <Mail className="h-4 w-4" aria-hidden />
                     {submitting
                       ? "Sending…"
-                      : authorizationAwaitingSignature
+                      : authorizationAwaitingSignature || authorizationConfirmation
                         ? "Send email to candidate"
                         : isWelcomeEmailStep
                           ? "Send Welcome Email"
@@ -1381,16 +1397,33 @@ export default function CandidateWorkflowStepModal({
                     {activeInterviewCount > 0 ? "Schedule Another Interview" : "Schedule Interview"}
                   </button>
                 ) : null}
-                {canVerifyCandidate ? (
+                {canVerifyCandidate || authorizationOpen ? (
                   <button
                     type="button"
                     onClick={() => {
                       setActionError(null);
-                      setPendingVerify(true);
+                      if (canVerifyCandidate || inspection?.step.displayStatus === "submitted") {
+                        setPendingOnBehalf(false);
+                        setPendingVerify(true);
+                      } else {
+                        setPendingVerify(false);
+                        setPendingOnBehalf(true);
+                      }
                       setPendingAction("complete");
                     }}
                     disabled={submitting}
                     className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold shadow-sm transition hover:brightness-[0.97] disabled:opacity-50"
+                    style={{ background: "var(--step-modal-cta)", color: "var(--step-modal-on-primary)" }}
+                  >
+                    <CheckCircle2 className="h-4 w-4" aria-hidden />
+                    Mark as complete
+                  </button>
+                ) : agreementPendingReview ? (
+                  <button
+                    type="button"
+                    disabled
+                    title="Available after the candidate signs the agreement"
+                    className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold shadow-sm opacity-50"
                     style={{ background: "var(--step-modal-cta)", color: "var(--step-modal-on-primary)" }}
                   >
                     <CheckCircle2 className="h-4 w-4" aria-hidden />
