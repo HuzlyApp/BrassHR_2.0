@@ -410,6 +410,7 @@ function CreateNewFlowModal({
   const [employmentType, setEmploymentType] = useState("");
   const [professionId, setProfessionId] = useState("");
   const [professions, setProfessions] = useState<SelectOption[]>([]);
+  const [professionsLoading, setProfessionsLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -441,18 +442,34 @@ function CreateNewFlowModal({
   useEffect(() => {
     if (!open) return;
     let alive = true;
+    setProfessionsLoading(true);
     void (async () => {
-      const res = await fetch("/api/admin/professions", {
-        ...(await staffFetchInit()),
-        cache: "no-store",
-      });
-      const payload = (await res.json().catch(() => ({}))) as {
-        professions?: Array<{ id: string; name: string }>;
-      };
-      if (!alive || !res.ok) return;
-      setProfessions(
-        (payload.professions ?? []).map((row) => ({ id: row.id, label: row.name }))
-      );
+      try {
+        const res = await fetch("/api/admin/professions", {
+          ...(await staffFetchInit()),
+          cache: "no-store",
+        });
+        const payload = (await res.json().catch(() => ({}))) as {
+          professions?: Array<{ id: string; name: string }>;
+          catalogProfessions?: Array<{
+            key: string;
+            name: string;
+            industryLabel?: string | null;
+          }>;
+        };
+        if (!alive || !res.ok) return;
+        const catalog = payload.catalogProfessions ?? [];
+        setProfessions(
+          catalog.length
+            ? catalog.map((row) => ({
+                id: row.key,
+                label: row.industryLabel ? `${row.name} (${row.industryLabel})` : row.name,
+              }))
+            : (payload.professions ?? []).map((row) => ({ id: row.id, label: row.name }))
+        );
+      } finally {
+        if (alive) setProfessionsLoading(false);
+      }
     })();
     return () => {
       alive = false;
@@ -581,7 +598,9 @@ function CreateNewFlowModal({
                 style={fieldStyle}
                 required={employmentType === "W2"}
               >
-                <option value="">Select profession</option>
+                <option value="">
+                  {professionsLoading ? "Loading professions..." : "Select profession"}
+                </option>
                 {professions.map((profession) => (
                   <option key={profession.id} value={profession.id}>
                     {profession.label}

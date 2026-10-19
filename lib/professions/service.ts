@@ -55,6 +55,131 @@ function isDuplicateProfessionError(error: { message?: string; code?: string }):
   return code === "23505" || /duplicate key|unique constraint/i.test(message);
 }
 
+export type CatalogProfessionChoice = {
+  key: string;
+  name: string;
+  industryKey: string;
+  professionId: string | null;
+};
+
+/** Every active catalog profession, with the tenant row id when it is already added. */
+export async function listCatalogProfessionChoices(
+  supabase: Db,
+  tenantId: string
+): Promise<CatalogProfessionChoice[]> {
+  const [{ data: catalog, error: catalogError }, { data: existing, error: existingError }] =
+    await Promise.all([
+      supabase
+        .from("profession_catalog")
+        .select("key, name, industry_key")
+        .eq("is_active", true)
+        .order("name", { ascending: true }),
+      supabase
+        .from("tenant_professions")
+        .select("id, name, catalog_key")
+        .eq("tenant_id", tenantId)
+        .eq("is_active", true),
+    ]);
+  if (catalogError) throw catalogError;
+  if (existingError) throw existingError;
+
+  const byKey = new Map<string, string>();
+  const byName = new Map<string, string>();
+  for (const row of existing ?? []) {
+    const id = String(row.id);
+    const catalogKey = row.catalog_key ? String(row.catalog_key) : "";
+    if (catalogKey) byKey.set(catalogKey, id);
+    const name = String(row.name ?? "").trim().toLowerCase();
+    if (name && !byName.has(name)) byName.set(name, id);
+  }
+
+  return (catalog ?? []).map((row) => {
+    const key = String(row.key);
+    const name = String(row.name ?? "").trim();
+    return {
+      key,
+      name,
+      industryKey: String(row.industry_key),
+      professionId: byKey.get(key) ?? byName.get(name.toLowerCase()) ?? null,
+    };
+  });
+}
+
+const PROFESSION_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Flow creation stores tenant_professions.id. The picker can send that id or a catalog key.
+ * A catalog key is added to the tenant the first time it is chosen.
+ */
+export async function resolveFlowProfessionId(
+  supabase: Db,
+  tenantId: string,
+  professionRef: string
+): Promise<string> {
+  const value = professionRef.trim();
+  if (!value) throw new Error("Choose a profession.");
+
+  if (PROFESSION_UUID.test(value)) {
+    const { data, error } = await supabase
+      .from("tenant_professions")
+      .select("id")
+      .eq("id", value)
+      .eq("tenant_id", tenantId)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data?.id) throw new Error("That profession is not available.");
+    return String(data.id);
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from("tenant_professions")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .eq("catalog_key", value)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (existingError) throw existingError;
+  if (existing?.id) return String(existing.id);
+
+  const { data: catalogRow, error: catalogError } = await supabase
+    .from("profession_catalog")
+    .select("name")
+    .eq("key", value)
+    .maybeSingle();
+  if (catalogError) throw catalogError;
+  const catalogName = String(catalogRow?.name ?? "").trim();
+  if (catalogName) {
+    const { data: named, error: namedError } = await supabase
+      .from("tenant_professions")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("is_active", true)
+      .ilike("name", catalogName)
+      .maybeSingle();
+    if (namedError) throw namedError;
+    if (named?.id) return String(named.id);
+  }
+
+  try {
+    const created = await addTenantProfessionFromCatalog(supabase, tenantId, value);
+    return String(created.id);
+  } catch (error) {
+    if (!(error instanceof Error) || !/already exists/i.test(error.message)) throw error;
+    const { data: raced, error: racedError } = await supabase
+      .from("tenant_professions")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("catalog_key", value)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (racedError) throw racedError;
+    if (!raced?.id) throw error;
+    return String(raced.id);
+  }
+}
+
 export async function listAvailableCatalogProfessions(
   supabase: Db,
   tenantId: string,

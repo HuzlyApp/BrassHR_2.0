@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireStaffApiSession } from "@/lib/auth/api-session";
 import { requireWorkflowAdmin } from "@/lib/auth/workflow-admin";
 import { resolveEffectiveAdminTenantId } from "@/lib/email-templates/resolve-effective-tenant";
-import { addTenantProfessionFromCatalog, listTenantProfessions } from "@/lib/professions/service";
+import { industryLabelForKey } from "@/lib/ai-catalog/industry-catalog";
+import {
+  addTenantProfessionFromCatalog,
+  listCatalogProfessionChoices,
+  listTenantProfessions,
+} from "@/lib/professions/service";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 export const runtime = "nodejs";
@@ -26,8 +31,17 @@ export async function GET() {
   }
 
   try {
-    const result = await listTenantProfessions(supabase, tenantId);
-    return NextResponse.json(result);
+    const [result, catalogChoices] = await Promise.all([
+      listTenantProfessions(supabase, tenantId),
+      listCatalogProfessionChoices(supabase, tenantId),
+    ]);
+    return NextResponse.json({
+      ...result,
+      catalogProfessions: catalogChoices.map((choice) => ({
+        ...choice,
+        industryLabel: industryLabelForKey(choice.industryKey),
+      })),
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Could not load professions";
     return NextResponse.json({ error: message }, { status: 500 });
