@@ -6,6 +6,7 @@ import {
   contextToTemplateVariables,
 } from "@/lib/email/applicant-email-context";
 import { sendStepReadyEmail } from "@/lib/onboarding/step-ready-email";
+import { sendConfiguredStepCompletionEmail, readStepEmailTemplateKey } from "@/lib/onboarding/step-completion-email";
 import {
   ASSIGNED_STEP_RECORD_COLUMNS,
   POST_HIRE_NOT_AVAILABLE_CODE,
@@ -814,6 +815,8 @@ export async function applyStaffWorkflowStepAction(
     request?: Request;
     /** Staff completing a candidate's upload step after collecting the documents themselves. */
     onBehalfOfCandidate?: boolean;
+    /** The caller already sent this step's email before marking it complete. */
+    skipConfiguredCompletionEmail?: boolean;
   }
 ): Promise<StaffStepActionResult> {
   const { workerId, tenantId, action } = params;
@@ -1009,6 +1012,21 @@ export async function applyStaffWorkflowStepAction(
         console.error("[staff-workflow-step-review] selected status update failed", statusError);
       }
     }
+  }
+
+  const configuredTemplateKey = readStepEmailTemplateKey(ctx.record.settings);
+  const welcomeAlreadySent =
+    params.skipConfiguredCompletionEmail === true && configuredTemplateKey === "welcome";
+  if (action === "complete" && currentStatus !== "completed" && !welcomeAlreadySent) {
+    await sendConfiguredStepCompletionEmail(supabase, {
+      tenantId,
+      workerId,
+      origin: params.origin,
+      settings: ctx.record.settings,
+      stepTitle: ctx.mapped.title,
+      stepId: String(ctx.record.id),
+      request: params.request,
+    });
   }
 
   const email =
