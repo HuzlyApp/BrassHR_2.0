@@ -89,6 +89,8 @@ export type WorkflowNodeData = {
   settings: StepSettings;
   onDelete?: (id: string) => void;
   phaseBanner?: "pre_hire" | "placement_gate" | null;
+  /** Set when the step's library stage conflicts with its Pre-Hire / Post-Hire phase. */
+  alienStageWarning?: string | null;
   [key: string]: unknown;
 };
 

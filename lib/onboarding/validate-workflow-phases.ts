@@ -6,14 +6,20 @@ import {
   type ApplicantLifecyclePhase,
   type WorkflowTemplatePhase,
 } from "@/lib/onboarding/workflow-phase";
+import {
+  ALIEN_STAGE_WARNING,
+  isAlienWorkflowStep,
+} from "@/lib/onboarding/validate-workflow-step-stages";
 
 export type WorkflowPhaseValidationError = {
   code:
     | "MISSING_PRE_HIRE"
     | "MISSING_PHASE"
     | "PHASE_ORDER"
-    | "EMPTY_WORKFLOW";
+    | "EMPTY_WORKFLOW"
+    | "ALIEN_STAGE";
   message: string;
+  nodeId?: string;
 };
 
 type OrderedNode = {
@@ -80,6 +86,26 @@ export function validateWorkflowPhaseLayout(
           "Pre-Hire steps must come before Post-Hire steps. Move Post-Hire onboarding below the placement gate.",
       });
       break;
+    }
+  }
+
+  for (const node of draft.nodes) {
+    const stageName =
+      typeof (node.settings as { stageName?: unknown } | undefined)?.stageName === "string"
+        ? (node.settings as { stageName?: string }).stageName
+        : undefined;
+    if (
+      isAlienWorkflowStep({
+        stepId: node.stepId,
+        phase: node.settings?.phase,
+        stageName,
+      })
+    ) {
+      errors.push({
+        code: "ALIEN_STAGE",
+        message: `${node.label}: ${ALIEN_STAGE_WARNING}`,
+        nodeId: node.id,
+      });
     }
   }
 

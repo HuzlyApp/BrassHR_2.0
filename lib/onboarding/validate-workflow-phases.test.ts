@@ -44,4 +44,15 @@ describe("validateWorkflowPhaseLayout", () => {
     state.nodes[0]!.settings = { ...state.nodes[0]!.settings, phase: "" as never };
     expect(validateWorkflowPhaseLayout(state).some((error) => error.code === "MISSING_PHASE")).toBe(true);
   });
+
+  it("rejects a task that belongs to the other hire stage", () => {
+    const state = draft(["pre_hire", "post_hire"]);
+    state.nodes[0]!.stepId = "orientation-video";
+    state.nodes[0]!.label = "Orientation";
+    const errors = validateWorkflowPhaseLayout(state);
+    expect(errors.some((error) => error.code === "ALIEN_STAGE" && error.nodeId === "n0")).toBe(true);
+    expect(errors.find((error) => error.nodeId === "n0")?.message).toContain(
+      "This task does not belong in this stage."
+    );
+  });
 });

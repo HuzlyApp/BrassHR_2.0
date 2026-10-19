@@ -1,7 +1,29 @@
+import { CUSTOM_STEP_ID } from "./library-category-theme";
 import type { StepCategory, StepDefinition } from "./types";
 
 export function flattenStepLibrary(categories: StepCategory[]): StepDefinition[] {
   return categories.flatMap((category) => category.steps);
+}
+
+/**
+ * Hide catalog steps that are already on the canvas. Custom Step stays available
+ * so tenants can add multiple labeled checkpoints.
+ */
+export function excludeUsedLibrarySteps(
+  categories: StepCategory[],
+  usedStepIds: Iterable<string>
+): StepCategory[] {
+  const used = usedStepIds instanceof Set ? usedStepIds : new Set(usedStepIds);
+  if (used.size === 0) return categories;
+
+  return categories
+    .map((category) => ({
+      ...category,
+      steps: category.steps.filter(
+        (step) => step.id === CUSTOM_STEP_ID || !used.has(step.id)
+      ),
+    }))
+    .filter((category) => category.steps.length > 0);
 }
 
 function matchesQuery(text: string | undefined, query: string): boolean {
