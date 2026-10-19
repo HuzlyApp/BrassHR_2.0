@@ -198,6 +198,40 @@ describe("candidate onboarding projection", () => {
     expect(frontier).toEqual({ maxAllowedStepIndex: 2, waitingOnInternal: false });
   });
 
+  it("does not lock the first post-hire step behind an unfinished recruiter step", () => {
+    const welcome = step({
+      id: "welcome",
+      title: "Welcome packet",
+      libraryId: "welcome-packet-esign",
+      owner: "applicant",
+      phase: "post_hire",
+      sort: 20,
+    });
+    const frontier = computeCandidateOnboardingFrontier({
+      engineOrder: [
+        {
+          id: "recruiter-gate",
+          step_key: "internal_review",
+          sort_order: 10,
+          required: true,
+          candidateVisible: false,
+        },
+        {
+          id: welcome.id,
+          step_key: welcome.step_key,
+          sort_order: 20,
+          required: true,
+          candidateVisible: true,
+        },
+      ],
+      candidateSteps: [welcome],
+      progress: progressFor([{ id: "recruiter-gate", status: "pending" }]),
+    });
+
+    expect(frontier.waitingOnInternal).toBe(false);
+    expect(frontier.maxAllowedStepIndex).toBe(1);
+  });
+
   it("Scenario C: candidate progress is 2/3, not 2/6", () => {
     const projected = projectCandidateOnboardingConfig(configFor("tenant-a", scenarioASteps));
     const counts = candidateProgressCounts(

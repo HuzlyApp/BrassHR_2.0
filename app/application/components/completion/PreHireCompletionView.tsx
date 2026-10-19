@@ -263,7 +263,7 @@ export default function PreHireCompletionView({
               </>
             ) : (
               <>
-                <span>Complete Post Hire</span>
+                <span>Continue with post hire</span>
                 <ArrowRight className="h-4 w-4" />
               </>
             )}
