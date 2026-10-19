@@ -22,7 +22,12 @@ import {
 } from "@/lib/onboarding/workflow-settings";
 import { isCandidateCheckboxStep } from "@/lib/onboarding/candidate-checkbox-steps";
 import { postHireScreenKindForStepId } from "@/lib/onboarding/post-hire-step-screens";
-import { alienStageWarningForStep } from "@/lib/onboarding/validate-workflow-step-stages";
+import {
+  ALIEN_STAGE_WARNING,
+  alienStageWarningForStep,
+  foreignStagePlacements,
+} from "@/lib/onboarding/validate-workflow-step-stages";
+import { isStepNode } from "./types";
 import { EmailTemplateSelect } from "@/app/components/onboarding/EmailTemplateSelect";
 import { FirmaTemplateSelect } from "@/app/components/onboarding/FirmaTemplateSelect";
 import { resolveHireLibraryIconPath } from "./hire-library-icons";
@@ -199,11 +204,21 @@ function SettingsBody({ node, onUpdate, onSaveStep, onCloneWorkflow, readOnly = 
       : null;
   const themeColor = resolveCanvasStepThemeColor(node.data.stepId, stageName);
   const iconPath = resolveHireLibraryIconPath(node.data.stepId);
-  const alienStageWarning = alienStageWarningForStep({
-    stepId: node.data.stepId,
-    phase: settings.phase,
-    stageName,
-  });
+  const insideForeignStage = foreignStagePlacements(
+    workflowState.nodes.filter(isStepNode).map((step) => ({
+      id: step.id,
+      stepId: step.data.stepId,
+      phase: step.data.settings.phase,
+      y: step.position.y,
+    })),
+    workflowState.edges
+  ).some((placement) => placement.id === node.id);
+  const alienStageWarning =
+    alienStageWarningForStep({
+      stepId: node.data.stepId,
+      phase: settings.phase,
+      stageName,
+    }) ?? (insideForeignStage ? ALIEN_STAGE_WARNING : null);
 
   const patchSettings = (patch: Partial<StepSettings>, options?: { skipHistory?: boolean }) => {
     onUpdate(node.id, { settings: { ...settings, ...patch } }, options);

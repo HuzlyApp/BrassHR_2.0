@@ -8,6 +8,7 @@ import {
 } from "@/lib/onboarding/workflow-phase";
 import {
   ALIEN_STAGE_WARNING,
+  foreignStagePlacements,
   isAlienWorkflowStep,
 } from "@/lib/onboarding/validate-workflow-step-stages";
 
@@ -89,12 +90,25 @@ export function validateWorkflowPhaseLayout(
     }
   }
 
+  const foreignIds = new Set(
+    foreignStagePlacements(
+      draft.nodes.map((node) => ({
+        id: node.id,
+        stepId: node.stepId,
+        phase: node.settings?.phase,
+        y: node.position?.y,
+      })),
+      draft.edges
+    ).map((placement) => placement.id)
+  );
+
   for (const node of draft.nodes) {
     const stageName =
       typeof (node.settings as { stageName?: unknown } | undefined)?.stageName === "string"
         ? (node.settings as { stageName?: string }).stageName
         : undefined;
     if (
+      foreignIds.has(node.id) ||
       isAlienWorkflowStep({
         stepId: node.stepId,
         phase: node.settings?.phase,

@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   ALIEN_STAGE_WARNING,
   alienStageWarningForStep,
+  catalogStageBeside,
+  enclosingCatalogStage,
+  foreignStagePlacements,
   isAlienWorkflowStep,
+  stepFitsEnclosingStage,
   workflowStepBelongsToPhase,
 } from "@/lib/onboarding/validate-workflow-step-stages";
 
@@ -68,5 +72,65 @@ describe("isAlienWorkflowStep / alienStageWarningForStep", () => {
         stageName: "Submission",
       })
     ).toBeNull();
+  });
+
+  it("flags a screening task inserted between two Intake tasks", () => {
+    expect(
+      stepFitsEnclosingStage({
+        stepId: "recruiter-screening",
+        phase: "pre_hire",
+        previousStage: "Intake",
+        nextStage: "Intake",
+      })
+    ).toBe(false);
+    expect(
+      alienStageWarningForStep({
+        stepId: "recruiter-screening",
+        phase: "pre_hire",
+        previousStage: "Intake",
+        nextStage: "Intake",
+      })
+    ).toBe(ALIEN_STAGE_WARNING);
+  });
+
+  it("allows an Intake task in the middle of Intake and a task at a stage boundary", () => {
+    expect(enclosingCatalogStage("Intake", "Intake")).toBe("Intake");
+    expect(enclosingCatalogStage("Intake", "Screening")).toBeNull();
+    expect(
+      stepFitsEnclosingStage({
+        stepId: "parameterized-job-application",
+        phase: "pre_hire",
+        previousStage: "Intake",
+        nextStage: "Intake",
+      })
+    ).toBe(true);
+    expect(
+      stepFitsEnclosingStage({
+        stepId: "recruiter-screening",
+        phase: "pre_hire",
+        previousStage: "Intake",
+        nextStage: "Screening",
+      })
+    ).toBe(true);
+  });
+});
+
+describe("foreignStagePlacements", () => {
+  const steps = [
+    { id: "resume", stepId: "resume-basic-profile", phase: "pre_hire", y: 0 },
+    { id: "application", stepId: "parameterized-job-application", phase: "pre_hire", y: 130 },
+    { id: "screening", stepId: "recruiter-screening", phase: "pre_hire", y: 260 },
+    { id: "documents", stepId: "collect-extra-files", phase: "pre_hire", y: 390 },
+  ];
+  const edges = [
+    { source: "resume", target: "application" },
+    { source: "application", target: "screening" },
+    { source: "screening", target: "documents" },
+  ];
+
+  it("marks only the task that sits in the middle of another stage", () => {
+    expect(foreignStagePlacements(steps, edges).map((row) => row.id)).toEqual(["screening"]);
+    expect(catalogStageBeside(steps, edges, "application", "in")).toBe("Intake");
+    expect(catalogStageBeside(steps, edges, "documents", "out")).toBe("Intake");
   });
 });

@@ -10,6 +10,7 @@ import type { StepCategory, StepDefinition } from "./types";
 type AddStepPickerProps = {
   open: boolean;
   categories: StepCategory[];
+  slotStage?: string | null;
   onSelect: (step: StepDefinition) => void;
   onClose: () => void;
 };
@@ -17,6 +18,7 @@ type AddStepPickerProps = {
 export default function AddStepPicker({
   open,
   categories,
+  slotStage = null,
   onSelect,
   onClose,
 }: AddStepPickerProps) {
@@ -67,13 +69,20 @@ export default function AddStepPicker({
           className="flex shrink-0 items-center justify-between border-b px-5 py-4"
           style={{ borderColor: CARD_BORDER }}
         >
-          <h2
-            id="add-workflow-step-title"
-            className="text-sm font-semibold"
-            style={{ color: TEXT_PRIMARY }}
-          >
-            Add Workflow Step
-          </h2>
+          <div className="min-w-0">
+            <h2
+              id="add-workflow-step-title"
+              className="text-sm font-semibold"
+              style={{ color: TEXT_PRIMARY }}
+            >
+              Add Workflow Step
+            </h2>
+            {slotStage ? (
+              <p className="mt-1 text-[11px] leading-4" style={{ color: TEXT_SECONDARY }}>
+                Only {slotStage} steps can be added between these steps.
+              </p>
+            ) : null}
+          </div>
           <button
             type="button"
             onClick={onClose}
