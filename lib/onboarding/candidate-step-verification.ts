@@ -53,7 +53,7 @@ export async function verifyCandidateStepSubmission(
       status: 409,
       code: "AGREEMENT_AWAITING_CANDIDATE_SIGNATURE",
       error:
-        "The candidate hasn't signed yet. Send them an email to complete the signature, then review the saved signature and mark the step complete.",
+        "The candidate hasn't signed the agreement yet. Send them an email to complete the signature, then preview the signed agreement and mark the step complete.",
     };
   }
   if (!review?.canVerify) {

@@ -755,8 +755,8 @@ function staffEligibilityFor(ctx: StaffStepContext): StaffStepActionEligibility 
 }
 
 /**
- * Authorization eSign completed by a recruiter uses the same conversion as a candidate signature.
- * Post-hire e-sign steps stay on their own phase and do not convert the candidate.
+ * Agreement e-sign completed by a recruiter is what hires the candidate.
+ * Authorization e-sign and post-hire e-sign steps do not.
  */
 export function agreementStepCompletedByStaff(ctx: StaffStepContext): TenantOnboardingStep | null {
   if (ctx.phase === "post_hire") return null;
@@ -841,7 +841,7 @@ export async function applyStaffWorkflowStepAction(
       status: 409,
       code: "AGREEMENT_AWAITING_CANDIDATE_SIGNATURE",
       error:
-        "The candidate has to sign Authorization eSign first. After their signature is saved, review the signed document and mark the step complete.",
+        "The candidate has to sign Agreement e-sign first. After their signature is saved, preview the signed document and mark the step complete.",
     };
   }
   if (!initial.allowed && !onBehalf) return notStaffOwned(initial);

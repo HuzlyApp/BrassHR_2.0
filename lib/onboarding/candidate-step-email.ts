@@ -13,6 +13,7 @@ import {
 } from "@/lib/onboarding/candidate-onboarding-projection";
 import { buildProgressStatusMaps } from "@/lib/onboarding/compute-max-allowed-from-progress";
 import { ensureWorkerOnboardingProgress } from "@/lib/onboarding/ensure-worker-progress";
+import { isAgreementEsignStep } from "@/lib/onboarding/lock-post-hire";
 import type { StaffStepEmailResult } from "@/lib/onboarding/staff-step-review-shared";
 import {
   applyStaffWorkflowStepAction,
@@ -260,7 +261,13 @@ export async function sendCandidateStepEmail(
     statusById,
     frontier,
   });
-  if (block?.code === "STEP_ALREADY_COMPLETED") {
+  const agreementAwaitingRecruiter = isAgreementEsignStep({
+    snapshotStepId: String(ctx.tenantStep?.metadata?.workflow_step_id ?? ctx.mapped.snapshotStepId ?? ""),
+    stepKey: ctx.mapped.stepKey,
+    stepType: recordStepType,
+    title: ctx.mapped.title,
+  }) && asText(ctx.record.review_decision) !== "complete";
+  if (block?.code === "STEP_ALREADY_COMPLETED" && !agreementAwaitingRecruiter) {
     return { ok: false, status: 409, code: "STEP_ALREADY_COMPLETED", error: "The candidate has already completed this step." };
   }
   if (!target) {
