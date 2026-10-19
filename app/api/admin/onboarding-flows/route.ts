@@ -9,6 +9,7 @@ import {
   type OnboardingFlowStatus,
 } from "@/lib/onboarding/onboarding-flows";
 import { requireWorkflowAdmin } from "@/lib/auth/workflow-admin";
+import { resolveFlowProfessionId } from "@/lib/professions/service";
 
 export const runtime = "nodejs";
 
@@ -107,6 +108,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Flow name is required" }, { status: 400 });
     }
 
+    const professionRef = body.professionId?.trim() || "";
+    const professionId = professionRef
+      ? await resolveFlowProfessionId(supabase, tenantId, professionRef)
+      : null;
+
     const flow = await createOnboardingFlow(supabase as OnboardingDbClient, tenantId, {
       name,
       libraryId: body.libraryId ?? null,
@@ -115,7 +121,7 @@ export async function POST(req: NextRequest) {
       status: body.status,
       createdBy: auth.userId,
       employmentType: body.employmentType ?? null,
-      professionId: body.professionId ?? null,
+      professionId,
     });
 
     return NextResponse.json({ flow });

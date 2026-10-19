@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type FocusEvent } from "react";
 import { ChevronRight } from "lucide-react";
 import AutosaveStatus from "@/app/components/AutosaveStatus";
 import {
@@ -16,7 +16,7 @@ import BrandedUploadIcon from "@/app/components/BrandedUploadIcon";
 import OnboardingLayout from "@/app/components/OnboardingLayout";
 import OnboardingStepper from "@/app/components/OnboardingStepper";
 import { useTenantBranding } from "@/app/components/tenant/TenantBrandingContext";
-import { brandingToCssVars } from "@/lib/tenant/tenant-branding";
+import { brandingToCssVars, hexToRgba } from "@/lib/tenant/tenant-branding";
 import { useOnboardingConfigOptional } from "@/app/components/onboarding/OnboardingConfigProvider";
 import { readStepKeyFromSearch } from "@/lib/onboarding/find-applicant-step";
 import { resolveApplicantId, uploadRequiredOnboardingFile } from "@/lib/onboarding/upload-required-file-client";
@@ -375,9 +375,10 @@ export default function CollectExtraFilesPage() {
           </p>
 
           <div className="mt-6 space-y-4">
-            {checklist.items.map((item) => (
+            {checklist.items.map((item, index) => (
               <ChecklistRow
                 key={item.id}
+                serial={index + 1}
                 item={item}
                 primaryHex={branding.primaryHex}
                 uploading={uploadingDocumentId === item.id}
@@ -437,7 +438,115 @@ export default function CollectExtraFilesPage() {
   );
 }
 
+function brandDateFocus(primaryHex: string) {
+  return {
+    onFocus: (event: FocusEvent<HTMLInputElement>) => {
+      event.currentTarget.style.borderColor = primaryHex;
+      event.currentTarget.style.boxShadow = `0 0 0 3px ${hexToRgba(primaryHex, 0.22)}`;
+    },
+    onBlur: (event: FocusEvent<HTMLInputElement>) => {
+      event.currentTarget.style.borderColor = "#CBD5E1";
+      event.currentTarget.style.boxShadow = "none";
+    },
+  };
+}
+
+function BrandedFileDropzone({
+  primaryHex,
+  inputId,
+  disabled,
+  onFile,
+}: {
+  primaryHex: string;
+  inputId: string;
+  disabled?: boolean;
+  onFile: (file: File) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragActive, setDragActive] = useState(false);
+
+  function openPicker() {
+    if (disabled) return;
+    inputRef.current?.click();
+  }
+
+  function take(file: File | undefined) {
+    if (!file || disabled) return;
+    onFile(file);
+  }
+
+  return (
+    <div
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      onClick={openPicker}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openPicker();
+        }
+      }}
+      onDragOver={(event) => {
+        event.preventDefault();
+        if (!disabled) setDragActive(true);
+      }}
+      onDragLeave={() => setDragActive(false)}
+      onDrop={(event) => {
+        event.preventDefault();
+        setDragActive(false);
+        take(event.dataTransfer.files?.[0]);
+      }}
+      className={`mt-3 rounded-xl border-2 border-dashed p-4 text-center transition sm:p-6 ${
+        disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+      }`}
+      style={{
+        borderColor: primaryHex,
+        backgroundColor: dragActive ? hexToRgba(primaryHex, 0.08) : undefined,
+      }}
+    >
+      <div className="mx-auto mb-3 flex items-center justify-center">
+        <BrandedUploadIcon className="h-12 w-12 sm:h-14 sm:w-14" primaryHex={primaryHex} />
+      </div>
+      <p className="mb-3 text-sm text-black">
+        {disabled ? "Uploading…" : "Drag your file(s) to start uploading"}
+      </p>
+      <div className="mb-3 flex items-center gap-3 text-xs text-[#6D6D6D]">
+        <span className="h-px flex-1 bg-[#E5E7EB]" />
+        OR
+        <span className="h-px flex-1 bg-[#E5E7EB]" />
+      </div>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={(event) => {
+          event.stopPropagation();
+          openPicker();
+        }}
+        className="cursor-pointer rounded-md border px-6 py-2 text-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+        style={{ borderColor: primaryHex, color: primaryHex }}
+      >
+        Browse files
+      </button>
+      <p className="mt-3 text-xs text-[#6B7280]">Max {MAX_FILE_SIZE_MB} MB files are allowed</p>
+      <input
+        ref={inputRef}
+        id={inputId}
+        type="file"
+        className="hidden"
+        accept={ACCEPTED_FILE_TYPES}
+        disabled={disabled}
+        onChange={(event) => {
+          const selected = event.target.files?.[0];
+          event.target.value = "";
+          take(selected);
+        }}
+      />
+    </div>
+  );
+}
+
 function ChecklistRow({
+  serial,
   item,
   primaryHex,
   uploading,
@@ -446,6 +555,7 @@ function ChecklistRow({
   onDatesChange,
   onUpload,
 }: {
+  serial: number;
   item: ChecklistItem;
   primaryHex: string;
   uploading: boolean;
@@ -456,23 +566,27 @@ function ChecklistRow({
 }) {
   const inputId = useId();
   const canAddMore = item.files.length < MAX_PROFESSION_DOCUMENT_FILES && !item.collectedOnIdentityStep;
+  const dateFocus = brandDateFocus(primaryHex);
 
   return (
     <div className="rounded-xl border border-slate-200 px-4 py-4">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-2">
           <span
-            className={`mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${
-              item.collected ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400"
-            }`}
-            aria-hidden
+            className="mt-0.5 w-6 shrink-0 text-[16px] font-semibold leading-6"
+            style={{ color: primaryHex }}
           >
-            {item.collected ? "✓" : ""}
+            {serial}.
           </span>
           <div className="min-w-0">
             <p className="text-[16px] font-semibold leading-6 text-slate-800">
               {item.name}
               {item.isRequired ? <span className="text-red-500"> *</span> : null}
+              {item.collected ? (
+                <span className="ml-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 align-middle text-[11px] font-semibold text-emerald-700">
+                  ✓
+                </span>
+              ) : null}
             </p>
             <p className="text-[11px] leading-4 text-slate-500">
               {item.isRequired ? "Required" : "Optional"}
@@ -484,10 +598,28 @@ function ChecklistRow({
       </div>
 
       {item.files.length > 0 ? (
-        <ul className="mt-3 space-y-1">
+        <ul className="mt-3 space-y-2">
           {item.files.map((file) => (
-            <li key={file.id} className="truncate text-[13px] text-slate-700">
-              {file.name}
+            <li
+              key={file.id}
+              className="flex items-center gap-3 rounded-lg border px-3 py-2.5"
+              style={{
+                borderColor: hexToRgba(primaryHex, 0.35),
+                backgroundColor: hexToRgba(primaryHex, 0.1),
+              }}
+            >
+              <span
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border"
+                style={{
+                  backgroundColor: hexToRgba(primaryHex, 0.18),
+                  borderColor: hexToRgba(primaryHex, 0.28),
+                }}
+              >
+                <BrandedSvgIcon src="/icons/pdf-icon.svg" className="h-5 w-5" color={primaryHex} />
+              </span>
+              <span className="min-w-0 truncate text-sm font-semibold" style={{ color: primaryHex }}>
+                {file.name}
+              </span>
             </li>
           ))}
         </ul>
@@ -495,49 +627,38 @@ function ChecklistRow({
 
       {item.hasExpiration && canAddMore ? (
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <label className="block space-y-1">
+          <label className="block cursor-pointer space-y-1">
             <span className="text-[11px] font-medium text-slate-600">Issued date</span>
             <input
               type="date"
               value={issuedDate}
               onChange={(event) => onDatesChange({ issuedDate: event.target.value })}
               aria-label={`${item.name} issued date`}
-              className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
+              className="h-10 w-full cursor-pointer rounded-lg border border-[#CBD5E1] bg-white px-3 text-sm text-slate-900 outline-none transition [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+              {...dateFocus}
             />
           </label>
-          <label className="block space-y-1">
+          <label className="block cursor-pointer space-y-1">
             <span className="text-[11px] font-medium text-slate-600">Expiry date</span>
             <input
               type="date"
               value={expiryDate}
               onChange={(event) => onDatesChange({ expiryDate: event.target.value })}
               aria-label={`${item.name} expiry date`}
-              className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
+              className="h-10 w-full cursor-pointer rounded-lg border border-[#CBD5E1] bg-white px-3 text-sm text-slate-900 outline-none transition [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+              {...dateFocus}
             />
           </label>
         </div>
       ) : null}
 
       {canAddMore ? (
-        <label
-          htmlFor={inputId}
-          className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-md border border-[color:var(--brand-primary)] px-3 py-2 text-[12px] font-medium text-[color:var(--brand-primary)]"
-        >
-          <input
-            id={inputId}
-            type="file"
-            className="hidden"
-            accept={ACCEPTED_FILE_TYPES}
-            disabled={uploading}
-            onChange={(event) => {
-              const selected = event.target.files?.[0];
-              event.target.value = "";
-              if (selected) onUpload(selected);
-            }}
-          />
-          <BrandedUploadIcon className="h-4 w-4" primaryHex={primaryHex} />
-          {uploading ? "Uploading…" : item.files.length ? "Add another file" : "Upload file"}
-        </label>
+        <BrandedFileDropzone
+          primaryHex={primaryHex}
+          inputId={inputId}
+          disabled={uploading}
+          onFile={onUpload}
+        />
       ) : null}
     </div>
   );
@@ -591,23 +712,7 @@ function OtherFiles({
           ))}
         </div>
       ) : null}
-      <label
-        htmlFor={inputId}
-        className="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md border border-[color:var(--brand-primary)] px-4 py-2 text-[12px] font-medium leading-5 text-[color:var(--brand-primary)] transition hover:bg-[color:var(--brand-primary)]/10"
-      >
-        <input
-          id={inputId}
-          type="file"
-          className="hidden"
-          accept={ACCEPTED_FILE_TYPES}
-          onChange={(event) => {
-            const selected = event.target.files?.[0];
-            event.target.value = "";
-            if (selected) onUpload(selected);
-          }}
-        />
-        + Add another file
-      </label>
+      <BrandedFileDropzone primaryHex={primaryHex} inputId={inputId} onFile={onUpload} />
     </div>
   );
 }

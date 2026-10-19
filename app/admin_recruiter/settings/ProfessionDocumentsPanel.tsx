@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileBadge, Plus, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type SelectHTMLAttributes } from "react";
+import { Check, ChevronDown, FileBadge, Plus, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 
 type DocumentKind = "certificate" | "license";
@@ -21,13 +21,71 @@ type ProfessionRow = {
   documents: DocumentDraft[];
 };
 
+type CatalogProfessionOption = {
+  key: string;
+  name: string;
+  industryKey: string;
+  industryLabel: string | null;
+};
+
 type CatalogPayload = {
   canManage: boolean;
   industryKey: string | null;
   industryLabel: string | null;
   professions: ProfessionRow[];
+  availableProfessions?: CatalogProfessionOption[];
   error?: string;
 };
+
+const fieldClassName =
+  "h-9 w-full appearance-none rounded-lg border border-[#CBD5E1] bg-white pl-3 pr-8 text-sm text-[#0F172A] outline-none focus-visible:ring-2 focus-visible:ring-[color:color-mix(in_srgb,var(--brand-secondary)_35%,transparent)] disabled:bg-[#F1F5F9]";
+
+function SelectField({
+  label,
+  className,
+  children,
+  ...selectProps
+}: SelectHTMLAttributes<HTMLSelectElement> & { label: string; className?: string }) {
+  return (
+    <label className={`relative block ${className ?? ""}`}>
+      <span className="sr-only">{label}</span>
+      <select {...selectProps} className={fieldClassName}>
+        {children}
+      </select>
+      <ChevronDown
+        className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-[#64748B]"
+        aria-hidden
+      />
+    </label>
+  );
+}
+
+function RequiredCheckbox({
+  checked,
+  disabled,
+  onChange,
+}: {
+  checked: boolean;
+  disabled: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <span className="relative inline-flex h-4 w-4 shrink-0">
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+        className="peer h-4 w-4 cursor-pointer appearance-none rounded-[5px] border border-[#CBD5E1] bg-white checked:border-[color:var(--brand-secondary)] checked:bg-[color:var(--brand-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:color-mix(in_srgb,var(--brand-secondary)_35%,transparent)] disabled:cursor-not-allowed disabled:opacity-50"
+      />
+      <Check
+        className="pointer-events-none absolute inset-0 m-auto hidden h-3 w-3 text-white peer-checked:block"
+        strokeWidth={3}
+        aria-hidden
+      />
+    </span>
+  );
+}
 
 function newDocument(): DocumentDraft {
   return {
@@ -51,7 +109,11 @@ export default function ProfessionDocumentsPanel() {
   const [drafts, setDrafts] = useState<Record<string, DocumentDraft[]>>({});
   const [saved, setSaved] = useState<Record<string, string>>({});
 
-  const applyPayload = useCallback((payload: CatalogPayload) => {
+  const [availableProfessions, setAvailableProfessions] = useState<CatalogProfessionOption[]>([]);
+  const [selectedCatalogKey, setSelectedCatalogKey] = useState("");
+  const [addingProfession, setAddingProfession] = useState(false);
+
+  const applyPayload = useCallback((payload: CatalogPayload, preferId?: string) => {
     const rows = payload.professions ?? [];
     const nextDrafts: Record<string, DocumentDraft[]> = {};
     const nextSaved: Record<string, string> = {};
@@ -65,26 +127,31 @@ export default function ProfessionDocumentsPanel() {
     }
     setCanManage(payload.canManage);
     setIndustryLabel(payload.industryLabel);
+    setAvailableProfessions(payload.availableProfessions ?? []);
+    setSelectedCatalogKey((current) =>
+      (payload.availableProfessions ?? []).some((option) => option.key === current) ? current : ""
+    );
     setProfessions(rows);
     setDrafts(nextDrafts);
     setSaved(nextSaved);
-    setSelectedId((current) =>
-      current && rows.some((row) => row.id === current) ? current : rows[0]?.id ?? null
-    );
+    setSelectedId((current) => {
+      if (preferId && rows.some((row) => row.id === preferId)) return preferId;
+      return current && rows.some((row) => row.id === current) ? current : rows[0]?.id ?? null;
+    });
   }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (preferId?: string, options?: { silent?: boolean }) => {
+    if (!options?.silent) setLoading(true);
     setError(null);
     try {
       const response = await fetch("/api/admin/profession-documents");
       const payload = (await response.json()) as CatalogPayload;
       if (!response.ok) throw new Error(payload.error || "Could not load documents");
-      applyPayload(payload);
+      applyPayload(payload, preferId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load documents");
     } finally {
-      setLoading(false);
+      if (!options?.silent) setLoading(false);
     }
   }, [applyPayload]);
 
@@ -118,6 +185,29 @@ export default function ProfessionDocumentsPanel() {
       }));
     }
     setSelectedId(professionId);
+  }
+
+  async function addProfession() {
+    const catalogKey = selectedCatalogKey.trim();
+    if (!catalogKey || !canManage || addingProfession) return;
+    if (dirty && !window.confirm("Discard unsaved document changes for this profession?")) return;
+    setAddingProfession(true);
+    try {
+      const response = await fetch("/api/admin/professions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ catalogKey }),
+      });
+      const payload = (await response.json()) as { error?: string; profession?: { id?: string } };
+      if (!response.ok) throw new Error(payload.error || "Could not add profession");
+      setSelectedCatalogKey("");
+      toast.success("Profession added");
+      await load(payload.profession?.id, { silent: true });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not add profession");
+    } finally {
+      setAddingProfession(false);
+    }
   }
 
   async function save() {
@@ -183,30 +273,66 @@ export default function ProfessionDocumentsPanel() {
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>
       ) : !industryLabel ? (
         <p className="text-sm text-[#64748B]">Set this organization’s industry before adding upload documents.</p>
-      ) : professions.length === 0 ? (
-        <p className="text-sm text-[#64748B]">No professions are set up for {industryLabel} yet.</p>
       ) : (
         <div className="space-y-4">
           <div>
             <p className="mb-2 text-xs font-medium uppercase tracking-wide text-[#64748B]">Profession</p>
-            <div className="flex flex-wrap gap-2" role="tablist" aria-label="Professions">
-              {professions.map((profession) => {
-                const active = profession.id === selectedId;
-                return (
-                  <button
-                    key={profession.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={active}
-                    onClick={() => selectProfession(profession.id)}
-                    className={`rounded-full px-3 py-1.5 text-sm font-medium ${
-                      active ? "bg-[#012352] text-white" : "bg-[#F1F5F9] text-[#012352] hover:bg-[#E2E8F0]"
-                    }`}
+            <div className="flex flex-wrap items-center gap-3">
+              {professions.length === 0 ? (
+                <p className="text-sm text-[#64748B]">No professions are set up for {industryLabel} yet.</p>
+              ) : (
+                <div className="flex min-w-0 flex-1 flex-wrap gap-2" role="tablist" aria-label="Professions">
+                  {professions.map((profession) => {
+                    const active = profession.id === selectedId;
+                    return (
+                      <button
+                        key={profession.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() => selectProfession(profession.id)}
+                        className={`rounded-full px-3 py-1.5 text-sm font-medium ${
+                          active ? "bg-[#012352] text-white" : "bg-[#F1F5F9] text-[#012352] hover:bg-[#E2E8F0]"
+                        }`}
+                      >
+                        {profession.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {canManage && availableProfessions.length > 0 ? (
+                <form
+                  className="ml-auto flex shrink-0 items-center gap-2"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void addProfession();
+                  }}
+                >
+                  <SelectField
+                    label="Select profession"
+                    value={selectedCatalogKey}
+                    onChange={(event) => setSelectedCatalogKey(event.target.value)}
+                    className="w-[220px]"
                   >
-                    {profession.name}
+                    <option value="">Choose a profession</option>
+                    {availableProfessions.map((option) => (
+                      <option key={option.key} value={option.key}>
+                        {option.industryLabel ? `${option.name} (${option.industryLabel})` : option.name}
+                      </option>
+                    ))}
+                  </SelectField>
+                  <button
+                    type="submit"
+                    disabled={addingProfession || selectedCatalogKey.length === 0}
+                    className="inline-flex h-9 items-center justify-center rounded-lg border border-[#012352] bg-white px-3 text-sm font-medium text-[#012352] hover:bg-[#F8FAFC] focus-visible:ring-2 focus-visible:ring-[color:var(--brand-secondary)] disabled:opacity-60"
+                  >
+                    {addingProfession ? "Adding…" : "Add profession"}
                   </button>
-                );
-              })}
+                </form>
+              ) : canManage ? (
+                <p className="ml-auto text-sm text-[#64748B]">Every catalog profession is already on this organization.</p>
+              ) : null}
             </div>
           </div>
 
@@ -233,45 +359,40 @@ export default function ProfessionDocumentsPanel() {
                           className="h-9 w-full rounded-lg border border-[#CBD5E1] bg-white px-3 text-sm text-[#0F172A] disabled:bg-[#F1F5F9]"
                         />
                       </label>
-                      <label className="block">
-                        <span className="sr-only">Document type</span>
-                        <select
-                          value={doc.documentKind}
-                          disabled={!canManage}
-                          onChange={(event) =>
-                            updateDocument(doc.id, { documentKind: event.target.value as DocumentKind })
-                          }
-                          className="h-9 w-full rounded-lg border border-[#CBD5E1] bg-white px-3 text-sm text-[#0F172A] disabled:bg-[#F1F5F9]"
-                        >
-                          <option value="certificate">Certificate</option>
-                          <option value="license">License</option>
-                        </select>
-                      </label>
+                      <SelectField
+                        label="Document type"
+                        value={doc.documentKind}
+                        disabled={!canManage}
+                        onChange={(event) =>
+                          updateDocument(doc.id, { documentKind: event.target.value as DocumentKind })
+                        }
+                      >
+                        <option value="certificate">Certificate</option>
+                        <option value="license">License</option>
+                      </SelectField>
                       <label className="inline-flex items-center gap-2 text-sm text-[#0F172A]">
-                        <input
-                          type="checkbox"
+                        <RequiredCheckbox
                           checked={doc.isRequired}
                           disabled={!canManage}
-                          onChange={(event) => updateDocument(doc.id, { isRequired: event.target.checked })}
-                          className="h-4 w-4 rounded border-[#CBD5E1]"
+                          onChange={(isRequired) => updateDocument(doc.id, { isRequired })}
                         />
                         {doc.isRequired ? "Required" : "Optional"}
                       </label>
-                      <label className="inline-flex items-center gap-2 text-sm text-[#0F172A]">
+                      <div className="inline-flex items-center gap-2 text-sm text-[#0F172A]">
                         <span className="text-[#64748B]">Expiry</span>
-                        <select
+                        <SelectField
+                          label={`${doc.name || "Document"} requires expiry date`}
                           value={doc.hasExpiration ? "yes" : "no"}
                           disabled={!canManage}
                           onChange={(event) =>
                             updateDocument(doc.id, { hasExpiration: event.target.value === "yes" })
                           }
-                          className="h-9 rounded-lg border border-[#CBD5E1] bg-white px-2 text-sm text-[#0F172A] disabled:bg-[#F1F5F9]"
-                          aria-label={`${doc.name || "Document"} requires expiry date`}
+                          className="w-[88px]"
                         >
                           <option value="yes">Yes</option>
                           <option value="no">No</option>
-                        </select>
-                      </label>
+                        </SelectField>
+                      </div>
                       <button
                         type="button"
                         disabled={!canManage}
