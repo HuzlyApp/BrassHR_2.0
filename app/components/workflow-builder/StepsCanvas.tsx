@@ -40,7 +40,11 @@ import type {
   WorkflowInsertionPoint,
 } from "./types";
 import { CUSTOM_STEP_ID } from "./library-category-theme";
-import { excludeStepsOutsideStageSlot } from "./filter-step-library";
+import {
+  collectUsedLibrarySteps,
+  excludeStepsOutsideStageSlot,
+  excludeUsedLibrarySteps,
+} from "./filter-step-library";
 import {
   ALIEN_STAGE_WARNING,
   alienStageWarningForStep,
@@ -364,10 +368,13 @@ export default function StepsCanvas({
 
       // Catalog steps may only appear once; Custom Step can be reused.
       if (def.id !== CUSTOM_STEP_ID) {
-        const alreadyUsed = onlyStepNodes(currentNodes).some(
-          (n) => isStepNode(n) && n.data.stepId === def.id
+        const used = collectUsedLibrarySteps(currentNodes);
+        const stillAvailable = excludeUsedLibrarySteps(
+          [{ id: "_", label: "_", steps: [def] }],
+          used.stepIds,
+          { usedLabels: used.labels }
         );
-        if (alreadyUsed) return;
+        if (stillAvailable.length === 0) return;
       }
 
       insertInFlight.current = true;

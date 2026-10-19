@@ -40,9 +40,11 @@ import {
 } from "./constants";
 import { applyWorkflowNodeDataPatch } from "@/lib/onboarding/apply-workflow-node-patch";
 import { cloneWorkflowState } from "@/lib/onboarding/clone-workflow-state";
-import { excludeUsedLibrarySteps } from "./filter-step-library";
 import {
-  isStepNode,
+  collectUsedLibrarySteps,
+  excludeUsedLibrarySteps,
+} from "./filter-step-library";
+import {
   type StepCategory,
   type WorkflowCanvasNodeData,
   type WorkflowNodeData,
@@ -289,10 +291,8 @@ function WorkflowBuilderInner({
   }, [nodes, selectedNodeId]);
 
   const availableLibrary = useMemo(() => {
-    const usedStepIds = new Set(
-      nodes.filter(isStepNode).map((node) => node.data.stepId)
-    );
-    return excludeUsedLibrarySteps(stepLibrary, usedStepIds);
+    const { stepIds, labels } = collectUsedLibrarySteps(nodes);
+    return excludeUsedLibrarySteps(stepLibrary, stepIds, { usedLabels: labels });
   }, [nodes, stepLibrary]);
 
   const currentState: WorkflowState = useMemo(
