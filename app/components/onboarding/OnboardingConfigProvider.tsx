@@ -386,7 +386,13 @@ export default function OnboardingConfigProvider({ children }: { children: React
       }
 
       if (responsePayload.progress) {
-        setProgress(responsePayload.progress);
+        setProgress((prev) => ({
+          ...responsePayload.progress!,
+          workflowPhase: responsePayload.progress?.workflowPhase ?? prev?.workflowPhase,
+          applicationId: responsePayload.progress?.applicationId ?? prev?.applicationId,
+          applicationStatus: responsePayload.progress?.applicationStatus ?? prev?.applicationStatus,
+          submittedAt: responsePayload.progress?.submittedAt ?? prev?.submittedAt,
+        }));
         setProgressHydrated(true);
         return;
       }

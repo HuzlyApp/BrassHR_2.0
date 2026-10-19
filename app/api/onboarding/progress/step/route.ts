@@ -29,7 +29,11 @@ import { computeCandidateOnboardingFrontier } from "@/lib/onboarding/candidate-o
 import { applyApplicantConfigFilters } from "@/lib/onboarding/filter-applicant-steps";
 import { persistFarthestReachedStepIndex } from "@/lib/onboarding/persist-farthest-reached-step";
 import { resolveOnboardingProgressStep } from "@/lib/onboarding/resolve-onboarding-progress-step";
-import type { OnboardingStepStatus, TenantOnboardingConfig } from "@/lib/onboarding/types";
+import type {
+  OnboardingStepStatus,
+  TenantOnboardingConfig,
+  WorkerOnboardingProgressPayload,
+} from "@/lib/onboarding/types";
 import { formatApiError } from "@/lib/api/format-api-error";
 import { resolveApplicationWorkflowPhase } from "@/lib/onboarding/resolve-application-workflow-phase";
 import {
@@ -195,6 +199,11 @@ export async function POST(req: NextRequest) {
     stepRow = persistStep ?? stepRow;
 
     const activePhase = phaseRecord?.phase ?? "pre_hire";
+    const withWorkflowPhase = (
+      progress: WorkerOnboardingProgressPayload
+    ): WorkerOnboardingProgressPayload =>
+      progress.workflowPhase ? progress : { ...progress, workflowPhase: activePhase };
+    progressPayload = withWorkflowPhase(progressPayload);
     const isPreHire =
       isPreHireWorkflowStep({
         key: candidateFacingStep?.step_key || stepRow?.step_key || body.stepKey,
@@ -336,7 +345,7 @@ export async function POST(req: NextRequest) {
         applicationId || null,
         unscopedOnly
       );
-      return NextResponse.json({ progress, noop: true });
+      return NextResponse.json({ progress: withWorkflowPhase(progress), noop: true });
     }
 
     const signingStep = stepRow ?? candidateFacingStep;
@@ -379,7 +388,11 @@ export async function POST(req: NextRequest) {
           progress: progressPayload,
         });
         if (stepIndex + 1 > frontier.maxAllowedStepIndex) {
-          return NextResponse.json({ progress: progressPayload, noop: true, locked: true });
+          return NextResponse.json({
+            progress: withWorkflowPhase(progressPayload),
+            noop: true,
+            locked: true,
+          });
         }
       }
     }
@@ -502,7 +515,7 @@ export async function POST(req: NextRequest) {
         applicationId || null,
         unscopedOnly
       );
-      return NextResponse.json({ progress, noop: true });
+      return NextResponse.json({ progress: withWorkflowPhase(progress), noop: true });
     }
 
     if (config) {
@@ -615,7 +628,7 @@ export async function POST(req: NextRequest) {
       applicationId || null,
       unscopedOnly
     );
-    return NextResponse.json({ progress, postHireConversion });
+    return NextResponse.json({ progress: withWorkflowPhase(progress), postHireConversion });
   } catch (err: unknown) {
     if (err instanceof StepProgressConflictError) {
       return NextResponse.json({ error: err.message }, { status: 409 });
