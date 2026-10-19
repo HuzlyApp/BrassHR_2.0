@@ -146,7 +146,7 @@ function isPublicApiPath(pathname: string): boolean {
 /**
  * Refreshes Supabase Auth cookies; enforces login + `app_metadata.platform === nexus` for protected UI/APIs.
  */
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const url = getSupabaseUrl();
   const anon = getSupabaseAnonKey();
   const response = NextResponse.next({ request });
