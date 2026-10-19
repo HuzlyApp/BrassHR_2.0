@@ -9,6 +9,10 @@ import {
 import { loadTenantOnboardingConfig } from "@/lib/onboarding/load-tenant-config";
 import { loadApplicantConfigForJobToken } from "@/lib/onboarding/load-config-for-job-workflow";
 import { isPreviewOnboardingStepId } from "@/lib/onboarding/load-applicant-draft-config";
+import {
+  ensureJobWorkflowStepAnchors,
+  tenantStepToAnchorDraft,
+} from "@/lib/onboarding/ensure-job-workflow-step-anchors";
 import { normalizeJobToken } from "@/lib/jobs/public-application-routing";
 import { dispatchWorkflowIntegrationPartner } from "@/lib/onboarding/integration-partner-dispatch";
 import { notifyHrOnOnboardingStepFailure } from "@/lib/onboarding/notify-hr-on-step-failure";
@@ -167,14 +171,18 @@ export async function POST(req: NextRequest) {
 
     const candidateFacingStep = stepRow;
 
-    // Job workflows may surface preview-* ids for steps not in the last-published tenant config.
-    // Persist progress against the best matching published tenant step when needed.
+    // Job workflows may surface preview-* ids for steps that are not in the tenant catalog.
+    // Persist against a real step row so Skip / Continue can move to the next step.
     let persistStep = stepRow;
     if (stepRow && isPreviewOnboardingStepId(stepRow.id)) {
-      persistStep =
-        resolveOnboardingProgressStep(tenantConfig, {
-          stepKey: stepRow.step_key,
-        }) ?? stepRow;
+      const anchorBase = tenantConfig ?? config;
+      if (anchorBase) {
+        const anchored = await ensureJobWorkflowStepAnchors(supabase, anchorBase, [
+          tenantStepToAnchorDraft(stepRow),
+        ]);
+        persistStep =
+          resolveOnboardingProgressStep(anchored, { stepKey: stepRow.step_key }) ?? stepRow;
+      }
     }
 
     const stepId =

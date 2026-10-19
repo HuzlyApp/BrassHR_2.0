@@ -18,6 +18,7 @@ import {
   validatePublishedJobForApplication,
 } from "@/lib/jobs/validate-job-application";
 import type { OnboardingStepDraft } from "@/lib/onboarding/default-onboarding-steps";
+import { isPreviewOnboardingStepId } from "@/lib/onboarding/load-applicant-draft-config";
 import type {
   TenantOnboardingConfig,
   TenantOnboardingStep,
@@ -61,11 +62,36 @@ export function matchPublishedStepForJobDraft(
   const byKey = available.find((step) => step.step_key === draft.step_key);
   if (byKey) return byKey;
 
+  // Numbered keys and step-type guesses must not collapse two different library
+  // steps (for example Collect references and Background check) onto one row.
+  const sameLibrary = (step: TenantOnboardingStep) => {
+    const stepLibraryId = workflowStepId(step.metadata);
+    if (!draftWorkflowStepId || !stepLibraryId) return true;
+    return stepLibraryId === draftWorkflowStepId;
+  };
+
   const draftBase = draft.step_key.replace(/_\d+$/, "");
-  const byBaseKey = available.find((step) => step.step_key.replace(/_\d+$/, "") === draftBase);
+  const byBaseKey = available.find(
+    (step) => sameLibrary(step) && step.step_key.replace(/_\d+$/, "") === draftBase
+  );
   if (byBaseKey) return byBaseKey;
 
-  return available.find((step) => step.step_type === draft.step_type) ?? null;
+  return available.find((step) => sameLibrary(step) && step.step_type === draft.step_type) ?? null;
+}
+
+/** Drafts that have no real tenant step yet. Preview ids are not persistable progress targets. */
+export function unmatchedJobWorkflowDrafts(
+  publishedSteps: TenantOnboardingStep[],
+  drafts: OnboardingStepDraft[]
+): OnboardingStepDraft[] {
+  const realSteps = publishedSteps.filter((step) => !isPreviewOnboardingStepId(step.id));
+  const usedIds = new Set<string>();
+  return drafts.filter((draft) => {
+    const matched = matchPublishedStepForJobDraft(realSteps, draft, usedIds);
+    if (!matched) return true;
+    usedIds.add(matched.id);
+    return false;
+  });
 }
 
 /**
@@ -207,7 +233,15 @@ async function loadApplicantConfigFromFlow(
     );
   }
 
-  const fromFlow = configFromJobWorkflowDraft(published, flow.builderDraft);
+  const stepDrafts = workflowStateToStepDrafts(
+    enforceUploadResumeFirstInWorkflowState(flow.builderDraft, []),
+    []
+  ).filter((step) => step.is_enabled !== false);
+  const { ensureJobWorkflowStepAnchors } = await import(
+    "@/lib/onboarding/ensure-job-workflow-step-anchors"
+  );
+  const anchoredPublished = await ensureJobWorkflowStepAnchors(supabase, published, stepDrafts);
+  const fromFlow = configFromJobWorkflowDraft(anchoredPublished, flow.builderDraft);
   const candidatePreview = projectCandidateOnboardingConfig(fromFlow);
   if (!candidatePreview.steps.length) {
     throw new JobApplicationGateError(
