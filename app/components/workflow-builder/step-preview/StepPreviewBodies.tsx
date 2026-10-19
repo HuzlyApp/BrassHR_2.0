@@ -465,44 +465,50 @@ function ReferencesBody({ model, previewState }: { model: StepPreviewModel; prev
     typeof model.step.metadata.min_count === "number" ? model.step.metadata.min_count : 1;
   const sample = filled(previewState);
   const error = showError(previewState);
+  const fields: Array<{ label: string; value: string; placeholder?: string; required?: boolean }> = [
+    { label: "First Name", value: sample ? "Alex" : "", placeholder: "First Name", required: true },
+    { label: "Last Name", value: sample ? "Rivera" : "", placeholder: "Last Name", required: true },
+    { label: "Relationship", value: sample ? "Former supervisor" : "", placeholder: "Former supervisor", required: true },
+    { label: "Company", value: sample ? "Northwind Health" : "", required: true },
+    { label: "Job Title", value: sample ? "Charge Nurse" : "", required: true },
+    { label: "Years Known", value: sample ? "5" : "", placeholder: "e.g. 5 (0–80)" },
+    { label: "Phone", value: sample ? STEP_PREVIEW_SAMPLE.phone : "", placeholder: "(201) 555-5555", required: true },
+    { label: "Email", value: sample ? "alex.rivera@example.com" : "", required: true },
+  ];
   return (
     <>
       <PreviewPageHeader
-        title={model.step.title || "Add Reference"}
-        description={model.step.description || `Add at least ${minCount} complete professional reference.`}
+        title={model.step.title || "Collect references"}
+        description={
+          model.step.description ||
+          `Add at least ${minCount} complete professional reference${minCount === 1 ? "" : "s"} (up to 5).`
+        }
       />
       <div className="mt-4">
-        <p className="mb-3 text-[15px] font-bold text-slate-800">Reference 1</p>
-        <div className={`${APPLICANT_FORM_GRID} mb-3`}>
-          <PreviewField
-            label="First Name"
-            required
-            error={error}
-            value={sample ? "Alex" : ""}
-            placeholder="First Name"
-          />
-          <PreviewField
-            label="Last Name"
-            required
-            error={error}
-            value={sample ? "Rivera" : ""}
-            placeholder="Last Name"
-          />
+        <div className="mb-3 flex items-center justify-between">
+          <p className="text-[15px] font-bold text-slate-800">Reference 1</p>
+          <p className="text-[11px] font-medium text-rose-600">Required</p>
         </div>
         <div className={APPLICANT_FORM_GRID}>
-          <PreviewField
-            label="Phone"
-            required
-            error={error}
-            value={sample ? STEP_PREVIEW_SAMPLE.phone : ""}
-          />
-          <PreviewField
-            label="Email"
-            required
-            error={error}
-            value={sample ? "alex.rivera@example.com" : ""}
-          />
+          {fields.map((field) => (
+            <PreviewField
+              key={field.label}
+              label={field.label}
+              required={field.required}
+              error={error && field.required}
+              value={field.value}
+              placeholder={field.placeholder}
+            />
+          ))}
         </div>
+        <PreviewField
+          label="Notes"
+          value={sample ? "Worked together on the night shift." : ""}
+          placeholder="Optional"
+        />
+        <p className="mt-4 w-fit rounded-md border border-[color:var(--brand-primary)] px-4 py-1.5 text-[12px] font-medium text-[color:var(--brand-primary)]">
+          Add another reference
+        </p>
       </div>
       <PreviewActionRow primaryLabel="Save and Continue" />
     </>

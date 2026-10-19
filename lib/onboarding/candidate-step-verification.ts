@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { writeActivityLog } from "@/lib/audit/activity-log";
 import { autoConvertCandidateAfterAgreement } from "@/lib/onboarding/auto-convert-after-agreement";
 import { loadCandidateWorkflowStepInspection } from "@/lib/onboarding/candidate-workflow-step-inspection";
-import { isAgreementEsignStep } from "@/lib/onboarding/lock-post-hire";
+import { isAgreementEsignStep, isAuthorizationEsignStep } from "@/lib/onboarding/lock-post-hire";
 import { approveStepDocumentsOnCompletion } from "@/lib/onboarding/staff-step-documents";
 import {
   buildStaffReview,
@@ -47,7 +47,13 @@ export async function verifyCandidateStepSubmission(
       stepType: inspection.step.stepType,
       title: inspection.step.title,
     });
-  if (authorizationEsign && !inspection.agreement?.isSigned) {
+  const authorizationConfirmation = isAuthorizationEsignStep({
+    snapshotStepId: inspection.step.snapshotStepId,
+    stepKey: inspection.step.stepKey,
+    stepType: inspection.step.stepType,
+    title: inspection.step.title,
+  });
+  if (!authorizationConfirmation && authorizationEsign && !inspection.agreement?.isSigned) {
     return {
       ok: false,
       status: 409,
