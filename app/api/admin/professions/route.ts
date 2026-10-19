@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireStaffApiSession } from "@/lib/auth/api-session";
 import { requireWorkflowAdmin } from "@/lib/auth/workflow-admin";
 import { resolveEffectiveAdminTenantId } from "@/lib/email-templates/resolve-effective-tenant";
-import { addTenantProfession, listTenantProfessions } from "@/lib/professions/service";
+import { addTenantProfessionFromCatalog, listTenantProfessions } from "@/lib/professions/service";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 export const runtime = "nodejs";
@@ -54,9 +54,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No tenant selected" }, { status: 400 });
   }
 
-  const body = (await req.json().catch(() => ({}))) as { name?: string };
+  const body = (await req.json().catch(() => ({}))) as { catalogKey?: string };
   try {
-    const profession = await addTenantProfession(supabase, tenantId, body.name ?? "");
+    const profession = await addTenantProfessionFromCatalog(supabase, tenantId, body.catalogKey ?? "");
     return NextResponse.json({ profession });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Could not add profession";
