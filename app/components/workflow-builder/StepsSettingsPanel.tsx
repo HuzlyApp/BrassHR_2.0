@@ -150,6 +150,7 @@ export default function StepsSettingsPanel({
             <SettingsBody
               key={node.id}
               node={node}
+              workflowState={workflowState}
               onUpdate={onUpdate}
               onSaveStep={onSaveStep}
               onCloneWorkflow={onCloneWorkflow}
@@ -174,13 +175,21 @@ export default function StepsSettingsPanel({
 
 type SettingsBodyProps = {
   node: NonNullable<StepsSettingsPanelProps["node"]>;
+  workflowState: WorkflowState;
   onUpdate: StepsSettingsPanelProps["onUpdate"];
   onSaveStep?: StepsSettingsPanelProps["onSaveStep"];
   onCloneWorkflow?: StepsSettingsPanelProps["onCloneWorkflow"];
   readOnly?: boolean;
 };
 
-function SettingsBody({ node, onUpdate, onSaveStep, onCloneWorkflow, readOnly = false }: SettingsBodyProps) {
+function SettingsBody({
+  node,
+  workflowState,
+  onUpdate,
+  onSaveStep,
+  onCloneWorkflow,
+  readOnly = false,
+}: SettingsBodyProps) {
   const { settings } = node.data;
   const integrationEnabled = settings.useBraasPartner;
   const providerOptions = integrationEnabled
