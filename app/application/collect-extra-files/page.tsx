@@ -286,6 +286,23 @@ export default function CollectExtraFilesPage() {
     }
   };
 
+  const removeChecklistFile = async (uploadId: string) => {
+    try {
+      const applicantId = await resolveApplicantId();
+      if (!applicantId) return;
+      const res = await fetch("/api/onboarding/documents/upload", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ applicantId, uploadId, tenantSlug }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(json.error || "Failed to remove file");
+      await hydrateFromServer();
+    } catch (removeError) {
+      setError(removeError instanceof Error ? removeError.message : "Failed to remove file");
+    }
+  };
+
   const removeFile = async (fileUrl: string) => {
     try {
       const applicantId = await resolveApplicantId();
@@ -394,6 +411,7 @@ export default function CollectExtraFilesPage() {
                   }))
                 }
                 onUpload={(file) => void uploadChecklistFile(item, file)}
+                onRemove={(uploadId) => void removeChecklistFile(uploadId)}
               />
             ))}
 
@@ -554,6 +572,7 @@ function ChecklistRow({
   expiryDate,
   onDatesChange,
   onUpload,
+  onRemove,
 }: {
   serial: number;
   item: ChecklistItem;
@@ -563,9 +582,10 @@ function ChecklistRow({
   expiryDate: string;
   onDatesChange: (next: { issuedDate?: string; expiryDate?: string }) => void;
   onUpload: (file: File) => void;
+  onRemove: (uploadId: string) => void;
 }) {
   const inputId = useId();
-  const canAddMore = item.files.length < MAX_PROFESSION_DOCUMENT_FILES && !item.collectedOnIdentityStep;
+  const hasUpload = item.files.length > 0 || item.collected || item.collectedOnIdentityStep;
   const dateFocus = brandDateFocus(primaryHex);
 
   return (
@@ -617,15 +637,23 @@ function ChecklistRow({
               >
                 <BrandedSvgIcon src="/icons/pdf-icon.svg" className="h-5 w-5" color={primaryHex} />
               </span>
-              <span className="min-w-0 truncate text-sm font-semibold" style={{ color: primaryHex }}>
+              <span className="min-w-0 flex-1 truncate text-sm font-semibold" style={{ color: primaryHex }}>
                 {file.name}
               </span>
+              <button
+                type="button"
+                onClick={() => onRemove(file.id)}
+                className="ml-auto shrink-0 cursor-pointer rounded-md p-1 transition hover:bg-[color:var(--brand-primary)]/10"
+                aria-label={`Remove ${file.name}`}
+              >
+                <BrandedSvgIcon src="/icons/delete-icon.svg" className="h-7 w-7" color={primaryHex} />
+              </button>
             </li>
           ))}
         </ul>
       ) : null}
 
-      {item.hasExpiration && canAddMore ? (
+      {item.hasExpiration ? (
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className="block cursor-pointer space-y-1">
             <span className="text-[11px] font-medium text-slate-600">Issued date</span>
@@ -652,14 +680,14 @@ function ChecklistRow({
         </div>
       ) : null}
 
-      {canAddMore ? (
+      {hasUpload ? null : (
         <BrandedFileDropzone
           primaryHex={primaryHex}
           inputId={inputId}
           disabled={uploading}
           onFile={onUpload}
         />
-      ) : null}
+      )}
     </div>
   );
 }

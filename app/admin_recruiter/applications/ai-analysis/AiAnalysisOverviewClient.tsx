@@ -1482,9 +1482,9 @@ export function AiAnalysisOverviewClient({
                         </Link>
                         <Link
                           href={candidateHireJourneyHref(workerId)}
-                          className="inline-flex items-center justify-center rounded-lg border border-[#EAC5A8] bg-white px-4 py-1.5 text-sm font-semibold text-[#D6925A] shadow-sm transition hover:bg-[#FFF7F2]"
+                          className="inline-flex items-center justify-center rounded-lg border border-[color:var(--brand-secondary)] bg-[color:var(--brand-secondary)] px-4 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-95"
                         >
-                          Hire Journey
+                          Hiring Journey
                         </Link>
                       </div>
                     ) : null}
