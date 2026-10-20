@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildProgressStatusMaps,
   computeMaxAllowedStepIndexFromProgress,
+  findProgressRowForStep,
 } from "@/lib/onboarding/compute-max-allowed-from-progress";
 import { createDefaultOnboardingStepDrafts } from "@/lib/onboarding/default-onboarding-steps";
 import type { TenantOnboardingStep, WorkerOnboardingProgressPayload } from "@/lib/onboarding/types";
@@ -52,6 +53,7 @@ describe("buildProgressStatusMaps", () => {
 
     const map = buildProgressStatusMaps(steps, progress);
     expect(map.get(license.id)).toBe("completed");
+    expect(findProgressRowForStep(progress.steps, license)?.status).toBe("completed");
   });
 
   it("does not give a published step another step's status through a shared key", () => {

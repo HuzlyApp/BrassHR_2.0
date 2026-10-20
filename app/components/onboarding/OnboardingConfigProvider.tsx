@@ -26,6 +26,7 @@ import { safeFetchJson } from "@/lib/api/safe-fetch-json";
 import { useApplicantSession } from "@/lib/onboarding/applicant-session-context";
 import { normalizeJobToken } from "@/lib/jobs/public-application-routing";
 import { currentApplicationJobToken, rememberApplicationJobToken } from "@/lib/tenant/with-tenant";
+import { applySavedStepToProgress } from "@/lib/onboarding/apply-saved-step-progress";
 import type { ApplicantLifecyclePhase } from "@/lib/onboarding/workflow-phase";
 
 export type OnboardingConfigSource =
@@ -162,6 +163,8 @@ export default function OnboardingConfigProvider({ children }: { children: React
 
   const progressFetchSeq = useRef(0);
   const configFetchSeq = useRef(0);
+  const progressWriteSeq = useRef(0);
+  const latestProgressWrite = useRef(new Map<string, number>());
 
   const fetchProgress = useCallback(async (aid: string, slug: string) => {
     const requestId = ++progressFetchSeq.current;
@@ -351,7 +354,7 @@ export default function OnboardingConfigProvider({ children }: { children: React
     ) => {
       if (isDraftPreview) return;
       const aid = readApplicantId();
-      if (!aid) return;
+      if (!aid) throw new Error("Could not save your response.");
       const search = typeof window !== "undefined" ? window.location.search : "";
       const slug = resolveClientOnboardingTenantSlug(search);
       const preferredId = typeof stepId === "string" ? stepId.trim() : "";
@@ -363,6 +366,9 @@ export default function OnboardingConfigProvider({ children }: { children: React
         config?.steps.find((s) => s.step_key === stepKey) ??
         allWorkflowSteps.find((s) => s.step_key === stepKey);
       const jobToken = resolvedJobToken;
+      const savedStepId = matchedStep?.id || preferredId || stepKey;
+      const writeSeq = ++progressWriteSeq.current;
+      latestProgressWrite.current.set(savedStepId, writeSeq);
       const res = await fetch("/api/onboarding/progress/step", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -384,36 +390,35 @@ export default function OnboardingConfigProvider({ children }: { children: React
       if (!res.ok) {
         throw new Error(responsePayload.error || "Could not update onboarding progress.");
       }
+      if (latestProgressWrite.current.get(savedStepId) !== writeSeq) return;
+
+      const savedStep = {
+        stepId: matchedStep?.id || preferredId || savedStepId,
+        stepKey: matchedStep?.step_key || stepKey,
+        status,
+        data,
+      };
 
       if (responsePayload.progress) {
-        setProgress((prev) => ({
-          ...responsePayload.progress!,
-          workflowPhase: responsePayload.progress?.workflowPhase ?? prev?.workflowPhase,
-          applicationId: responsePayload.progress?.applicationId ?? prev?.applicationId,
-          applicationStatus: responsePayload.progress?.applicationStatus ?? prev?.applicationStatus,
-          submittedAt: responsePayload.progress?.submittedAt ?? prev?.submittedAt,
-        }));
+        setProgress((prev) => {
+          const merged = applySavedStepToProgress(
+            {
+              ...responsePayload.progress!,
+              workflowPhase: responsePayload.progress?.workflowPhase ?? prev?.workflowPhase,
+              applicationId: responsePayload.progress?.applicationId ?? prev?.applicationId,
+              applicationStatus: responsePayload.progress?.applicationStatus ?? prev?.applicationStatus,
+              submittedAt: responsePayload.progress?.submittedAt ?? prev?.submittedAt,
+            },
+            savedStep
+          );
+          return merged;
+        });
         setProgressHydrated(true);
         return;
       }
 
-      const step = matchedStep;
-      if (step) {
-        setProgress((prev) => {
-          if (!prev) return prev;
-          const rows = prev.steps.slice();
-          const idx = rows.findIndex((row) => row.onboarding_step_id === step.id);
-          const nextRow = {
-            onboarding_step_id: step.id,
-            step_key: step.step_key,
-            status,
-            completed_at: status === "completed" ? new Date().toISOString() : null,
-            data: data ?? rows[idx]?.data ?? {},
-          };
-          if (idx >= 0) rows[idx] = nextRow;
-          else rows.push(nextRow);
-          return { ...prev, steps: rows };
-        });
+      if (matchedStep || preferredId) {
+        setProgress((prev) => (prev ? applySavedStepToProgress(prev, savedStep) : prev));
         setProgressHydrated(true);
       }
     },
