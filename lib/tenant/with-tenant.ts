@@ -32,6 +32,19 @@ export function currentApplicationJobToken(): string | null {
   }
 }
 
+/** Keep the live application's job token so navigation that drops it from the URL stays on the job workflow. */
+export function rememberApplicationJobToken(token: string | null | undefined): void {
+  if (typeof window === "undefined") return;
+  const normalized = normalizeJobToken(token ?? null);
+  if (!normalized) return;
+  try {
+    if (isOnboardingDraftPreview(window.location.search)) return;
+    localStorage.setItem(APPLICATION_JOB_TOKEN_KEY, normalized);
+  } catch {
+    // storage unavailable; URL token still applies
+  }
+}
+
 /** Appends `?tenant=` (and preserves `job_token` when known) for applicant navigation. */
 export function withTenant(path: string, tenant?: string | null): string {
   const slug = tenant?.trim().toLowerCase();

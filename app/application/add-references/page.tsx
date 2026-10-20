@@ -14,10 +14,14 @@ import {
   useMarkStepInProgressIfPending,
 } from "@/lib/onboarding/use-mark-step-in-progress-if-pending"
 import { skipOnboardingStep } from "@/lib/onboarding/skip-onboarding-step"
-import { resolveLegacyAddReferencesTarget } from "@/lib/onboarding/legacy-add-references-redirect"
+import {
+  isReferencesWorkflowStep,
+  resolveLegacyAddReferencesTarget,
+} from "@/lib/onboarding/legacy-add-references-redirect"
 import { ensureApplicantWorker } from "@/lib/onboarding/ensure-applicant-worker"
 import { isDraftPreviewApplicantId, isOnboardingDraftPreview } from "@/lib/onboarding/is-draft-preview"
 import { resolveClientOnboardingTenantSlug } from "@/lib/tenant/client-onboarding-slug"
+import { supabaseBrowser } from "@/lib/supabase-browser"
 import { formatPhoneNumber, normalizePhoneInput } from "@/lib/phone"
 import { PERSON_NAME_MAX_LENGTH } from "@/lib/person-name"
 import {
@@ -70,6 +74,26 @@ function loadRefsFromStorage(): RefRow[] {
   return [emptyReferenceRow()]
 }
 
+/** References already saved for the signed-in applicant, e.g. when they return on another device. */
+async function loadSavedReferences(): Promise<RefRow[]> {
+  try {
+    const tenantSlug = resolveClientOnboardingTenantSlug(window.location.search)
+    if (!tenantSlug) return []
+    const { data } = await supabaseBrowser.auth.getSession()
+    const token = data.session?.access_token
+    // Without a session, the continuation-link cookie identifies the applicant.
+    const res = await fetch(
+      `/api/onboarding/worker-references?tenant=${encodeURIComponent(tenantSlug)}`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : undefined, cache: "no-store" },
+    )
+    if (!res.ok) return []
+    const json = (await res.json().catch(() => ({}))) as { references?: RefRow[] }
+    return Array.isArray(json.references) ? json.references : []
+  } catch {
+    return []
+  }
+}
+
 export default function ReferencesPage() {
   const branding = useTenantBranding()
   const router = useRouter()
@@ -80,8 +104,8 @@ export default function ReferencesPage() {
   const [redirecting, setRedirecting] = useState(false)
 
   const referencesStep =
-    nav.currentStep ??
-    nav.enabledSteps?.find((s) => s.step_type === "references" || s.step_key === "references") ??
+    (nav.currentStep && isReferencesWorkflowStep(nav.currentStep) ? nav.currentStep : null) ??
+    nav.enabledSteps?.find((step) => isReferencesWorkflowStep(step)) ??
     null
 
   const minCount = useMemo(() => {
@@ -124,6 +148,24 @@ export default function ReferencesPage() {
   }, [nav.configLoading, search])
 
   useEffect(() => {
+    if (nav.configLoading || isOnboardingDraftPreview(search)) return
+    let cancelled = false
+    void (async () => {
+      const saved = await loadSavedReferences()
+      if (cancelled || !saved.length) return
+      setRefs((current) => {
+        const blank = current.every((row) =>
+          Object.values(row).every((value) => !String(value ?? "").trim()),
+        )
+        return blank ? saved.slice(0, 5).map((row) => ({ ...emptyReferenceRow(), ...row })) : current
+      })
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [nav.configLoading, search])
+
+  useEffect(() => {
     const t = window.setTimeout(() => {
       try {
         setAutosaveState("saving")
@@ -161,10 +203,7 @@ export default function ReferencesPage() {
       step: referencesStep,
       updateStepStatus: nav.updateStepStatus,
       completingRef,
-      onNavigate: () => {
-        if (nav.nextRoute) nav.push(nav.nextRoute)
-        else router.push(applicationPath(APPLICATION_ROUTES.applicationSummary))
-      },
+      onNavigate: () => nav.goNext("skipped"),
     })
   }
 
@@ -268,11 +307,7 @@ export default function ReferencesPage() {
       }
     }
 
-    if (nav.nextRoute) {
-      nav.push(nav.nextRoute)
-    } else {
-      router.push(applicationPath(APPLICATION_ROUTES.applicationSummary))
-    }
+    nav.goNext()
     setSaving(false)
   }
 

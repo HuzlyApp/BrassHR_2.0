@@ -2,7 +2,9 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import type { Session } from "@supabase/supabase-js";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { getBrowserSession, isAuthLockContentionError } from "@/lib/auth/browser-session";
 import { recruiterLogoutLoginHref } from "@/lib/auth/recruiter-sign-in";
 
 /**
@@ -18,9 +20,17 @@ export function AdminStaffAuthGuard({ children }: { children: ReactNode }) {
     let cancelled = false;
 
     const verify = async () => {
-      const {
-        data: { session },
-      } = await supabaseBrowser.auth.getSession();
+      let session: Session | null;
+      try {
+        session = await getBrowserSession();
+      } catch (error) {
+        // Unreadable is not signed out: check again shortly instead of logging out.
+        if (!isAuthLockContentionError(error)) {
+          console.warn("[admin-staff-auth-guard] could not read session", error);
+        }
+        if (!cancelled) setTimeout(() => void verify(), 2000);
+        return;
+      }
       const user = session?.user;
 
       if (!user?.id || user.is_anonymous === true) {
@@ -38,7 +48,8 @@ export function AdminStaffAuthGuard({ children }: { children: ReactNode }) {
     const {
       data: { subscription },
     } = supabaseBrowser.auth.onAuthStateChange(() => {
-      void verify();
+      // Defer: auth-js runs this callback while holding its session lock.
+      setTimeout(() => void verify(), 0);
     });
 
     return () => {

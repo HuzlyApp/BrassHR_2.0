@@ -9,6 +9,7 @@ import {
   type OnboardingFlowStatus,
 } from "@/lib/onboarding/onboarding-flows";
 import { requireWorkflowAdmin } from "@/lib/auth/workflow-admin";
+import { resolveFlowProfessionId } from "@/lib/professions/service";
 
 export const runtime = "nodejs";
 
@@ -71,6 +72,8 @@ type CreateBody = {
   templateId?: string | null;
   createAsBlank?: boolean;
   status?: OnboardingFlowStatus;
+  employmentType?: string | null;
+  professionId?: string | null;
 };
 
 export async function POST(req: NextRequest) {
@@ -105,6 +108,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Flow name is required" }, { status: 400 });
     }
 
+    const professionRef = body.professionId?.trim() || "";
+    const professionId = professionRef
+      ? await resolveFlowProfessionId(supabase, tenantId, professionRef)
+      : null;
+
     const flow = await createOnboardingFlow(supabase as OnboardingDbClient, tenantId, {
       name,
       libraryId: body.libraryId ?? null,
@@ -112,6 +120,8 @@ export async function POST(req: NextRequest) {
       createAsBlank: body.createAsBlank === true,
       status: body.status,
       createdBy: auth.userId,
+      employmentType: body.employmentType ?? null,
+      professionId,
     });
 
     return NextResponse.json({ flow });
@@ -122,7 +132,11 @@ export async function POST(req: NextRequest) {
         : typeof err === "object" && err && "message" in err
           ? String((err as { message: unknown }).message)
           : "Failed to create flow";
-    const status = msg.includes("already exists") ? 409 : 500;
+    const status = msg.includes("already exists")
+      ? 409
+      : msg.toLowerCase().includes("profession")
+        ? 400
+        : 500;
     console.error("[onboarding-flows POST]", err);
     return NextResponse.json({ error: msg }, { status });
   }

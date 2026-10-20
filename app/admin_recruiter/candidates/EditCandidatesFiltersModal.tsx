@@ -8,6 +8,7 @@ import { brandingToCssVars } from "@/lib/tenant/tenant-branding";
 import { CANDIDATES_PAGE_SUBTITLE_STYLE } from "./candidates-typography";
 import { MatchScoreRangeFilter } from "./MatchScoreRangeFilter";
 import { FilterChipInput } from "@/app/admin_recruiter/components/FilterChipInput";
+import { GroupedFilterOptions } from "@/app/admin_recruiter/components/GroupedStatusMenu";
 import { UNASSIGNED_ASSIGNEE_FILTER } from "@/lib/candidates/assignee-filter";
 
 export type CandidatesFilterValues = {
@@ -82,7 +83,14 @@ export function countActiveCandidatesFilters(value: CandidatesFilterValues): num
 type FilterOptions = {
   jobRoleOptions: string[];
   statusOptions: string[];
-  progressStatusOptions?: { value: string; label: string }[];
+  progressStatusOptions?: {
+    value: string;
+    label: string;
+    sortOrder?: number;
+    groupName?: string | null;
+    groupDescription?: string | null;
+    groupSortOrder?: number | null;
+  }[];
   locationOptions: string[];
   clientNameOptions?: string[];
   assigneeOptions?: { value: string; label: string }[];
@@ -249,11 +257,7 @@ export function EditCandidatesFiltersModal({
                 onChange={(v) => setField("progressStatusFilter", v)}
                 placeholder="All Progress Status"
               >
-                {(options.progressStatusOptions ?? []).map((status) => (
-                  <option key={status.value} value={status.value}>
-                    {status.label}
-                  </option>
-                ))}
+                <GroupedFilterOptions options={options.progressStatusOptions ?? []} />
               </ModalFilterField>
 
               <ModalFilterField

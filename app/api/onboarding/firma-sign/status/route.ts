@@ -12,10 +12,13 @@ import { resolveDraftPreviewFirmaSignerEmail } from "@/lib/onboarding/is-draft-p
 import { ensureWorkerOnboardingProgress } from "@/lib/onboarding/ensure-worker-progress";
 import { resolveFirmaOnboardingContext } from "@/lib/onboarding/resolve-firma-onboarding-context";
 import { resolveApplicantSigningProfile } from "@/lib/onboarding/resolve-applicant-signing-profile";
+import { tryGetFirmaSigningRequestDownload } from "@/lib/firma/client";
+import { resolveTenantFirmaWorkspaceId } from "@/lib/firma/resolve-tenant-workspace";
 import {
   E_SIGNATURE_USER_ERRORS,
   sanitizeESignatureUserMessage,
 } from "@/lib/e-signature/user-facing";
+import { notifyRecruiterOnAgreementStepCompletion } from "@/lib/onboarding/notify-recruiter-on-agreement-step";
 
 export const runtime = "nodejs";
 
@@ -73,10 +76,19 @@ export async function GET(req: NextRequest) {
       const onboardingStatus = mapFirmaStatusToOnboardingStatus(session.firma_status);
       const completed = shouldCompleteOnboardingStepFromFirmaStatus(session.firma_status);
 
+      let draftDownloadUrl: string | null = null;
+      if (completed && session.signing_request_id) {
+        const wsId = await resolveTenantFirmaWorkspaceId(supabase, resolved.tenantId).catch(() => null);
+        if (wsId) {
+          draftDownloadUrl = await tryGetFirmaSigningRequestDownload(session.signing_request_id, wsId);
+        }
+      }
+
       return NextResponse.json({
         session,
         onboarding_status: onboardingStatus,
         completed,
+        download_url: draftDownloadUrl,
       });
     }
 
@@ -138,11 +150,24 @@ export async function GET(req: NextRequest) {
         ? (existingRow.data as Record<string, unknown>)
         : {};
 
-    const nextData = {
+    let downloadUrl: string | null = (previousData.download_url as string) || (previousData.signed_document_url as string) || null;
+    if (completed && session.signing_request_id && !downloadUrl) {
+      try {
+        const wsId = await resolveTenantFirmaWorkspaceId(supabase, resolved.tenantId).catch(() => null);
+        if (wsId) {
+          downloadUrl = await tryGetFirmaSigningRequestDownload(session.signing_request_id, wsId);
+        }
+      } catch {
+        /* best effort fetch */
+      }
+    }
+
+    const nextData: Record<string, unknown> = {
       ...previousData,
       signing_provider: "firma",
       signing_request_id: session.signing_request_id,
       firma_status: session.firma_status,
+      ...(downloadUrl ? { download_url: downloadUrl, signed_document_url: downloadUrl } : {}),
     };
 
     const nextStatus =
@@ -152,14 +177,24 @@ export async function GET(req: NextRequest) {
           ? existingRow.status
           : "in_progress";
 
+    const wasAlreadyCompleted =
+      existingRow?.status === "completed" ||
+      Boolean(existingRow?.completed_at) ||
+      Boolean(previousData?.recruiter_notified_at);
+
+    const effectiveCompletedAt =
+      existingRow?.completed_at ?? (completed ? new Date().toISOString() : null);
+
+    if (completed && !wasAlreadyCompleted) {
+      nextData.recruiter_notified_at = new Date().toISOString();
+    }
+
     if (existingRow) {
       const { error: upErr } = await supabase
         .from("worker_onboarding_step_progress")
         .update({
           status: nextStatus,
-          completed_at: completed
-            ? new Date().toISOString()
-            : existingRow.completed_at ?? null,
+          completed_at: effectiveCompletedAt,
           data: nextData,
           updated_at: new Date().toISOString(),
         })
@@ -174,16 +209,34 @@ export async function GET(req: NextRequest) {
         tenant_id: resolved.tenantId,
         onboarding_step_id: resolved.step.id,
         status: nextStatus,
-        completed_at: completed ? new Date().toISOString() : null,
+        completed_at: effectiveCompletedAt,
         data: nextData,
       });
       if (insErr) throw insErr;
+    }
+
+    if (completed && !wasAlreadyCompleted) {
+      try {
+        await notifyRecruiterOnAgreementStepCompletion(supabase, {
+          tenantId: resolved.tenantId,
+          workerId,
+          applicationId: applicationId || null,
+          step: resolved.step,
+          stepKey: resolved.step.step_key,
+          data: nextData,
+          origin: req.nextUrl.origin,
+          request: req,
+        });
+      } catch (notifyError) {
+        console.warn("[onboarding/firma-sign/status] recruiter agreement notification failed", notifyError);
+      }
     }
 
     return NextResponse.json({
       session,
       onboarding_status: onboardingStatus,
       completed,
+      download_url: downloadUrl,
     });
   } catch (err: unknown) {
     if (err instanceof FirmaOnboardingSigningError) {

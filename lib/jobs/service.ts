@@ -56,7 +56,7 @@ import type { ServiceAreaLocation } from "@/lib/service-area/types";
 import { resolveWorkflowMatch } from "@/lib/workflow-mappings/service";
 import { ensureAdminCandidateWorker } from "@/lib/jobs/ensure-admin-candidate-worker";
 import { getOnboardingFlowById } from "@/lib/onboarding/onboarding-flows";
-import { stampHireStageOnStepSettings } from "@/lib/onboarding/hire-stage-catalog";
+import { buildStepRecordRow, snapshotNodes } from "@/lib/onboarding/sync-workflow-instances";
 import {
   jobScreeningQuestionToInput,
   loadJobScreeningQuestions,
@@ -704,6 +704,7 @@ export async function saveJobRequisition(
     if (error) throwJobWriteError(error);
     const savedJobId = String(data.id);
 
+    let matchReanalysisScheduled = 0;
     if (
       jobRequirementsSourceFieldsChanged(existingJobForMatchInvalidation, {
         public_title: jobRow.public_title,
@@ -718,11 +719,22 @@ export async function saveJobRequisition(
         specialty: existingJobForMatchInvalidation?.specialty ?? null,
       })
     ) {
-      await invalidateMatchCachesForJobDescriptionChange({
+      const invalidated = await invalidateMatchCachesForJobDescriptionChange({
         supabase,
         tenantId,
         jobRequisitionId: savedJobId,
       });
+      if (data.ai_match_enabled !== false && invalidated.applicationIds.length > 0) {
+        const { scheduleReanalysisAfterJobDescriptionChange } = await import(
+          "@/lib/jobs/match-analysis/auto-quick-match"
+        );
+        matchReanalysisScheduled = scheduleReanalysisAfterJobDescriptionChange({
+          supabase,
+          tenantId,
+          jobApplicationIds: invalidated.applicationIds,
+          analyzedByUserId: actorUserId,
+        });
+      }
     }
 
     const screeningQuestions =
@@ -738,6 +750,7 @@ export async function saveJobRequisition(
       job: data,
       workflow: match,
       screeningQuestions: screeningQuestions.map(jobScreeningQuestionToInput),
+      matchReanalysisScheduled,
     };
   }
 
@@ -1842,33 +1855,11 @@ export async function startOrResumeJobApplication(
     throw instanceError ?? new Error("Failed to create applicant workflow instance.");
   }
 
-  const nodes = Array.isArray((snapshot as { nodes?: unknown[] }).nodes)
-    ? ((snapshot as { nodes: Array<Record<string, unknown>> }).nodes ?? [])
-    : [];
+  const nodes = snapshotNodes(snapshot);
   if (nodes.length) {
-    const stepRows = nodes.map((node, index) => {
-      const settings =
-        node.settings && typeof node.settings === "object"
-          ? (node.settings as Record<string, unknown>)
-          : {};
-      const phase =
-        typeof settings.phase === "string"
-          ? settings.phase
-          : typeof node.phase === "string"
-            ? node.phase
-            : "pre_hire";
-      const stepType = String(node.stepId ?? "custom");
-      return {
-        tenant_id: input.tenantId,
-        workflow_instance_id: instance.id,
-        snapshot_step_id: String(node.id ?? `step-${index + 1}`),
-        position: index + 1,
-        title: String(node.label ?? `Step ${index + 1}`),
-        step_type: stepType,
-        is_required: node.required === true,
-        settings: stampHireStageOnStepSettings(stepType, { ...settings, phase }),
-      };
-    });
+    const stepRows = nodes.map((node, index) =>
+      buildStepRecordRow(input.tenantId, instance.id, node, index)
+    );
     const { error: stepsError } = await supabase
       .from("applicant_workflow_step_records")
       .insert(stepRows);
@@ -1956,33 +1947,11 @@ export async function attachWorkflowInstanceToApplication(
     throw instanceError ?? new Error("Failed to create applicant workflow instance.");
   }
 
-  const nodes = Array.isArray((snapshot as { nodes?: unknown[] }).nodes)
-    ? ((snapshot as { nodes: Array<Record<string, unknown>> }).nodes ?? [])
-    : [];
+  const nodes = snapshotNodes(snapshot);
   if (nodes.length) {
-    const stepRows = nodes.map((node, index) => {
-      const settings =
-        node.settings && typeof node.settings === "object"
-          ? (node.settings as Record<string, unknown>)
-          : {};
-      const phase =
-        typeof settings.phase === "string"
-          ? settings.phase
-          : typeof node.phase === "string"
-            ? node.phase
-            : "pre_hire";
-      const stepType = String(node.stepId ?? "custom");
-      return {
-        tenant_id: input.tenantId,
-        workflow_instance_id: instance.id,
-        snapshot_step_id: String(node.id ?? `step-${index + 1}`),
-        position: index + 1,
-        title: String(node.label ?? `Step ${index + 1}`),
-        step_type: stepType,
-        is_required: node.required === true,
-        settings: stampHireStageOnStepSettings(stepType, { ...settings, phase }),
-      };
-    });
+    const stepRows = nodes.map((node, index) =>
+      buildStepRecordRow(input.tenantId, instance.id, node, index)
+    );
     const { error: stepsError } = await supabase
       .from("applicant_workflow_step_records")
       .insert(stepRows);
@@ -2021,6 +1990,40 @@ export type CreateAdminCandidateInput = {
  * Admin "Add candidate": create/update applicant_profiles + job_applications (status new)
  * so the candidate appears in the job's candidates listing.
  */
+/** Active (not rejected/withdrawn) application for this applicant profile on this job, if any. */
+export async function findActiveApplicationForJob(
+  supabase: DbClient,
+  input: { tenantId: string; jobRequisitionId: string; applicantProfileId: string }
+): Promise<{ id: string; worker_id: string | null } | null> {
+  const { data, error } = await supabase
+    .from("job_applications")
+    .select("id, worker_id")
+    .eq("tenant_id", input.tenantId)
+    .eq("job_requisition_id", input.jobRequisitionId)
+    .eq("applicant_profile_id", input.applicantProfileId)
+    .not("status", "in", '("rejected","withdrawn")')
+    .maybeSingle();
+  if (error) throw error;
+  if (!data?.id) return null;
+  return {
+    id: String(data.id),
+    worker_id: data.worker_id != null ? String(data.worker_id) : null,
+  };
+}
+
+async function assertNoActiveApplicationForJob(
+  supabase: DbClient,
+  input: { tenantId: string; jobRequisitionId: string; applicantProfileId: string }
+): Promise<void> {
+  if (await findActiveApplicationForJob(supabase, input)) {
+    throw new JobValidationError(
+      "This candidate already has an application for this job.",
+      { email: "A candidate with this email already applied for this job." },
+      "DUPLICATE_APPLICATION"
+    );
+  }
+}
+
 export async function createAdminJobApplication(
   supabase: DbClient,
   input: CreateAdminCandidateInput
@@ -2138,6 +2141,14 @@ export async function createAdminJobApplication(
 
   let profileId = existingProfile?.id ? String(existingProfile.id) : null;
   let linkedWorkerId = existingProfile?.worker_id ? String(existingProfile.worker_id) : null;
+  // Reject duplicates before touching the profile so a retried add cannot repoint resume_path.
+  if (profileId) {
+    await assertNoActiveApplicationForJob(supabase, {
+      tenantId: input.tenantId,
+      jobRequisitionId: String(job.id),
+      applicantProfileId: profileId,
+    });
+  }
   if (!profileId) {
     const { data: profile, error: profileError } = await supabase
       .from("applicant_profiles")
@@ -2182,22 +2193,11 @@ export async function createAdminJobApplication(
     );
   }
 
-  const { data: existingApplication, error: existingError } = await supabase
-    .from("job_applications")
-    .select("id, status, applicant_workflow_instance_id")
-    .eq("tenant_id", input.tenantId)
-    .eq("job_requisition_id", job.id)
-    .eq("applicant_profile_id", profileId)
-    .not("status", "in", '("rejected","withdrawn")')
-    .maybeSingle();
-  if (existingError) throw existingError;
-  if (existingApplication) {
-    throw new JobValidationError(
-      "This candidate already has an application for this job.",
-      { email: "A candidate with this email already applied for this job." },
-      "DUPLICATE_APPLICATION"
-    );
-  }
+  await assertNoActiveApplicationForJob(supabase, {
+    tenantId: input.tenantId,
+    jobRequisitionId: String(job.id),
+    applicantProfileId: profileId,
+  });
 
   const nowIso = new Date().toISOString();
   const { data: application, error: applicationError } = await supabase

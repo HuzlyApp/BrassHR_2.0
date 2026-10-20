@@ -3,7 +3,12 @@ import { isCandidateAlreadyConverted } from "@/lib/admin/convert-candidate-to-wo
 import type { AdminAttachmentRequirement } from "@/lib/onboarding/build-admin-attachment-requirements";
 import { loadAdminAttachmentRequirements } from "@/lib/onboarding/load-admin-attachment-requirements";
 import { loadTenantOnboardingConfig } from "@/lib/onboarding/load-tenant-config";
-import { canRevealPostHire } from "@/lib/onboarding/lock-post-hire";
+import {
+  canRevealPostHire,
+  canRevealPostHireForStaffJourney,
+  hasCompletedAgreementEsignStep,
+} from "@/lib/onboarding/lock-post-hire";
+
 import { resolveCandidateHireGate } from "@/lib/onboarding/resolve-candidate-hire-gate";
 import {
   type EmploymentJourneyStage,
@@ -12,15 +17,37 @@ import {
   resolveEmploymentJourneyStage,
 } from "@/lib/onboarding/workflow-phase-groups";
 import {
+  ASSIGNED_STEP_RECORD_COLUMNS,
   type CandidateWorkflowAssignmentView,
   type MappedAssignedStep,
-  type ProgressRowInput,
   buildPhaseAssignment,
   countsFromAssignedSteps,
+  enrichAssignedStepsDisplayFromEvidence,
+  hasRequiredIdentityDocuments,
   mapAssignedStepRecords,
   resolveAssignmentSource,
   sanitizeTagsForClient,
+  toAssignedStepRecordInput,
 } from "@/lib/onboarding/assigned-workflow-steps";
+import {
+  SCOPED_STEP_PROGRESS_SELECT,
+  type ScopedProgressRow,
+  loadApplicationProgressIds,
+  pickStepProgressRows,
+} from "@/lib/onboarding/scoped-step-progress";
+import { carryOverReplacedStepProgressSafely } from "@/lib/onboarding/replaced-step-progress";
+import {
+  RECRUITER_SCREENING_STEP_TYPE,
+  applicationQuickMatchRan,
+  applyQuickMatchScreeningProgress,
+} from "@/lib/onboarding/recruiter-screening-progress";
+import { isParameterizedJobApplicationStepType } from "@/lib/onboarding/job-application-parameters";
+import { loadJobApplicationStepView } from "@/lib/onboarding/job-application-step";
+import { applyParameterizedJobApplicationStepEvidence } from "@/lib/onboarding/parameterized-job-application-progress";
+import {
+  syncActiveWorkflowInstancesSafely,
+  workflowDraftHasNewSteps,
+} from "@/lib/onboarding/sync-workflow-instances";
 
 export type { CandidateWorkflowAssignmentView } from "@/lib/onboarding/assigned-workflow-steps";
 
@@ -55,6 +82,8 @@ export type CandidateWorkflowPhaseView = {
   hiredAt: string | null;
   hiredBy: string | null;
   postHireVisible: boolean;
+  /** False when the assigned workflow has no post-hire steps, so staff UI hides Post-Hire entirely. */
+  workflowHasPostHireSteps: boolean;
   postHireUnlocked: boolean;
   postHireLocked: boolean;
   postHireSuspended: boolean;
@@ -86,6 +115,66 @@ function instanceHasPhase(
   return records.some((row) => row.phase === phase);
 }
 
+/**
+ * A Manual Task / HR Action added on the canvas (and renamed, for example to
+ * "Recruiter Offer Call") is missing from hire journey until the candidate's
+ * step records include that node. Pull those steps from the saved flow.
+ */
+async function syncMissingFlowSteps(
+  supabase: SupabaseClient,
+  params: {
+    tenantId: string;
+    instances: Array<Record<string, unknown>>;
+    records: Array<Record<string, unknown>>;
+  }
+): Promise<boolean> {
+  const active =
+    params.instances.find((row) => assignmentStateOf(row.assignment_state ?? row.status) === "active") ??
+    params.instances[0] ??
+    null;
+  const activeId = asText(active?.id);
+  const flowId = asText(active?.workflow_id) ?? asText(active?.onboarding_flow_id);
+  if (!activeId || !flowId) return false;
+
+  const { data: flow, error } = await supabase
+    .from("onboarding_flows")
+    .select("name, builder_draft")
+    .eq("tenant_id", params.tenantId)
+    .eq("id", flowId)
+    .maybeSingle();
+  if (error || !flow?.builder_draft) return false;
+
+  const recordIds = params.records
+    .filter((row) => asText(row.workflow_instance_id) === activeId)
+    .map((row) => asText(row.snapshot_step_id))
+    .filter((id): id is string => Boolean(id));
+  if (!workflowDraftHasNewSteps(recordIds, flow.builder_draft)) return false;
+
+  await syncActiveWorkflowInstancesSafely(supabase, {
+    tenantId: params.tenantId,
+    flowId,
+    draft: flow.builder_draft,
+    flowName: asText(flow.name),
+  });
+  return true;
+}
+
+async function loadStepRecords(
+  supabase: SupabaseClient,
+  tenantId: string,
+  instanceIds: string[]
+): Promise<Array<Record<string, unknown>>> {
+  if (!instanceIds.length) return [];
+  const { data, error } = await supabase
+    .from("applicant_workflow_step_records")
+    .select(ASSIGNED_STEP_RECORD_COLUMNS)
+    .eq("tenant_id", tenantId)
+    .in("workflow_instance_id", instanceIds)
+    .order("position", { ascending: true });
+  if (error && !/does not exist/i.test(error.message)) throw error;
+  return (data ?? []) as Array<Record<string, unknown>>;
+}
+
 export async function loadCandidateWorkflowPhaseView(
   supabase: SupabaseClient,
   params: {
@@ -104,7 +193,18 @@ export async function loadCandidateWorkflowPhaseView(
 ): Promise<CandidateWorkflowPhaseView> {
   const { workerId, tenantId } = params;
 
-  const [applicationsRes, instancesRes, workerRes, config, progressRes, mappingsRes] = await Promise.all([
+  await carryOverReplacedStepProgressSafely(supabase, { tenantId, workerId });
+
+  const [
+    applicationsRes,
+    instancesRes,
+    workerRes,
+    config,
+    progressRes,
+    mappingsRes,
+    resumeRes,
+    identityDocsRes,
+  ] = await Promise.all([
     supabase
       .from("job_applications")
       .select(
@@ -130,10 +230,19 @@ export async function loadCandidateWorkflowPhaseView(
     loadTenantOnboardingConfig(supabase, tenantId, { workerFacing: false }),
     supabase
       .from("worker_onboarding_step_progress")
-      .select("onboarding_step_id, status, completed_at, created_at, updated_at, data")
+      .select(SCOPED_STEP_PROGRESS_SELECT)
       .eq("tenant_id", tenantId)
       .eq("worker_id", workerId),
     supabase.from("workflow_mappings").select("workflow_id").eq("tenant_id", tenantId).eq("is_active", true),
+    supabase
+      .from("worker_resumes")
+      .select("id, uploaded_at, storage_path, file_url")
+      .eq("tenant_id", tenantId)
+      .eq("worker_id", workerId)
+      .is("deleted_at", null)
+      .order("uploaded_at", { ascending: false })
+      .limit(1),
+    supabase.from("worker_documents").select("*").eq("worker_id", workerId).limit(1),
   ]);
 
   if (applicationsRes.error && !/hired_at|post_hire_suspended_at|does not exist/i.test(applicationsRes.error.message)) {
@@ -155,33 +264,23 @@ export async function loadCandidateWorkflowPhaseView(
   const postHireActivationFailed = hireGate.postHireActivationFailed;
 
   const workerRow = (workerRes.data ?? {}) as Record<string, unknown>;
-  const postHireVisible = canRevealPostHire({
+  const convertedVisible = canRevealPostHire({
     workerStatus: asText(workerRow.status),
     convertedAt: asText(workerRow.converted_at),
     convertedWorkerId: asText(workerRow.converted_worker_id),
     conversionStatus: asText(workerRow.conversion_status),
   });
 
-  const progressByStepId = new Map<string, ProgressRowInput>();
-  for (const row of (progressRes.data ?? []) as ProgressRowInput[]) {
-    const id = asText(row.onboarding_step_id);
-    if (!id) continue;
-    progressByStepId.set(id, row);
-  }
-
   const instanceIds = instances.map((row) => asText(row.id)).filter((id): id is string => Boolean(id));
-  let stepRecords: Array<Record<string, unknown>> = [];
-  if (instanceIds.length) {
-    const { data, error } = await supabase
-      .from("applicant_workflow_step_records")
-      .select(
-        "id, workflow_instance_id, snapshot_step_id, title, step_type, is_required, status, position, phase, settings, completed_at, created_at"
-      )
-      .eq("tenant_id", tenantId)
-      .in("workflow_instance_id", instanceIds)
-      .order("position", { ascending: true });
-    if (error && !/does not exist/i.test(error.message)) throw error;
-    stepRecords = (data ?? []) as Array<Record<string, unknown>>;
+  let stepRecords = await loadStepRecords(supabase, tenantId, instanceIds);
+  const synced = await syncMissingFlowSteps(supabase, { tenantId, instances, records: stepRecords }).catch(
+    (error) => {
+      console.warn("[workflow-phases] could not add new workflow steps", error);
+      return false;
+    }
+  );
+  if (synced) {
+    stepRecords = await loadStepRecords(supabase, tenantId, instanceIds);
   }
 
   const activeInstance =
@@ -190,40 +289,65 @@ export async function loadCandidateWorkflowPhaseView(
     null;
   const activeInstanceId = asText(activeInstance?.id);
   const activeRecords = stepRecords.filter((row) => asText(row.workflow_instance_id) === activeInstanceId);
+  const activeApplicationId =
+    asText(activeInstance?.application_id) ??
+    asText(
+      applications.find(
+        (row) => activeInstanceId && asText(row.applicant_workflow_instance_id) === activeInstanceId
+      )?.id
+    );
+  const progressByStepId = pickStepProgressRows(
+    (progressRes.data ?? []) as ScopedProgressRow[],
+    await loadApplicationProgressIds(supabase, {
+      tenantId,
+      workerId,
+      applicationId: activeApplicationId,
+    })
+  );
 
-  const tenantSteps = (config?.steps ?? []).filter((step) => step.is_enabled);
-  const mappedSteps = mapAssignedStepRecords({
-    records: activeRecords.map((row) => ({
-      id: String(row.id),
-      snapshot_step_id: String(row.snapshot_step_id ?? ""),
-      title: String(row.title ?? "Step"),
-      step_type: String(row.step_type ?? "custom-step"),
-      is_required: row.is_required !== false,
-      status: asText(row.status),
-      position: typeof row.position === "number" ? row.position : 0,
-      phase: asText(row.phase),
-      settings:
-        row.settings && typeof row.settings === "object" && !Array.isArray(row.settings)
-          ? (row.settings as Record<string, unknown>)
-          : {},
-      completed_at: asText(row.completed_at),
-      created_at: asText(row.created_at),
-    })),
+  const tenantSteps = config?.steps ?? [];
+  const latestResume = ((resumeRes.data ?? []) as Array<Record<string, unknown>>)[0] ?? null;
+  const hasResumeUpload = Boolean(
+    params.resumeUrl?.trim() ||
+      params.resumePath?.trim() ||
+      asText(latestResume?.storage_path) ||
+      asText(latestResume?.file_url) ||
+      asText(latestResume?.id)
+  );
+
+  let mappedSteps = mapAssignedStepRecords({
+    records: activeRecords.map(toAssignedStepRecordInput),
     tenantSteps,
     progressByStepId,
     assignedAt: asText(activeInstance?.started_at) ?? asText(activeInstance?.created_at),
+    applicationId: activeApplicationId,
   });
 
-  const preHireSteps = mappedSteps.filter((step) => step.phase === "pre_hire");
-  const postHireSteps = mappedSteps.filter((step) => step.phase === "post_hire");
+  if (
+    activeApplicationId &&
+    mappedSteps.some((step) => isParameterizedJobApplicationStepType(step.stepType))
+  ) {
+    const jobApplication = await loadJobApplicationStepView(supabase, {
+      tenantId,
+      applicationId: activeApplicationId,
+    }).catch(() => null);
+    mappedSteps = applyParameterizedJobApplicationStepEvidence({
+      steps: mappedSteps,
+      progressByStepId,
+      applicationId: activeApplicationId,
+      jobApplication,
+    });
+  }
 
   const documents = await loadAdminAttachmentRequirements({
     supabase,
     workerId,
     tenantId,
-    resumeUrl: params.resumeUrl ?? null,
-    resumePath: params.resumePath ?? null,
-    resumePathRaw: params.resumePathRaw ?? null,
+    resumeUrl:
+      params.resumeUrl ??
+      (hasResumeUpload ? asText(latestResume?.file_url) || "resume-uploaded" : null),
+    resumePath: params.resumePath ?? asText(latestResume?.storage_path),
+    resumePathRaw: params.resumePathRaw ?? asText(latestResume?.storage_path),
     legacyUrls: params.legacyUrls ?? {
       nursing_license_url: null,
       tb_test_url: null,
@@ -231,6 +355,39 @@ export async function loadCandidateWorkflowPhaseView(
       authorization_document_url: null,
     },
   }).catch(() => [] as AdminAttachmentRequirement[]);
+
+  const documentStatusByStepKey = new Map<string, string | null | undefined>();
+  for (const doc of documents) {
+    const key = asText(doc.step_key);
+    const status = asText(doc.status);
+    if (!key || !status) continue;
+    if (!documentStatusByStepKey.has(key)) documentStatusByStepKey.set(key, status);
+  }
+
+  const identityDocsRow = ((identityDocsRes.data ?? []) as Array<Record<string, unknown>>)[0] ?? null;
+  const identityDocsTenant = asText(identityDocsRow?.tenant_id);
+  mappedSteps = enrichAssignedStepsDisplayFromEvidence({
+    steps: mappedSteps,
+    documentStatusByStepKey,
+    hasResumeUpload,
+    hasIdentityDocuments:
+      (!identityDocsTenant || identityDocsTenant === tenantId) &&
+      hasRequiredIdentityDocuments(identityDocsRow),
+  });
+  if (mappedSteps.some((step) => step.stepType === RECRUITER_SCREENING_STEP_TYPE)) {
+    mappedSteps = applyQuickMatchScreeningProgress(
+      mappedSteps,
+      await applicationQuickMatchRan(supabase, { tenantId, applicationId: activeApplicationId })
+    );
+  }
+
+  const preHireSteps = mappedSteps.filter((step) => step.phase === "pre_hire");
+  const postHireSteps = mappedSteps.filter((step) => step.phase === "post_hire");
+  const postHireVisible = canRevealPostHireForStaffJourney({
+    convertedVisible,
+    applicationHired: isHired,
+    preHireSteps,
+  });
 
   const mappedWorkflowIds = ((mappingsRes.data ?? []) as Array<{ workflow_id?: string }>)
     .map((row) => asText(row.workflow_id))
@@ -387,13 +544,16 @@ export async function loadCandidateWorkflowPhaseView(
     ) ??
     null;
 
+  const agreementEsignDone = hasCompletedAgreementEsignStep(preHireSteps);
+  const effectivePostHireUnlocked = postHireVisible && (postHireUnlocked || agreementEsignDone);
+
   const onboarded = isCandidateAlreadyConverted(workerRow);
   const currentStage = resolveEmploymentJourneyStage({
     isHired: postHireVisible || isHired,
     workflowPhase: postHireVisible ? workflowPhase : workflowPhase === "post_hire" ? "pre_hire" : workflowPhase,
     hasPreHireWorkflow: preHireSteps.length > 0 || tags.some((tag) => tag.phase !== "post_hire"),
     hasPostHireWorkflow: postHireVisible && (postHireSteps.length > 0 || tags.some((tag) => tag.phase !== "pre_hire")),
-    postHireUnlocked: postHireVisible && postHireUnlocked,
+    postHireUnlocked: effectivePostHireUnlocked,
     onboarded: postHireVisible && onboarded,
   });
 
@@ -403,7 +563,8 @@ export async function loadCandidateWorkflowPhaseView(
     hiredAt: hireGate.hiredAt,
     hiredBy: hireGate.hiredBy,
     postHireVisible,
-    postHireUnlocked: postHireVisible && postHireUnlocked,
+    workflowHasPostHireSteps: postHireSteps.length > 0,
+    postHireUnlocked: effectivePostHireUnlocked,
     postHireLocked: !postHireVisible,
     postHireSuspended,
     postHireActivationFailed: postHireVisible && postHireActivationFailed,

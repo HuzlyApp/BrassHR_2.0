@@ -39,6 +39,21 @@ import type {
   StepDefinition,
   WorkflowInsertionPoint,
 } from "./types";
+import { CUSTOM_STEP_ID } from "./library-category-theme";
+import {
+  collectUsedLibrarySteps,
+  excludeStepsOutsideStageSlot,
+  excludeUsedLibrarySteps,
+} from "./filter-step-library";
+import {
+  ALIEN_STAGE_WARNING,
+  alienStageWarningForStep,
+  catalogStageBeside,
+  enclosingCatalogStage,
+  foreignStagePlacements,
+  stepFitsEnclosingStage,
+  type OrderedWorkflowStageStep,
+} from "@/lib/onboarding/validate-workflow-step-stages";
 import {
   isDropZoneNode,
   isStepNode,
@@ -267,6 +282,8 @@ export default function StepsCanvas({
   const insertInFlight = useRef(false);
   const pendingInsertionRef = useRef<WorkflowInsertionPoint | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerSlotStage, setPickerSlotStage] = useState<string | null>(null);
+  const [rejectedStageWarning, setRejectedStageWarning] = useState<string | null>(null);
   const [libraryDragActive, setLibraryDragActive] = useState(false);
   const [hoveredInsertion, setHoveredInsertion] = useState<WorkflowInsertionPoint | null>(null);
   const hoveredInsertionRef = useRef<WorkflowInsertionPoint | null>(null);
@@ -282,18 +299,52 @@ export default function StepsCanvas({
     return map;
   }, [categories]);
 
+  const pickerCategories = useMemo(
+    () => excludeStepsOutsideStageSlot(categories, pickerSlotStage),
+    [categories, pickerSlotStage]
+  );
+
   const closePicker = useCallback(() => {
     pendingInsertionRef.current = null;
     setPickerOpen(false);
   }, []);
 
+  const stageSteps = useCallback((source: Node<WorkflowCanvasNodeData>[]): OrderedWorkflowStageStep[] => {
+    return source.filter(isStepNode).map((node) => ({
+      id: node.id,
+      stepId: node.data.stepId,
+      phase: node.data.settings.phase,
+      y: node.position.y,
+    }));
+  }, []);
+
+  const slotStageFor = useCallback(
+    (
+      sourceNodes: Node<WorkflowCanvasNodeData>[],
+      sourceEdges: Edge[],
+      insertion: WorkflowInsertionPoint
+    ) => {
+      const steps = stageSteps(sourceNodes);
+      const plainEdges = sourceEdges.map((edge) => ({
+        source: edge.source,
+        target: edge.target,
+      }));
+      return enclosingCatalogStage(
+        catalogStageBeside(steps, plainEdges, insertion.previousNodeId, "in"),
+        catalogStageBeside(steps, plainEdges, insertion.nextNodeId, "out")
+      );
+    },
+    [stageSteps]
+  );
+
   const openPickerAt = useCallback(
     (insertion: WorkflowInsertionPoint) => {
       if (readOnly) return;
       pendingInsertionRef.current = insertion;
+      setPickerSlotStage(slotStageFor(nodesRef.current, edgesRef.current, insertion));
       setPickerOpen(true);
     },
-    [readOnly]
+    [readOnly, slotStageFor]
   );
 
   const commitInsert = useCallback(
@@ -301,12 +352,29 @@ export default function StepsCanvas({
       if (readOnly || insertInFlight.current) return;
       const currentNodes = nodesRef.current;
       const currentEdges = edgesRef.current;
+      const slotStage = slotStageFor(currentNodes, currentEdges, insertion);
+      if (
+        !stepFitsEnclosingStage({
+          stepId: def.id,
+          phase: def.defaultPhase,
+          previousStage: slotStage,
+          nextStage: slotStage,
+        })
+      ) {
+        setRejectedStageWarning(ALIEN_STAGE_WARNING);
+        closePicker();
+        return;
+      }
 
-      if (isUploadResumeWorkflowStepId(def.id)) {
-        const hasResume = onlyStepNodes(currentNodes).some(
-          (n) => isStepNode(n) && isUploadResumeWorkflowStepId(n.data.stepId)
+      // Catalog steps may only appear once; Custom Step can be reused.
+      if (def.id !== CUSTOM_STEP_ID) {
+        const used = collectUsedLibrarySteps(currentNodes);
+        const stillAvailable = excludeUsedLibrarySteps(
+          [{ id: "_", label: "_", steps: [def] }],
+          used.stepIds,
+          { usedLabels: used.labels }
         );
-        if (hasResume) return;
+        if (stillAvailable.length === 0) return;
       }
 
       insertInFlight.current = true;
@@ -322,12 +390,13 @@ export default function StepsCanvas({
       setNodes(result.nodes);
       setEdges(result.edges);
       onSelectNode(result.newNodeId);
+      setRejectedStageWarning(null);
       closePicker();
       queueMicrotask(() => {
         insertInFlight.current = false;
       });
     },
-    [closePicker, onBeforeChange, onSelectNode, readOnly, setEdges, setNodes]
+    [closePicker, onBeforeChange, onSelectNode, readOnly, setEdges, setNodes, slotStageFor]
   );
 
   const handlePickerSelect = useCallback(
@@ -622,6 +691,17 @@ export default function StepsCanvas({
       const stepNodes = nodes.filter(isStepNode).slice().sort((a, b) => a.position.y - b.position.y);
       const firstPreHireId = stepNodes.find((n) => n.data.settings.phase !== "post_hire")?.id ?? null;
       const firstPostHireId = stepNodes.find((n) => n.data.settings.phase === "post_hire")?.id ?? null;
+      const foreignStepIds = new Set(
+        foreignStagePlacements(
+          stepNodes.map((node) => ({
+            id: node.id,
+            stepId: node.data.stepId,
+            phase: node.data.settings.phase,
+            y: node.position.y,
+          })),
+          edges.map((edge) => ({ source: edge.source, target: edge.target }))
+        ).map((placement) => placement.id)
+      );
 
       return nodes.map((n): Node<WorkflowCanvasNodeData> => {
         if (isDropZoneNode(n)) {
@@ -649,12 +729,22 @@ export default function StepsCanvas({
             : n.id === firstPreHireId
               ? "pre_hire"
               : null;
+        const stageName =
+          typeof (n.data.settings as { stageName?: unknown }).stageName === "string"
+            ? (n.data.settings as { stageName?: string }).stageName
+            : undefined;
         return {
           ...n,
           selected: n.id === selectedNodeId,
           data: {
             ...n.data,
             phaseBanner,
+            alienStageWarning:
+              alienStageWarningForStep({
+                stepId: n.data.stepId,
+                phase: n.data.settings.phase,
+                stageName,
+              }) ?? (foreignStepIds.has(n.id) ? ALIEN_STAGE_WARNING : null),
             onDelete:
               readOnly ||
               n.data.lockedFirstStep === true ||
@@ -800,10 +890,10 @@ export default function StepsCanvas({
               className="text-sm font-semibold leading-5"
               style={{ color: "#101828" }}
             >
-              {libraryDragActive ? "Drop here" : "Start your workflow"}
+              {libraryDragActive ? "Drop here" : "Blank workflow"}
             </span>
-            <span className="text-xs" style={{ color: TEXT_MUTED }}>
-              Drag a step here
+            <span className="max-w-[240px] text-xs" style={{ color: TEXT_MUTED }}>
+              Drag steps from the library to build this flow from scratch.
             </span>
             {!readOnly ? (
               <button
@@ -830,9 +920,26 @@ export default function StepsCanvas({
         </div>
       ) : null}
 
+      {rejectedStageWarning ? (
+        <div
+          className="absolute left-1/2 top-3 z-20 flex w-[min(420px,calc(100%-24px))] -translate-x-1/2 items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-950 shadow-sm"
+          role="alert"
+        >
+          <span className="flex-1">{rejectedStageWarning}</span>
+          <button
+            type="button"
+            className="shrink-0 text-[11px] font-semibold underline"
+            onClick={() => setRejectedStageWarning(null)}
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
+
       <AddStepPicker
         open={pickerOpen}
-        categories={categories}
+        categories={pickerCategories}
+        slotStage={pickerSlotStage}
         onSelect={handlePickerSelect}
         onClose={closePicker}
       />

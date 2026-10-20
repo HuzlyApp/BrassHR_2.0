@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
-import { after } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { getSupabaseUrl } from "@/lib/supabase-env"
 import { validateStep1Form } from "@/lib/onboardingStep1Validation"
 import { resolveOnboardingTenantId } from "@/lib/tenant/resolve-onboarding-tenant-id"
 import { persistWorkerRow } from "@/lib/onboarding/persist-worker-row"
-import { sendProfileSaveStatusLinkEmail } from "@/lib/onboarding/send-profile-save-status-link-email"
-import { resolveApplicantEmailAppOrigin } from "@/lib/resolve-app-origin"
 import { isDraftPreviewApplicantId } from "@/lib/onboarding/is-draft-preview"
 
 export const runtime = "nodejs"
@@ -125,29 +122,6 @@ export async function POST(req: NextRequest) {
       tenantId,
       applicantId,
       email: step1Fields.email.trim().toLowerCase(),
-    })
-
-    const capturedWorkerId = saved.workerId
-    const capturedTenantId = tenantId
-    const capturedEmail = step1Fields.email.trim().toLowerCase()
-    after(async () => {
-      const origin = resolveApplicantEmailAppOrigin(req)
-      if (!origin || !capturedWorkerId) {
-        console.warn("[onboarding/save-worker] skipping status link email — missing origin or worker", {
-          workerId: capturedWorkerId,
-          hasOrigin: Boolean(origin),
-        })
-        return
-      }
-
-      await sendProfileSaveStatusLinkEmail(supabase, {
-        workerId: capturedWorkerId,
-        tenantId: capturedTenantId,
-        recipientEmail: capturedEmail,
-        origin,
-        tenantSlug: tenantSlug || null,
-        request: req,
-      })
     })
 
     return NextResponse.json({ ok: true })

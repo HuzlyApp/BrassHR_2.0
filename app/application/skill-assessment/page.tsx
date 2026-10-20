@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { getApplicantSupabaseClient } from "@/lib/supabase-applicant-browser"
 import { ensureApplicantWorker } from "@/lib/onboarding/ensure-applicant-worker"
+import { getWorkerSessionContext } from "@/lib/onboarding-worker-pk"
 import OnboardingStepper from "@/app/components/OnboardingStepper"
 import { useOnboardingConfigOptional } from "@/app/components/onboarding/OnboardingConfigProvider"
 import { useOnboardingStepNav } from "@/lib/onboarding/use-onboarding-step-nav"
@@ -75,26 +76,23 @@ export default function AssessmentPage() {
         : createDefaultSkillAssessmentCatalog()
       setCatalog(nextCatalog)
       const slugs = activeSkillCategories(nextCatalog).map((c) => c.slug)
-      const localDone = localCompletedCategories(slugs)
 
       const { data: userData } = await supabase.auth.getUser()
       const user = userData?.user
       if (!user) {
-        setCompletedSlugs(localDone)
+        setCompletedSlugs(localCompletedCategories(slugs))
         return
       }
-      const { data: worker } = await supabase
-        .from("worker")
-        .select("id")
-        .eq("user_id", user.id)
-        .maybeSingle()
-      const workerId = worker?.id ? String(worker.id) : user.id
+      // localStorage `*_done` flags are shared by every applicant in this browser, so a signed-in
+      // applicant's completion must come only from their own saved rows.
+      const ctx = await getWorkerSessionContext(supabase)
+      const workerKeys = ctx?.id ? [ctx.id, user.id] : [user.id]
       const { data: doneRows } = await supabase
         .from("skill_assessments")
         .select("category, answers, completed")
-        .in("worker_id", [workerId, user.id])
+        .in("worker_id", workerKeys)
 
-      const combined = new Set(localDone)
+      const combined = new Set<string>()
       const collected: Record<string, SkillQuizAnswers> = {}
       for (const row of doneRows ?? []) {
         const slug = String(row.category ?? "")

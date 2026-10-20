@@ -2,7 +2,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { requireStaffApiSession } from "@/lib/auth/api-session";
 import { resolveStaffTenantScope } from "@/lib/auth/staff-tenant-scope";
-import { getCache, setCache } from "@/lib/cache";
+import { getOrSetCache } from "@/lib/cache";
 import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase-env";
 import {
   CANDIDATE_KPI_CACHE_TTL_SECONDS,
@@ -36,6 +36,12 @@ function isPipelineBaseStatus(status: string): boolean {
   return (ACTIVE_CANDIDATE_PIPELINE_STATUSES as readonly string[]).includes(status);
 }
 
+function isMissingRpc(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false;
+  if (error.code === "PGRST202" || error.code === "42883") return true;
+  return /could not find the function|schema cache|does not exist/i.test(error.message ?? "");
+}
+
 async function loadMetricsViaRpc(
   supabase: SupabaseClient,
   tenantId: string,
@@ -56,8 +62,8 @@ async function loadMetricsViaRpc(
 }
 
 /**
- * Lightweight fallback when the RPC is missing from PostgREST schema cache.
- * Matches the same KPI semantics as closely as practical with simple counts.
+ * Fallback when the RPC is missing from PostgREST schema cache.
+ * Matches unique-profile KPI semantics with paged reads (slow on large tenants).
  * Avoids giant `.in(worker_id, …)` URLs (Bad Request on large tenants).
  */
 async function loadMetricsFallback(
@@ -249,14 +255,22 @@ async function loadMetrics(
   pipelineStatus: string | null
 ): Promise<CandidateKpiMetricsPayload> {
   try {
-    // Prefer unique candidate-profile counting so KPI cards match the Candidates list.
-    return await loadMetricsFallback(supabase, tenantId, pipelineStatus);
-  } catch (err) {
-    console.warn(
-      "[api/workers/metrics] unique-profile fallback failed, trying RPC",
-      errorMessage(err)
-    );
+    // Prefer the SQL aggregate (unique-profile dedupe in-database).
     return await loadMetricsViaRpc(supabase, tenantId, pipelineStatus);
+  } catch (err) {
+    const message = errorMessage(err);
+    const missing =
+      isMissingRpc(err && typeof err === "object" ? (err as { code?: string; message?: string }) : null) ||
+      /schema cache/i.test(message);
+    if (!missing) {
+      console.warn("[api/workers/metrics] RPC failed, trying unique-profile fallback", message);
+    } else {
+      console.warn(
+        "[api/workers/metrics] RPC unavailable, using unique-profile fallback",
+        message
+      );
+    }
+    return await loadMetricsFallback(supabase, tenantId, pipelineStatus);
   }
 }
 
@@ -302,16 +316,20 @@ export async function GET(req: Request) {
         const supabase = createClient(url, key);
         const started = Date.now();
         const cacheKey = candidateKpiCacheKey(tenantScope.tenantId, status);
-        const cached = await getCache<CandidateKpiMetricsPayload>(cacheKey);
-        const metrics = cached ?? (await loadMetrics(supabase, tenantScope.tenantId, status));
-        if (!cached) {
-          await setCache(cacheKey, metrics, CANDIDATE_KPI_CACHE_TTL_SECONDS);
-        }
+        let cacheHit = true;
+        const metrics = await getOrSetCache(
+          cacheKey,
+          async () => {
+            cacheHit = false;
+            return loadMetrics(supabase, tenantScope.tenantId, status);
+          },
+          CANDIDATE_KPI_CACHE_TTL_SECONDS
+        );
         const cards = buildCandidateKpiCardsFromMetrics(metrics);
         return Response.json({
           metrics,
           cards,
-          cached: Boolean(cached),
+          cached: cacheHit,
           timingMs: Date.now() - started,
         });
       } catch (err) {

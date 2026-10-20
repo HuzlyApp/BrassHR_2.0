@@ -107,10 +107,17 @@ export function selectBuilderCanvas(
 
 export function hydrateCanvasFromBuilderDraft(
   builderDraft: SerializableWorkflowState,
-  stepLibrary: StepCategory[]
+  stepLibrary: StepCategory[],
+  options?: { allowEmpty?: boolean; enforceResumeFirst?: boolean }
 ): { nodes: Node<WorkflowNodeData>[]; edges: Edge[] } {
+  if (options?.allowEmpty && builderDraft.nodes.length === 0) {
+    return { nodes: [], edges: [] };
+  }
   const stepLookup = buildWorkflowStepLookup(stepLibrary);
-  const canvas = hydrateWorkflowFromStorage(builderDraft, [], stepLookup);
+  const canvas = hydrateWorkflowFromStorage(builderDraft, [], stepLookup, {
+    enforceResumeFirst: options?.enforceResumeFirst !== false,
+  });
+  if (options?.allowEmpty) return canvas;
   return ensureNonEmptyBuilderCanvas(canvas, stepLibrary);
 }
 
@@ -118,15 +125,24 @@ export function hydrateCanvasFromFlowDraft(
   flowDraft: unknown,
   payload: BuilderCanvasPayload,
   stepLibrary: StepCategory[]
-): { nodes: Node<WorkflowNodeData>[]; edges: Edge[]; source: "flow" | "tenant" | "default" } {
+): {
+  nodes: Node<WorkflowNodeData>[];
+  edges: Edge[];
+  source: "flow" | "blank" | "tenant" | "default";
+} {
+  if (isSerializableWorkflowState(flowDraft) && flowDraft.nodes.length === 0) {
+    return { nodes: [], edges: [], source: "blank" };
+  }
+
   if (builderDraftHasCanvas(flowDraft)) {
     const stepLookup = buildWorkflowStepLookup(stepLibrary);
-    const canvas = hydrateWorkflowFromStorage(flowDraft, [], stepLookup);
-    const ensured = ensureNonEmptyBuilderCanvas(canvas, stepLibrary);
+    const canvas = hydrateWorkflowFromStorage(flowDraft, [], stepLookup, {
+      enforceResumeFirst: false,
+    });
     return {
-      nodes: ensured.nodes,
-      edges: ensured.edges,
-      source: ensured.usedDefault ? "default" : "flow",
+      nodes: canvas.nodes,
+      edges: canvas.edges,
+      source: "flow",
     };
   }
 

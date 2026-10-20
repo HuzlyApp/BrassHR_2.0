@@ -99,7 +99,9 @@ function ChoiceInput({
             key={option.id}
             className={`flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-[12px] ${
               checked
-                ? "border-[color:var(--brand-primary)] bg-[color:var(--brand-primary)]/5 text-slate-800"
+                ? question.type === "multiple_select"
+                  ? "border-[color:var(--brand-secondary)] bg-[color:var(--brand-secondary)]/5 text-slate-800"
+                  : "border-[color:var(--brand-primary)] bg-[color:var(--brand-primary)]/5 text-slate-800"
                 : "border-slate-200 bg-white text-slate-700"
             } ${disabled ? "cursor-default opacity-80" : ""}`}
           >
@@ -118,7 +120,16 @@ function ChoiceInput({
                   onChange(option.id);
                 }
               }}
-              className="accent-[color:var(--brand-primary)]"
+              style={
+                question.type === "multiple_select"
+                  ? { accentColor: "var(--brand-secondary)" }
+                  : undefined
+              }
+              className={
+                question.type === "multiple_select"
+                  ? "h-[18px] w-[18px] shrink-0 cursor-pointer rounded-[6px] accent-[color:var(--brand-secondary)]"
+                  : "accent-[color:var(--brand-primary)]"
+              }
             />
             {option.label}
           </label>

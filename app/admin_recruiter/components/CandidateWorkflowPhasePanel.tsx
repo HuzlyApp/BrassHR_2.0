@@ -3,7 +3,7 @@
 import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 import WorkflowPhaseBadge from "./WorkflowPhaseBadge";
-import CandidateWorkflowStepDrawer from "./CandidateWorkflowStepDrawer";
+import CandidateWorkflowStepModal from "./CandidateWorkflowStepModal";
 import type {
   CandidateWorkflowAssignmentView,
   CandidateWorkflowDocumentView,
@@ -12,7 +12,7 @@ import type {
 import type { WorkflowStepInspection } from "@/lib/onboarding/candidate-workflow-step-inspection";
 import {
   assignmentSourceLabel,
-  displayStatusLabel,
+  stepDisplayStatusLabel,
 } from "@/lib/onboarding/assigned-workflow-steps";
 import {
   lifecyclePhaseLabel,
@@ -47,6 +47,7 @@ export default function CandidateWorkflowPhasePanel({
   assignment,
   emptyAssignedMessage,
   activationFailed,
+  onWorkflowChanged,
 }: {
   workerId?: string;
   phase: EmploymentLifecyclePhase;
@@ -59,34 +60,49 @@ export default function CandidateWorkflowPhasePanel({
   assignment?: CandidateWorkflowAssignmentView | null;
   emptyAssignedMessage: string;
   activationFailed?: boolean;
+  onWorkflowChanged?: () => void;
 }) {
   const [openStepId, setOpenStepId] = useState<string | null>(null);
   const [inspection, setInspection] = useState<WorkflowStepInspection | null>(null);
   const [inspectionLoading, setInspectionLoading] = useState(false);
   const [inspectionError, setInspectionError] = useState<string | null>(null);
 
-  async function openStep(step: CandidateWorkflowStepView) {
+  async function fetchInspection(stepId: string, options?: { silent?: boolean }) {
     if (!workerId) return;
-    setOpenStepId(step.id);
-    setInspection(null);
-    setInspectionError(null);
-    setInspectionLoading(true);
+    if (!options?.silent) {
+      setInspection(null);
+      setInspectionError(null);
+      setInspectionLoading(true);
+    }
     try {
       const res = await fetch(
-        `/api/admin/candidates/${encodeURIComponent(workerId)}/workflow-steps/${encodeURIComponent(step.id)}`,
+        `/api/admin/candidates/${encodeURIComponent(workerId)}/workflow-steps/${encodeURIComponent(stepId)}`,
         { cache: "no-store" }
       );
       const json = (await res.json()) as WorkflowStepInspection & { error?: string };
       if (!res.ok) {
-        setInspectionError(json.error || "Failed to load step details.");
+        if (!options?.silent) setInspectionError(json.error || "Failed to load step details.");
         return;
       }
       setInspection(json);
     } catch (err) {
-      setInspectionError(err instanceof Error ? err.message : "Failed to load step details.");
+      if (!options?.silent) {
+        setInspectionError(err instanceof Error ? err.message : "Failed to load step details.");
+      }
     } finally {
-      setInspectionLoading(false);
+      if (!options?.silent) setInspectionLoading(false);
     }
+  }
+
+  async function openStep(step: CandidateWorkflowStepView) {
+    if (!workerId) return;
+    setOpenStepId(step.id);
+    await fetchInspection(step.id);
+  }
+
+  async function handleStepUpdated() {
+    onWorkflowChanged?.();
+    if (openStepId) await fetchInspection(openStepId, { silent: true });
   }
 
   if (loading) {
@@ -213,7 +229,7 @@ export default function CandidateWorkflowPhasePanel({
                     ) : null}
                   </div>
                   <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-slate-600">
-                    {displayStatusLabel(step.displayStatus)}
+                    {stepDisplayStatusLabel(step)}
                     <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden />
                     <span className="sr-only">View details</span>
                   </span>
@@ -284,7 +300,7 @@ export default function CandidateWorkflowPhasePanel({
         )}
       </section>
 
-      <CandidateWorkflowStepDrawer
+      <CandidateWorkflowStepModal
         open={openStepId != null}
         onOpenChange={(open) => {
           if (!open) {
@@ -296,6 +312,8 @@ export default function CandidateWorkflowPhasePanel({
         loading={inspectionLoading}
         error={inspectionError}
         inspection={inspection}
+        workerId={workerId}
+        onStepUpdated={handleStepUpdated}
       />
     </div>
   );

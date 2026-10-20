@@ -2,7 +2,7 @@
 
 import Image from "next/image"
 import { AlertCircle, Check, Lock, Minus } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useSearchParams } from "next/navigation"
 import { useOnboardingConfigOptional } from "@/app/components/onboarding/OnboardingConfigProvider"
 import { routeForApplicantStep } from "@/lib/onboarding/resolve-applicant-step-route"
@@ -12,7 +12,7 @@ import {
   isStepIndicatorAccessible,
   type StepIndicatorState,
 } from "@/lib/onboarding/step-indicator-status"
-import { buildProgressStatusMaps } from "@/lib/onboarding/compute-max-allowed-from-progress"
+import { buildProgressStatusMaps, findProgressRowForStep } from "@/lib/onboarding/compute-max-allowed-from-progress"
 import {
   resolveApplicantEnabledSteps,
   stepIndexFromPathname,
@@ -27,8 +27,13 @@ import {
   groupTenantStepsByPhase,
   lifecyclePhaseLabel,
   POST_HIRE_LOCKED_MESSAGE,
+  WAITING_ON_INTERNAL_MESSAGE,
   type EmploymentLifecyclePhase,
 } from "@/lib/onboarding/workflow-phase-groups"
+import {
+  candidatePostHireScreenKind,
+  effectivePostHireProgressStatus,
+} from "@/lib/onboarding/post-hire-step-screens"
 import ApplicantPhaseWelcome from "@/app/components/onboarding/ApplicantPhaseWelcome"
 
 interface Props {
@@ -112,6 +117,7 @@ export default function OnboardingStepper({
   titleIconAlt,
 }: Props) {
   const branding = useTenantBranding()
+  const stepperScrollRef = useRef<HTMLDivElement>(null)
   const { slug, push } = useOnboardingTenant()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -143,21 +149,34 @@ export default function OnboardingStepper({
 
   const stepStates = useMemo(() => {
     if (!enabledSteps?.length) return [] as StepIndicatorState[]
-    return enabledSteps.map((configStep, index) =>
-      deriveStepIndicatorState({
-        dbStatus: statusByStepId.get(configStep.id) ?? "pending",
+    return enabledSteps.map((configStep, index) => {
+      const rawStatus = statusByStepId.get(configStep.id) ?? "pending"
+      const kind = candidatePostHireScreenKind(configStep)
+      const savedRow = findProgressRowForStep(onboarding?.progress?.steps, configStep)
+      const dbStatus = kind
+        ? effectivePostHireProgressStatus(kind, rawStatus, savedRow?.data)
+        : rawStatus
+      return deriveStepIndicatorState({
+        dbStatus,
         stepNumber: index + 1,
         currentStepNumber: currentStep,
         isRequired: configStep.is_required !== false,
       })
-    )
-  }, [enabledSteps, statusByStepId, currentStep])
+    })
+  }, [enabledSteps, statusByStepId, onboarding?.progress?.steps, currentStep])
 
   const livePhase: EmploymentLifecyclePhase =
     onboarding?.workflowPhase === "post_hire" || onboarding?.workflowPhase === "completed"
       ? "post_hire"
       : "pre_hire"
   const [previewPhase, setPreviewPhase] = useState<EmploymentLifecyclePhase>("pre_hire")
+
+  useEffect(() => {
+    const root = stepperScrollRef.current
+    if (!root) return
+    const current = root.querySelector<HTMLElement>("[data-step-state='current']")
+    current?.scrollIntoView({ inline: "center", block: "nearest" })
+  }, [currentStep, enabledSteps])
 
   if (!enabledSteps?.length) {
     return onboarding?.loading ? (
@@ -182,9 +201,14 @@ export default function OnboardingStepper({
       : enabledSteps
   const phaseCopy = applicantPortalCopy(selectedPhase)
   const heading = title ?? phaseCopy.header
-  const completedCount = displaySteps.filter((step, index) => {
-    const state = stepStates[enabledSteps.findIndex((s) => s.id === step.id)] ?? "not_started"
-    return state === "completed" || state === "skipped"
+  const completedCount = displaySteps.filter((step) => {
+    const rawStatus = statusByStepId.get(step.id) ?? "pending"
+    const kind = candidatePostHireScreenKind(step)
+    const savedRow = findProgressRowForStep(onboarding?.progress?.steps, step)
+    const status = kind
+      ? effectivePostHireProgressStatus(kind, rawStatus, savedRow?.data)
+      : rawStatus
+    return status === "completed" || status === "skipped"
   }).length
   const progressLabel = formatPhaseProgressShort(
     completedCount,
@@ -199,10 +223,11 @@ export default function OnboardingStepper({
           phase={onboarding?.workflowPhase ?? "pre_hire"}
           applicationId={onboarding?.applicationId}
         />
-        {onboarding?.waitingOnInternal ? (
+        {onboarding?.waitingOnInternal &&
+        onboarding.workflowPhase !== "post_hire" &&
+        onboarding.workflowPhase !== "completed" ? (
           <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-            Your documents have been submitted. No action is required from you right now. We will
-            email you when the next step is ready.
+            {WAITING_ON_INTERNAL_MESSAGE}
           </div>
         ) : null}
         <div className="mb-3 flex items-end justify-between gap-3">
@@ -261,6 +286,7 @@ export default function OnboardingStepper({
         ) : null}
         <div className="relative mx-auto mt-2 min-w-0 w-full">
           <div
+            ref={stepperScrollRef}
             className="min-w-0 overflow-x-auto overscroll-x-contain pb-1 [scrollbar-width:thin] sm:[&::-webkit-scrollbar]:block [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent max-sm:scrollbar-hide"
             role="region"
             aria-label={phaseCopy.progressLabel}
@@ -276,7 +302,12 @@ export default function OnboardingStepper({
               const step = formatApplicantStepperLabel(configStep.title)
 
               return (
-                <div key={`${configStep.id}-${step}`} className="relative flex flex-[1_0_6.5rem] flex-col items-center max-[399px]:flex-[1_0_5.5rem]">
+                <div
+                  key={`${configStep.id}-${step}`}
+                  data-step-state={state}
+                  data-step-key={configStep.step_key}
+                  className="relative flex flex-[1_0_6.5rem] flex-col items-center max-[399px]:flex-[1_0_5.5rem]"
+                >
                   {index < displaySteps.length - 1 ? (
                     <ConnectorSegment filled={connectorFilled} />
                   ) : null}

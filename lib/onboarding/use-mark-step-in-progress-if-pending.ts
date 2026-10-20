@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, type MutableRefObject } from "react";
+import { useEffect, useRef, type MutableRefObject } from "react";
 import { useOnboardingConfigOptional } from "@/app/components/onboarding/OnboardingConfigProvider";
 import type { OnboardingStepStatus, TenantOnboardingStep } from "@/lib/onboarding/types";
 
 type UpdateStepStatusFn = (
   stepKey: string,
   status: OnboardingStepStatus,
-  data?: Record<string, unknown>
+  data?: Record<string, unknown>,
+  stepId?: string
 ) => Promise<void>;
 
 type UseMarkStepInProgressIfPendingOptions = {
@@ -33,10 +34,13 @@ export function useMarkStepInProgressIfPending({
   const mark = updateStepStatus ?? onboarding?.updateStepStatus;
   const loading = onboarding?.loading ?? false;
   const progressSteps = onboarding?.progress?.steps;
+  const attemptedStepIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (disabled || loading || completingRef?.current) return;
     if (!step?.step_key || !step.id || !mark) return;
+    // The server ignores the mark for steps still locked, so re-trying on every progress update would loop.
+    if (attemptedStepIdRef.current === step.id) return;
 
     const currentStatus = progressSteps?.find(
       (row) => row.onboarding_step_id === step.id
@@ -50,7 +54,8 @@ export function useMarkStepInProgressIfPending({
       return;
     }
 
-    void mark(step.step_key, "in_progress").catch(() => {
+    attemptedStepIdRef.current = step.id;
+    void mark(step.step_key, "in_progress", undefined, step.id).catch(() => {
       // Mount-time mark must not surface as an unhandledRejection.
     });
   }, [disabled, loading, step?.step_key, step?.id, progressSteps, mark, completingRef]);
@@ -62,12 +67,14 @@ export async function persistStepProgress(
   stepKey: string | undefined,
   status: OnboardingStepStatus,
   completingRef?: MutableRefObject<boolean>,
-  data?: Record<string, unknown>
-): Promise<void> {
-  if (!stepKey || !updateStepStatus) return;
+  data?: Record<string, unknown>,
+  stepId?: string
+): Promise<boolean> {
+  if (!stepKey || !updateStepStatus) return false;
   if (completingRef) completingRef.current = true;
   try {
-    await updateStepStatus(stepKey, status, data);
+    await updateStepStatus(stepKey, status, data, stepId);
+    return true;
   } finally {
     if (completingRef) completingRef.current = false;
   }

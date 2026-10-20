@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import CandidateWorkflowStepDrawer from "@/app/admin_recruiter/components/CandidateWorkflowStepDrawer";
+import CandidateWorkflowStepModal from "@/app/admin_recruiter/components/CandidateWorkflowStepModal";
+import { candidateAiAnalysisHref } from "@/app/admin_recruiter/candidates/candidate-links";
 import { ScheduleInterviewModal } from "@/app/admin_recruiter/calendar/components/ScheduleInterviewModal";
 import {
   invitationSuccessMessage,
@@ -18,11 +19,15 @@ import type { WorkflowStepInspection } from "@/lib/onboarding/candidate-workflow
 import {
   groupStepsIntoHireStages,
   hireStageProgressMeta,
+  isStepLockedAfterScreeningRejection,
   type HireStageLifecycle,
 } from "@/lib/onboarding/hire-stage-groups";
 import { HireStageAccordion } from "./HireStageAccordion";
 import { HireStageSidebar, type HireStageSidebarProfile } from "./HireStageSidebar";
 import { HireStageStepper } from "./HireStageStepper";
+import { PostHireStageColumns, PostHireSummaryBanner } from "./PostHireStageColumns";
+
+import { hasCompletedAgreementEsignStep } from "@/lib/onboarding/lock-post-hire";
 
 function formatLongDate(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -48,6 +53,11 @@ export function HireStageBoard({
   profile,
   activationFailed,
   onRequestPostHireTab,
+  onPostHireActivated,
+  applicationId,
+  jobTitle,
+  onScheduled,
+  onWorkflowChanged,
 }: {
   workerId?: string;
   lifecycle: HireStageLifecycle;
@@ -64,6 +74,13 @@ export function HireStageBoard({
   };
   activationFailed?: boolean;
   onRequestPostHireTab?: () => void;
+  /** Called after "Proceed" hires the candidate; should refresh the journey and open Post-Hire. */
+  onPostHireActivated?: () => void | Promise<void>;
+  applicationId?: string | null;
+  jobTitle?: string | null;
+  onScheduled?: () => void | Promise<void>;
+  /** Called after staff change a step's status so the journey can refresh without unmounting. */
+  onWorkflowChanged?: () => void | Promise<void>;
 }) {
   const stages = useMemo(() => groupStepsIntoHireStages(steps, lifecycle), [steps, lifecycle]);
   const progressMeta = useMemo(() => hireStageProgressMeta(stages), [stages]);
@@ -78,45 +95,117 @@ export function HireStageBoard({
   const [scheduleError, setScheduleError] = useState<string | null>(null);
 
   const title = lifecycle === "pre_hire" ? "Pre-hire" : "Post-hire";
+  const aiAnalysisHref = workerId ? candidateAiAnalysisHref(workerId, { applicationId }) : null;
   const subtitle =
     lifecycle === "pre_hire"
       ? "Track every step before someone becomes part of your team."
       : "Track onboarding steps after the candidate joins your team.";
 
+  const agreementEsignComplete =
+    lifecycle === "pre_hire" &&
+    hasCompletedAgreementEsignStep(steps);
+
   const preHireComplete =
     lifecycle === "pre_hire" &&
     assigned &&
     steps.length > 0 &&
-    progressMeta.percent === 100;
+    (progressMeta.percent === 100 || agreementEsignComplete || Boolean(phaseView?.postHireVisible));
 
-  const proceedDisabledReason = !phaseView?.postHireVisible
-    ? "Convert / Approve as Worker to unlock Post-Hire."
-    : phaseView.postHireLocked
-      ? "Post-Hire is locked until hire activation completes."
-      : null;
+  // Pre-Hire is done but the application isn't hired yet: proceeding hires them, which unlocks Post-Hire.
+  const canActivatePostHire =
+    preHireComplete && Boolean(applicationId) && !phaseView?.postHireVisible && !phaseView?.isHired;
+  const [activatingPostHire, setActivatingPostHire] = useState(false);
+  const [activatePostHireError, setActivatePostHireError] = useState<string | null>(null);
 
-  async function openStep(step: CandidateWorkflowStepView) {
+  const proceedDisabledReason = canActivatePostHire
+    ? null
+    : !phaseView?.postHireVisible
+      ? "Select the candidate and complete required Pre-Hire steps to unlock Post-Hire."
+      : phaseView.postHireLocked
+        ? "Post-Hire is locked until hire activation completes."
+        : null;
+
+  async function proceedToPostHire() {
+    if (proceedDisabledReason || activatingPostHire) return;
+    if (!canActivatePostHire) {
+      onRequestPostHireTab?.();
+      return;
+    }
+    setActivatingPostHire(true);
+    setActivatePostHireError(null);
+    try {
+      const res = await fetch(`/api/admin/job-applications/${encodeURIComponent(applicationId!)}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "hired", note: "Pre-Hire completed; moved to Post-Hire" }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(json.error || "Could not move the candidate to Post-Hire.");
+      if (onPostHireActivated) {
+        await onPostHireActivated();
+      } else {
+        await onWorkflowChanged?.();
+        onRequestPostHireTab?.();
+      }
+    } catch (err) {
+      setActivatePostHireError(
+        err instanceof Error ? err.message : "Could not move the candidate to Post-Hire."
+      );
+    } finally {
+      setActivatingPostHire(false);
+    }
+  }
+
+  async function fetchInspection(stepId: string, options?: { silent?: boolean }) {
     if (!workerId) return;
-    setOpenStepId(step.id);
-    setInspection(null);
-    setInspectionError(null);
-    setInspectionLoading(true);
+    if (!options?.silent) {
+      setInspection(null);
+      setInspectionError(null);
+      setInspectionLoading(true);
+    }
     try {
       const res = await fetch(
-        `/api/admin/candidates/${encodeURIComponent(workerId)}/workflow-steps/${encodeURIComponent(step.id)}`,
+        `/api/admin/candidates/${encodeURIComponent(workerId)}/workflow-steps/${encodeURIComponent(stepId)}`,
         { cache: "no-store" }
       );
       const json = (await res.json()) as WorkflowStepInspection & { error?: string };
       if (!res.ok) {
-        setInspectionError(json.error || "Failed to load step details.");
+        if (!options?.silent) setInspectionError(json.error || "Failed to load step details.");
         return;
       }
       setInspection(json);
     } catch (err) {
-      setInspectionError(err instanceof Error ? err.message : "Failed to load step details.");
+      if (!options?.silent) {
+        setInspectionError(err instanceof Error ? err.message : "Failed to load step details.");
+      }
     } finally {
-      setInspectionLoading(false);
+      if (!options?.silent) setInspectionLoading(false);
     }
+  }
+
+  function openStep(step: CandidateWorkflowStepView) {
+    if (lifecycle === "pre_hire" && isStepLockedAfterScreeningRejection(step, steps)) return;
+    setOpenStepId(step.id);
+    void fetchInspection(step.id);
+  }
+
+  function closeStep() {
+    setOpenStepId(null);
+    setInspection(null);
+    setInspectionError(null);
+  }
+
+  async function handleStepUpdated() {
+    await Promise.all([
+      onWorkflowChanged?.(),
+      openStepId ? fetchInspection(openStepId, { silent: true }) : null,
+    ]);
+  }
+
+  function openSchedule() {
+    closeStep();
+    setScheduleError(null);
+    setScheduleOpen(true);
   }
 
   async function handleSchedule(payload: ScheduleInterviewPayload) {
@@ -136,6 +225,7 @@ export function HireStageBoard({
       if (!res.ok) throw new Error(json.error || "Failed to schedule interview");
       setScheduleOpen(false);
       setScheduleSuccess(invitationSuccessMessage(json.invitation));
+      await onScheduled?.();
     } catch (err) {
       setScheduleError(err instanceof Error ? err.message : "Failed to schedule interview");
     } finally {
@@ -169,63 +259,104 @@ export function HireStageBoard({
 
   return (
     <>
-      <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
-        <div className="min-w-0 flex-1 space-y-4">
-          <header>
-            <h1
-              className="text-2xl font-semibold tracking-tight"
-              style={{ color: "var(--brand-secondary)" }}
-            >
-              {title}
-            </h1>
-            <p className="mt-1 text-sm text-[#64748B]">{subtitle}</p>
-          </header>
-
-          {activationFailed ? (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-              Candidate is hired but Post-Hire activation did not complete. Retry status change or
-              conversion.
-            </div>
-          ) : null}
-
+      <div className="flex flex-col gap-4">
+        {/* Centered under Pre Hire / Post Hire tabs */}
+        <div className="flex w-full justify-center">
           <HireStageStepper stages={stages} />
-          <HireStageAccordion
-            stages={stages}
-            onInspectStep={(step) => void openStep(step)}
-            onScheduleInterview={
-              lifecycle === "pre_hire" ? () => setScheduleOpen(true) : undefined
-            }
-          />
         </div>
 
-        <HireStageSidebar
-          lifecycle={lifecycle}
-          profile={profile}
-          templateName={assignment?.workflowName ?? phaseView?.currentWorkflowName ?? null}
-          progressPercent={progressMeta.percent}
-          progressLabel={progressMeta.label}
-          lastUpdated={formatLongDate(phaseView?.phaseStartedAt ?? assignment?.assignedAt)}
-          showProceedToPostHire={lifecycle === "pre_hire" && preHireComplete}
-          proceedDisabledReason={proceedDisabledReason}
-          onProceedToPostHire={() => {
-            if (proceedDisabledReason) return;
-            onRequestPostHireTab?.();
-          }}
-        />
+        <header className="w-full shrink-0">
+          <h1
+            className="text-3xl font-bold tracking-tight"
+            style={{ color: "var(--brand-secondary)" }}
+          >
+            {title}
+          </h1>
+          <p className="mt-1 text-sm text-[#64748B]">{subtitle}</p>
+        </header>
+
+        {activationFailed ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            Candidate is hired but Post-Hire activation did not complete. Retry status change or
+            conversion.
+          </div>
+        ) : null}
+
+        {lifecycle === "post_hire" ? (
+          <>
+            <PostHireSummaryBanner
+              profile={profile}
+              statusLabel={
+                phaseView?.currentStage === "onboarded"
+                  ? "Onboarding / Worker Created"
+                  : "Hired / Post-Hire Onboarding"
+              }
+              hiredAt={formatLongDate(phaseView?.hiredAt)}
+              percent={
+                progressMeta.totalStages > 0
+                  ? Math.round((progressMeta.completedStages / progressMeta.totalStages) * 100)
+                  : 0
+              }
+              completedSteps={progressMeta.completedStages}
+              totalSteps={progressMeta.totalStages}
+              lastUpdated={formatLongDate(phaseView?.phaseStartedAt ?? assignment?.assignedAt)}
+              aiAnalysisHref={aiAnalysisHref}
+            />
+            <PostHireStageColumns
+              stages={stages}
+              onInspectStep={openStep}
+              onRefresh={onWorkflowChanged}
+            />
+          </>
+        ) : (
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
+            <div className="min-w-0 flex-1">
+              <HireStageAccordion
+                stages={stages}
+                workflowSteps={steps}
+                lifecycle={lifecycle}
+                applicationId={applicationId}
+                onInspectStep={openStep}
+                onScheduleInterview={openSchedule}
+                onRefresh={onWorkflowChanged}
+                onStatusChanged={() => void onWorkflowChanged?.()}
+              />
+            </div>
+
+            <HireStageSidebar
+              lifecycle={lifecycle}
+              profile={profile}
+              templateName={assignment?.workflowName ?? phaseView?.currentWorkflowName ?? null}
+              progressPercent={progressMeta.percent}
+              progressLabel={progressMeta.label}
+              lastUpdated={formatLongDate(phaseView?.phaseStartedAt ?? assignment?.assignedAt)}
+              showProceedToPostHire={preHireComplete && phaseView?.workflowHasPostHireSteps !== false}
+              proceedDisabledReason={proceedDisabledReason}
+              aiAnalysisHref={aiAnalysisHref}
+              proceedBusy={activatingPostHire}
+              proceedError={activatePostHireError}
+              proceedNote={
+                canActivatePostHire
+                  ? "This marks the candidate as hired and emails them their Post-Hire steps."
+                  : null
+              }
+              onProceedToPostHire={() => void proceedToPostHire()}
+            />
+          </div>
+        )}
       </div>
 
-      <CandidateWorkflowStepDrawer
+      <CandidateWorkflowStepModal
         open={Boolean(openStepId)}
         onOpenChange={(open) => {
-          if (!open) {
-            setOpenStepId(null);
-            setInspection(null);
-            setInspectionError(null);
-          }
+          if (!open) closeStep();
         }}
         loading={inspectionLoading}
         error={inspectionError}
         inspection={inspection}
+        workerId={workerId}
+        onStepUpdated={handleStepUpdated}
+        onScheduleInterview={lifecycle === "pre_hire" && workerId ? openSchedule : undefined}
       />
 
       {workerId ? (
@@ -247,6 +378,11 @@ export function HireStageBoard({
           onSubmit={(payload) => void handleSchedule(payload)}
           fixedWorkerId={workerId}
           fixedApplicantName={profile.name || "Candidate"}
+          fixedApplicationId={applicationId ?? undefined}
+          fixedJobTitle={jobTitle ?? undefined}
+          defaultTitle={
+            jobTitle ? `Interview — ${jobTitle}` : `Interview — ${profile.name || "Candidate"}`
+          }
         />
       ) : null}
       <SuccessModal

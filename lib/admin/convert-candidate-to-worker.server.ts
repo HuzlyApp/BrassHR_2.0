@@ -9,6 +9,7 @@ import {
   type CandidateConversionSnapshot,
   type ConvertWorkerType,
 } from "@/lib/admin/convert-candidate-to-worker";
+import { collectEmploymentWorkerTransferSnapshot } from "@/lib/admin/employment-worker-transfer";
 import { changeApplicationStatusBySystemKey } from "@/lib/jobs/application-statuses/service";
 import { activatePostHire } from "@/lib/onboarding/activate-post-hire";
 
@@ -50,7 +51,7 @@ async function loadCandidate(
   const { data, error } = await supabase
     .from("worker")
     .select(
-      "id, tenant_id, first_name, last_name, email, phone, job_role, city, state, status, converted_worker_type, converted_at"
+      "id, tenant_id, first_name, last_name, email, phone, job_role, city, state, profile_photo, status, converted_worker_type, converted_at"
     )
     .eq("id", candidateId)
     .maybeSingle();
@@ -68,6 +69,7 @@ async function loadCandidate(
     job_role: data.job_role ?? null,
     city: data.city ?? null,
     state: data.state ?? null,
+    profile_photo: data.profile_photo ?? null,
     status: data.status ?? null,
     converted_worker_type: data.converted_worker_type ?? null,
     converted_at: data.converted_at ?? null,
@@ -189,6 +191,14 @@ async function convertViaFallback(
 
   if (existing?.id) {
     const convertedAt = new Date().toISOString();
+    const linkedAppId =
+      (existing.source_job_application_id as string | null) ?? sourceJobApplicationId;
+    const transfer = await collectEmploymentWorkerTransferSnapshot(supabase, {
+      tenantId: candidate.tenant_id,
+      candidateId: candidate.id,
+      sourceJobApplicationId: linkedAppId,
+      profilePhoto: candidate.profile_photo,
+    });
     await supabase
       .from("worker")
       .update({
@@ -200,6 +210,17 @@ async function convertViaFallback(
       .eq("id", candidate.id)
       .eq("tenant_id", candidate.tenant_id);
 
+    await supabase
+      .from("workers")
+      .update({
+        profile_photo: transfer.profilePhoto,
+        source_job_application_id: linkedAppId,
+        application_snapshot: transfer.applicationSnapshot,
+        documents_manifest: transfer.documentsManifest,
+        updated_at: convertedAt,
+      })
+      .eq("id", existing.id);
+
     return {
       ok: true,
       workerRecordId: String(existing.id),
@@ -207,8 +228,7 @@ async function convertViaFallback(
       workerType: (existing.worker_type as ConvertWorkerType) || workerType,
       created: false,
       profilePath: `/admin_recruiter/workers/${candidate.id}/profile`,
-      sourceJobApplicationId:
-        (existing.source_job_application_id as string | null) ?? sourceJobApplicationId,
+      sourceJobApplicationId: linkedAppId,
       postHire: {
         attempted: false,
         activated: false,
@@ -237,10 +257,17 @@ async function convertViaFallback(
   }
 
   const convertedAt = new Date().toISOString();
-  const employmentRow = {
-    ...buildEmploymentWorkerRow(candidate, workerType, convertedAt),
-    source_job_application_id: sourceJobApplicationId,
-  };
+  const transfer = await collectEmploymentWorkerTransferSnapshot(supabase, {
+    tenantId: candidate.tenant_id,
+    candidateId: candidate.id,
+    sourceJobApplicationId,
+    profilePhoto: candidate.profile_photo,
+  });
+  const employmentRow = buildEmploymentWorkerRow(candidate, workerType, convertedAt, {
+    sourceJobApplicationId,
+    applicationSnapshot: transfer.applicationSnapshot as Record<string, unknown>,
+    documentsManifest: transfer.documentsManifest,
+  });
 
   const { data: inserted, error: insertErr } = await supabase
     .from("workers")

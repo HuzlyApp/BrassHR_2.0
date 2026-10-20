@@ -11,6 +11,7 @@
  * - Status tabs add an exact pipeline status filter (pending includes under_review)
  *
  * Each metric counts a candidate profile at most once (email / phone+name identity).
+ * Server path: `public.candidate_kpi_metrics` RPC (preferred) with JS paged fallback.
  */
 
 import type { CandidateKpiCard } from "@/app/admin_recruiter/candidates/candidate-kpis";

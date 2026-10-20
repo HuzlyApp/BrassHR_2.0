@@ -8,8 +8,10 @@ import {
 import {
   buildStepPreviewModel,
   coercePreviewState,
+  mapProfessionDocumentsToPreview,
   previewAudienceLabel,
   resolveStepPreviewKind,
+  stepPreviewUsesProfessionDocuments,
 } from "@/lib/onboarding/step-preview-model";
 import type { TenantOnboardingStep } from "@/lib/onboarding/types";
 
@@ -76,6 +78,26 @@ describe("resolveStepPreviewKind", () => {
         "parameterized-job-application"
       )
     ).toBe("job_application");
+    expect(
+      resolveStepPreviewKind(
+        tenantStep({
+          step_key: "profile_information",
+          step_type: "profile_information",
+          title: "Direct Deposit",
+        }),
+        "direct-deposit-setup"
+      )
+    ).toBe("checkbox_confirmation");
+    expect(
+      resolveStepPreviewKind(
+        tenantStep({
+          step_key: "profile_information_2",
+          step_type: "profile_information",
+          title: "HCM & Payroll Setup",
+        }),
+        "payroll-profile-creation"
+      )
+    ).toBe("checkbox_confirmation");
     expect(
       resolveStepPreviewKind(
         tenantStep({ step_key: "custom_question", step_type: "custom_question" }),
@@ -179,6 +201,52 @@ describe("buildStepPreviewModel", () => {
     expect(model?.settings.completionOwner).toBe("hr_admin");
   });
 
+  it("lists the same candidate steps as Your Application and highlights the previewed step", () => {
+    const resume = stepNode("n-resume", "resume-basic-profile", {
+      label: "Resume and profile",
+      settings: { ...DEFAULT_STEP_SETTINGS, phase: "pre_hire", completionOwner: "applicant" },
+    });
+    const internal = stepNode("n-internal", "internal-select", {
+      label: "Internal selection",
+      settings: { ...DEFAULT_STEP_SETTINGS, phase: "pre_hire", completionOwner: "recruiter_or_hr" },
+    });
+    const license = stepNode("n-license", "credential-license-verification", {
+      label: "License and credential verification",
+      settings: { ...DEFAULT_STEP_SETTINGS, phase: "pre_hire", completionOwner: "applicant" },
+    });
+    const record = stepNode("n-record", "record-selection", {
+      label: "Record selection",
+      description: "Record the hire selection.",
+      settings: { ...DEFAULT_STEP_SETTINGS, phase: "pre_hire", completionOwner: "applicant" },
+    });
+    const model = buildStepPreviewModel(stateFor([resume, internal, license, record]), record);
+    expect(model?.kind).toBe("checkbox_confirmation");
+    expect(model?.isApplicantFacing).toBe(true);
+    expect(model?.preHireSteps.map((step) => step.title)).toEqual([
+      "Resume and profile",
+      "License and credential verification",
+      "Record selection",
+    ]);
+    expect(model?.preHireSteps.find((step) => step.current)?.title).toBe("Record selection");
+    expect(resolveStepPreviewKind(
+      {
+        id: "internal",
+        step_key: "custom_question",
+        title: "Internal selection",
+        description: null,
+        step_type: "custom_question",
+        sort_order: 10,
+        is_required: true,
+        is_enabled: true,
+        metadata: {
+          workflow_step_id: "internal-select",
+          workflow_settings: { phase: "pre_hire", completionOwner: "recruiter_or_hr" },
+        },
+      },
+      "internal-select"
+    )).toBe("waiting_gate");
+  });
+
   it("splits Pre-Hire and Post-Hire steps into independent preview counts", () => {
     const pre = stepNode("n-pre", "resume-basic-profile", {
       label: "Resume",
@@ -202,5 +270,44 @@ describe("coercePreviewState", () => {
   it("falls back to the first available state", () => {
     expect(coercePreviewState("filled", ["default", "pending_approval"])).toBe("default");
     expect(coercePreviewState("approved", ["default", "approved"])).toBe("approved");
+  });
+});
+
+describe("stepPreviewUsesProfessionDocuments", () => {
+  it("matches credential and certification library steps", () => {
+    expect(stepPreviewUsesProfessionDocuments("credential-license-verification", "professional_license")).toBe(
+      true
+    );
+    expect(stepPreviewUsesProfessionDocuments("certification-upload", "professional_license")).toBe(true);
+    expect(stepPreviewUsesProfessionDocuments("collect-extra-files", "document_upload")).toBe(true);
+    expect(stepPreviewUsesProfessionDocuments("document-upload", "document_upload")).toBe(false);
+  });
+});
+
+describe("mapProfessionDocumentsToPreview", () => {
+  it("maps Settings profession docs like applicant attach", () => {
+    expect(
+      mapProfessionDocumentsToPreview([
+        {
+          id: "doc-cpr",
+          name: "CPR",
+          documentKind: "certificate",
+          isRequired: false,
+          hasExpiration: true,
+          sortOrder: 20,
+        },
+        {
+          id: "doc-license",
+          name: "Nursing License",
+          documentKind: "license",
+          isRequired: true,
+          hasExpiration: true,
+          sortOrder: 10,
+        },
+      ])
+    ).toEqual([
+      { title: "Nursing License", description: "License", is_required: true },
+      { title: "CPR", description: "Certificate", is_required: false },
+    ]);
   });
 });

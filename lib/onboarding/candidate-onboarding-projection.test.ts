@@ -158,6 +158,80 @@ describe("candidate onboarding projection", () => {
     expect(frontier.maxAllowedStepIndex).toBe(1);
   });
 
+  it("matches a re-keyed internal step by id, not by a key an unrelated step owns", () => {
+    const resume = "59cf36af-485e-4357-bcfe-1bd106287ae6";
+    const screening = "7d8fba7a-c491-4225-969c-85c7b1f20e3b";
+    const skill = "e717f080-0058-4bd0-9f66-efc491c76a8a";
+    const backgroundCheck = "db479d24-6104-4fa8-8fac-6bc82ecb7b4b";
+    const row = (id: string, stepKey: string, status: "pending" | "completed") => ({
+      onboarding_step_id: id,
+      step_key: stepKey,
+      status,
+      completed_at: null,
+      data: {},
+    });
+
+    const frontier = computeCandidateOnboardingFrontier({
+      // Job workflows re-key steps: Recruiter Screening becomes `custom_question`, a key the
+      // tenant's Background Check step owns in progress rows.
+      engineOrder: [
+        { id: resume, step_key: "resume_upload", sort_order: 10, required: true, candidateVisible: true },
+        { id: screening, step_key: "custom_question", sort_order: 30, required: true, candidateVisible: false },
+        { id: skill, step_key: "skill_assessment", sort_order: 40, required: true, candidateVisible: true },
+      ],
+      candidateSteps: [
+        step({ id: resume, title: "Resume", libraryId: "resume-basic-profile", owner: "applicant", sort: 10 }),
+        step({ id: skill, title: "Skill Assessment", libraryId: "skill-qualification-assessment", owner: "applicant", sort: 40 }),
+      ],
+      progress: {
+        progressId: "prog-1",
+        status: "in_progress",
+        steps: [
+          row(backgroundCheck, "custom_question", "pending"),
+          row(resume, "resume_upload", "completed"),
+          row(screening, "custom_question_6", "completed"),
+          row(skill, "skill_assessment", "pending"),
+        ],
+      },
+    });
+
+    expect(frontier).toEqual({ maxAllowedStepIndex: 2, waitingOnInternal: false });
+  });
+
+  it("does not lock the first post-hire step behind an unfinished recruiter step", () => {
+    const welcome = step({
+      id: "welcome",
+      title: "Welcome packet",
+      libraryId: "welcome-packet-esign",
+      owner: "applicant",
+      phase: "post_hire",
+      sort: 20,
+    });
+    const frontier = computeCandidateOnboardingFrontier({
+      engineOrder: [
+        {
+          id: "recruiter-gate",
+          step_key: "internal_review",
+          sort_order: 10,
+          required: true,
+          candidateVisible: false,
+        },
+        {
+          id: welcome.id,
+          step_key: welcome.step_key,
+          sort_order: 20,
+          required: true,
+          candidateVisible: true,
+        },
+      ],
+      candidateSteps: [welcome],
+      progress: progressFor([{ id: "recruiter-gate", status: "pending" }]),
+    });
+
+    expect(frontier.waitingOnInternal).toBe(false);
+    expect(frontier.maxAllowedStepIndex).toBe(1);
+  });
+
   it("Scenario C: candidate progress is 2/3, not 2/6", () => {
     const projected = projectCandidateOnboardingConfig(configFor("tenant-a", scenarioASteps));
     const counts = candidateProgressCounts(

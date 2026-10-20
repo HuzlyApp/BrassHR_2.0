@@ -11,6 +11,8 @@ export type WorkerApplicationStatusSummary = {
   clientName: string | null;
   /** MSP Source Job ID (external_requisition_id). */
   sourceJobId: string | null;
+  /** Job requisition source, used to hide MSP-only or Internal-only stages. */
+  sourceType: string | null;
   ambiguous: boolean;
 };
 
@@ -69,6 +71,7 @@ function mapAppRow(row: AppRow, ambiguous: boolean): WorkerApplicationStatusSumm
     jobTitle: job?.public_title ?? null,
     clientName: clientNameFromJob(job),
     sourceJobId: sourceJobId || null,
+    sourceType: job?.source_type?.trim() || null,
     ambiguous,
   };
 }

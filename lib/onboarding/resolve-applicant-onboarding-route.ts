@@ -1,14 +1,19 @@
 import { APPLICATION_ROUTES } from "@/lib/onboarding/application-routes";
-import { resolveNextIncompleteStepIndex } from "@/lib/onboarding/compute-max-allowed-from-progress";
+import {
+  buildProgressStatusMaps,
+  resolveNextIncompleteStepIndex,
+} from "@/lib/onboarding/compute-max-allowed-from-progress";
 import { resolveApplicantStepFromPath, stepIndexForApplicantStep } from "@/lib/onboarding/find-applicant-step";
 import { mergeOnboardingQuery } from "@/lib/onboarding/legacy-add-references-redirect";
 import { routeForApplicantStep } from "@/lib/onboarding/resolve-applicant-step-route";
 import {
   computeMaxAllowedStepIndex,
+  firstSkippedRequiredCandidateStep,
   getEnabledTenantSteps,
   getLegacyFallbackSteps,
   resolveApplicantEnabledSteps,
 } from "@/lib/onboarding/tenant-step-navigation";
+import { readStepLifecyclePhase } from "@/lib/onboarding/workflow-phase";
 import type {
   TenantOnboardingConfig,
   TenantOnboardingStep,
@@ -43,6 +48,8 @@ const EXEMPT_PATH_PREFIXES = [
 const POST_SUBMIT_ALLOWED_PREFIXES = [
   "/application/success",
   "/application/application-status",
+  "/application/pre-hire-completion",
+  "/application/post-hire-completion",
 ] as const;
 
 function isPostSubmitAllowedPath(pathname: string): boolean {
@@ -78,6 +85,30 @@ function routeForStepIndex(
     return mergeOnboardingQuery(routeForApplicantStep(fallback, tenantSlug), search);
   }
   return mergeOnboardingQuery(routeForApplicantStep(step, tenantSlug), search);
+}
+
+function allApplicantStepsFinished(
+  enabledSteps: TenantOnboardingStep[],
+  progress: WorkerOnboardingProgressPayload | null
+): boolean {
+  if (!enabledSteps.length || !progress?.steps?.length) return false;
+  const statusById = buildProgressStatusMaps(enabledSteps, progress);
+  return enabledSteps.every((step) => {
+    const status = statusById.get(step.id);
+    return status === "completed" || status === "skipped";
+  });
+}
+
+function completionRedirect(
+  completion: "pre_hire" | "post_hire",
+  tenantSlug: string,
+  search: string
+): OnboardingRouteDecision {
+  const query = new URLSearchParams({ completion, tenant: tenantSlug });
+  return {
+    status: "redirect",
+    href: mergeOnboardingQuery(`${APPLICATION_ROUTES.applicationStatus}?${query}`, search),
+  };
 }
 
 function pathsEqual(a: string, b: string): boolean {
@@ -131,10 +162,23 @@ export function resolveApplicantOnboardingRoute(
   }
 
   if (!enabledSteps.length) {
+    // Workflows with no post-hire steps leave nothing to show once the last pre-hire step
+    // moves the applicant into post-hire.
+    const phaseMovedOn =
+      progress?.workflowPhase === "post_hire" || progress?.workflowPhase === "completed";
+    if (phaseMovedOn && !isPostSubmitAllowedPath(normalizedPath)) {
+      return completionRedirect("pre_hire", tenantSlug, search);
+    }
     return { status: "allow" };
   }
 
-  if (progress?.submittedAt) {
+  const currentStep = resolveApplicantStepFromPath(normalizedPath, search, enabledSteps);
+  const isPostHireStep = Boolean(currentStep && readStepLifecyclePhase(currentStep) === "post_hire");
+  const isPostHirePhase =
+    progress?.workflowPhase === "post_hire" ||
+    (enabledSteps.length > 0 && enabledSteps.every((s) => readStepLifecyclePhase(s) === "post_hire"));
+
+  if (progress?.submittedAt && !isPostHireStep && !isPostHirePhase) {
     if (isPostSubmitAllowedPath(normalizedPath) || isExemptApplicantPath(normalizedPath)) {
       return { status: "allow" };
     }
@@ -149,10 +193,10 @@ export function resolveApplicantOnboardingRoute(
     }
     return { status: "redirect", href };
   }
-
-  const currentStep = resolveApplicantStepFromPath(normalizedPath, search, enabledSteps);
   const maxAllowed = computeMaxAllowedStepIndex(config, progress, normalizedPath);
-  if (maxAllowed < 1) {
+  // A submitted pre-hire application still continues into post-hire. Don't send that
+  // screen back to Verification Status when an earlier recruiter step has not been marked.
+  if (maxAllowed < 1 && !isPostHireStep && !isPostHirePhase) {
     const href = mergeOnboardingQuery(
       tenantSlug
         ? `${APPLICATION_ROUTES.applicationStatus}?tenant=${encodeURIComponent(tenantSlug)}`
@@ -163,6 +207,41 @@ export function resolveApplicantOnboardingRoute(
       return { status: "allow" };
     }
     return { status: "redirect", href };
+  }
+
+  // Final screen is only for a phase whose required candidate steps are completed.
+  // A required step the candidate skipped comes back before that screen.
+  if (isPostSubmitAllowedPath(normalizedPath)) {
+    const requestedPhase = new URLSearchParams(search).get("completion") === "post_hire"
+      ? "post_hire"
+      : progress?.workflowPhase === "post_hire" || progress?.workflowPhase === "completed"
+        ? "post_hire"
+        : "pre_hire";
+    const remaining = firstSkippedRequiredCandidateStep(enabledSteps, requestedPhase, progress);
+    if (remaining) {
+      const href = mergeOnboardingQuery(routeForApplicantStep(remaining, tenantSlug), search);
+      if (!pathsEqual(href, normalizedPath)) {
+        return { status: "redirect", href };
+      }
+    }
+  }
+
+  // Workflows without a Review & Submit step never set submittedAt, so finishing every
+  // candidate step must still open the completion screen instead of looping on the last step.
+  if (!currentStep && allApplicantStepsFinished(enabledSteps, progress)) {
+    const lastStep = enabledSteps[enabledSteps.length - 1]!;
+    const phase = readStepLifecyclePhase(lastStep) === "post_hire" ? "post_hire" : "pre_hire";
+    const remaining = firstSkippedRequiredCandidateStep(enabledSteps, phase, progress);
+    if (remaining) {
+      const href = mergeOnboardingQuery(routeForApplicantStep(remaining, tenantSlug), search);
+      if (!pathsEqual(href, normalizedPath)) {
+        return { status: "redirect", href };
+      }
+    }
+    if (isPostSubmitAllowedPath(normalizedPath)) {
+      return { status: "allow" };
+    }
+    return completionRedirect(phase, tenantSlug, search);
   }
 
   if (!currentStep) {

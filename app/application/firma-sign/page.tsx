@@ -21,7 +21,8 @@ import {
   isDraftPreviewApplicantId,
   isOnboardingDraftPreview,
 } from "@/lib/onboarding/is-draft-preview";
-import { stepUsesFirmaSigning } from "@/lib/onboarding/firma-step-settings";
+import { CheckCircle2, Download, Eye, RefreshCw } from "lucide-react";
+import { isFirmaSigningComplete, stepUsesFirmaSigning } from "@/lib/onboarding/firma-step-settings";
 import type { TenantOnboardingStep } from "@/lib/onboarding/types";
 import { resolveClientOnboardingTenantSlug } from "@/lib/tenant/client-onboarding-slug";
 import { APPLICATION_ROUTES } from "@/lib/onboarding/application-routes";
@@ -143,6 +144,8 @@ export default function FirmaSignPage() {
   const [iframeUrl, setIframeUrl] = useState<string | null>(null);
   const [signingRequestId, setSigningRequestId] = useState<string | null>(null);
   const [firmaStatus, setFirmaStatus] = useState<string>("draft");
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [refreshingStatus, setRefreshingStatus] = useState(false);
   const [continuing, setContinuing] = useState(false);
   const autoContinuedRef = useRef(false);
 
@@ -155,7 +158,10 @@ export default function FirmaSignPage() {
     if (nav.configLoading || !matchedStep) return;
     const target = routeForApplicantStep(matchedStep, nav.slug);
     const targetPath = target.split("?")[0];
-    if (targetPath.includes(APPLICATION_ROUTES.authorizationsDocuments)) {
+    if (
+      targetPath.includes(APPLICATION_ROUTES.authorizationsDocuments) ||
+      targetPath.includes(APPLICATION_ROUTES.agreementSignature)
+    ) {
       router.replace(target);
     }
   }, [matchedStep, nav.configLoading, nav.slug, router]);
@@ -283,6 +289,9 @@ export default function FirmaSignPage() {
           if (typeof nextStatus === "string" && nextStatus.length > 0) {
             setFirmaStatus(nextStatus);
           }
+          if (data.download_url) {
+            setDownloadUrl(data.download_url);
+          }
           if (data.completed && !autoContinuedRef.current) {
             autoContinuedRef.current = true;
             setContinuing(true);
@@ -339,6 +348,9 @@ export default function FirmaSignPage() {
       }
 
       setFirmaStatus(statusData.session?.firma_status ?? firmaStatus);
+      if (statusData.download_url) {
+        setDownloadUrl(statusData.download_url);
+      }
 
       if (!statusData.completed) {
         setError("Please finish signing the document before continuing.");
@@ -381,11 +393,94 @@ export default function FirmaSignPage() {
             </p>
           ) : null}
           {!loading ? (
-            <p className="mt-1 text-xs font-medium text-[#475467]">
-              Status: {eSignatureStatusLabel(firmaStatus)}
-            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <p className="text-xs font-medium text-[#475467]">
+                Status: <span className="font-semibold text-slate-800">{eSignatureStatusLabel(firmaStatus)}</span>
+              </p>
+              {!isFirmaSigningComplete(firmaStatus) && signingRequestId ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const applicantId = resolveApplicantId(search);
+                    if (!applicantId || !stepKey || refreshingStatus) return;
+                    setRefreshingStatus(true);
+                    try {
+                      const q = new URLSearchParams({ applicantId, stepKey });
+                      if (stepId) q.set("stepId", stepId);
+                      if (signingRequestId) q.set("signingRequestId", signingRequestId);
+                      const res = await fetch(`/api/onboarding/firma-sign/status?${q.toString()}`, { cache: "no-store" });
+                      const d = await res.json();
+                      if (d.session?.firma_status) setFirmaStatus(d.session.firma_status);
+                      if (d.download_url) setDownloadUrl(d.download_url);
+                    } finally {
+                      setRefreshingStatus(false);
+                    }
+                  }}
+                  disabled={refreshingStatus}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-[color:var(--brand-primary)] hover:underline disabled:opacity-60"
+                >
+                  <RefreshCw className={`h-3 w-3 ${refreshingStatus ? "animate-spin" : ""}`} />
+                  {refreshingStatus ? "Checking…" : "Check live status"}
+                </button>
+              ) : null}
+            </div>
           ) : null}
         </div>
+
+        {isFirmaSigningComplete(firmaStatus) ? (
+          <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 sm:p-5 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600 sm:h-12 sm:w-12">
+                  <CheckCircle2 className="h-6 w-6" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-semibold text-emerald-950 sm:text-base">Document Signed Successfully</h2>
+                  <p className="text-xs text-emerald-800">Your agreement has been executed. You can preview or download it below.</p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <a
+                  href={
+                    downloadUrl ||
+                    `/api/onboarding/firma-sign/download?${new URLSearchParams({
+                      applicantId: resolveApplicantId(search) || "",
+                      stepKey: stepKey || "",
+                      signingRequestId: signingRequestId || "",
+                      redirect: "true",
+                    }).toString()}`
+                  }
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-semibold text-emerald-900 shadow-sm transition hover:bg-emerald-50"
+                >
+                  <Eye className="h-4 w-4 text-emerald-600" />
+                  Preview Signed Agreement
+                </a>
+                <a
+                  href={
+                    downloadUrl ||
+                    `/api/onboarding/firma-sign/download?${new URLSearchParams({
+                      applicantId: resolveApplicantId(search) || "",
+                      stepKey: stepKey || "",
+                      signingRequestId: signingRequestId || "",
+                      redirect: "true",
+                      download: "true",
+                      filename: `${stepTitle || "Signed_Agreement"}.pdf`,
+                    }).toString()}`
+                  }
+                  target="_blank"
+                  rel="noreferrer"
+                  download={`${stepTitle || "Signed_Agreement"}.pdf`}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-primary)] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:brightness-95"
+                >
+                  <Download className="h-4 w-4" />
+                  Download Signed Agreement
+                </a>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {loading ? (
           <div className="min-h-[420px] rounded-lg border border-slate-200 bg-slate-50" aria-hidden />

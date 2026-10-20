@@ -54,7 +54,17 @@ function pickApplicationForAnalysis(
   return [...rows].sort((a, b) => rowTimestamp(b) - rowTimestamp(a))[0];
 }
 
-export function CandidatesAiAnalysisClient({ workerId }: { workerId: string }) {
+type CandidatesAiAnalysisClientProps = {
+  workerId: string;
+  backHref?: string;
+  embedded?: boolean;
+};
+
+export function CandidatesAiAnalysisClient({
+  workerId,
+  backHref,
+  embedded = false,
+}: CandidatesAiAnalysisClientProps) {
   const searchParams = useSearchParams();
   const preferredApplicationId = searchParams.get("applicationId");
   const [applicationId, setApplicationId] = useState<string | null>(null);
@@ -130,11 +140,14 @@ export function CandidatesAiAnalysisClient({ workerId }: { workerId: string }) {
     );
   }
 
+  const resolvedBackHref = backHref?.trim() || "/admin_recruiter/candidates";
+
   return (
     <AiAnalysisOverviewClient
       applicationId={applicationId}
-      backHref="/admin_recruiter/candidates"
+      backHref={resolvedBackHref}
       jobId={jobId}
+      embedded={embedded}
     />
   );
 }

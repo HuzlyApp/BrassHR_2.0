@@ -1,10 +1,10 @@
-﻿"use client";
+"use client";
 
 import Image from "next/image";
 import AccountReadyModal from "@/app/components/AccountReadyModal";
 import SignupStepper from "@/app/components/SignupStepper";
 import { Fragment, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import {
   buildYourTrialPath,
   clearAccountReadyModalPending,
@@ -117,7 +117,6 @@ function TrialArtPanel() {
 }
 
 function YourTrialContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const isAccountReadyFromUrl = searchParams.get("account-ready") === "true";
   const [showAccountReadyModal, setShowAccountReadyModal] = useState(false);
@@ -132,17 +131,17 @@ function YourTrialContent() {
   const leaveHomeStartedRef = useRef(false);
 
   const cleanAccountReadyUrl = useCallback(() => {
+    if (typeof window === "undefined") return;
     if (searchParams.get("account-ready") !== "true") return;
-    router.replace(buildYourTrialPath(searchParams.toString()), { scroll: false });
-  }, [router, searchParams]);
+    const target = buildYourTrialPath(searchParams.toString());
+    window.history.replaceState(null, "", target);
+  }, [searchParams]);
 
-  const openAccountReadyModalOnce = useCallback(() => {
+  const openAccountReadyModal = useCallback(() => {
     if (typeof window === "undefined") return false;
     const pendingFromSignup = readAccountReadyModalPending(sessionStorage);
-    // Fresh signup (pending flag) always opens once. Otherwise honor "already seen".
+    // Fresh signup (pending flag) always opens. Otherwise honor "already seen".
     if (!pendingFromSignup && readAccountReadyModalSeen(sessionStorage)) return false;
-    clearAccountReadyModalPending(sessionStorage);
-    markAccountReadyModalSeen(sessionStorage);
     setShowAccountReadyModal(true);
     return true;
   }, []);
@@ -152,14 +151,11 @@ function YourTrialContent() {
       setTrialPrepared(true);
       setCompletedThrough(2);
       setSlowMessage(null);
-      // Only pop the modal when the trial *transitions* to ready during this
-      // page session. When the page loads and the trial is already ready
-      // (e.g. on refresh), we skip the modal so it doesn't re-appear.
       if (options?.showModal !== false) {
-        openAccountReadyModalOnce();
+        openAccountReadyModal();
       }
     },
-    [openAccountReadyModalOnce]
+    [openAccountReadyModal]
   );
 
   const fetchTrialStatus = useCallback(async (): Promise<TrialStatusPayload | null> => {
@@ -178,9 +174,9 @@ function YourTrialContent() {
 
     setTrialPrepared(true);
     setCompletedThrough(2);
-    openAccountReadyModalOnce();
+    openAccountReadyModal();
     cleanAccountReadyUrl();
-  }, [isAccountReadyFromUrl, cleanAccountReadyUrl, openAccountReadyModalOnce]);
+  }, [isAccountReadyFromUrl, cleanAccountReadyUrl, openAccountReadyModal]);
 
   useEffect(() => {
     try {
@@ -221,9 +217,11 @@ function YourTrialContent() {
       if (cancelled) return;
       if (existingStatus?.phase === "email_sent" || existingStatus?.phase === "onboarding_complete") {
         // Already prepared (refresh, or Strict Mode remount after email send).
-        // Show modal only when this visit came from a fresh signup redirect.
-        const pendingFromSignup = readAccountReadyModalPending(sessionStorage);
-        markTrialReady({ showModal: pendingFromSignup });
+        // Show modal unless the user previously explicitly exited.
+        const alreadySeen = typeof window !== "undefined" && readAccountReadyModalSeen(sessionStorage);
+        const pendingFromSignup = typeof window !== "undefined" && readAccountReadyModalPending(sessionStorage);
+        const shouldShow = pendingFromSignup || !alreadySeen;
+        markTrialReady({ showModal: shouldShow });
         return;
       }
 
@@ -293,6 +291,7 @@ function YourTrialContent() {
     if (leaveHomeStartedRef.current) return;
     leaveHomeStartedRef.current = true;
     setLeavingHome(true);
+    setShowAccountReadyModal(false);
     if (typeof window !== "undefined") {
       clearAccountReadyModalPending(sessionStorage);
       markAccountReadyModalSeen(sessionStorage);

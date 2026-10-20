@@ -132,7 +132,7 @@ describe("stage question sets", () => {
       callPackQuestions: [{ question: callPack[0]!.question, answer: "Yes, compact." }],
       callContext: "Available in two weeks.",
     });
-    expect(notes).toContain("Do not repeat");
+    expect(notes).toContain("Never repeat or rephrase");
     expect(notes).toContain(callPack[0]!.question);
     expect(notes).toContain("Yes, compact.");
     expect(notes).toContain("Available in two weeks.");

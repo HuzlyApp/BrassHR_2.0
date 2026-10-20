@@ -4,7 +4,15 @@ import { requireStaffApiSession } from "@/lib/auth/api-session";
 import { createAdminJobApplication, bulkDeleteJobApplications, deleteOrphanWorkersAfterApplicationDelete, parseBulkDeleteIds } from "@/lib/jobs/service";
 import { JobValidationError } from "@/lib/jobs/types";
 import { resolveStaffTenantId } from "@/lib/jobs/tenant";
-import { JOB_APPLICATION_APPLICANT_EMBED } from "@/lib/jobs/application-applicant-display";
+import {
+  JOB_APPLICATION_APPLICANT_EMBED,
+  resolveApplicationWorkerId,
+  type ApplicationApplicantSource,
+} from "@/lib/jobs/application-applicant-display";
+import {
+  loadTenantConvertedWorkerIdentities,
+  isConvertedWorkerApplication,
+} from "@/lib/admin/converted-worker-identities";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { loadStaffUsersByIds } from "@/lib/account/resolve-staff-users";
 import { isUuid } from "@/lib/validation/uuid";
@@ -181,6 +189,20 @@ export async function GET(req: NextRequest) {
         const workerId = (row as { worker_id?: string | null }).worker_id;
         return Boolean(workerId && matchingWorkers.has(workerId));
       });
+    }
+
+    if (!workerId && applications.length > 0) {
+      const identities = await loadTenantConvertedWorkerIdentities(db, tenantId);
+      applications = applications.filter(
+        (app) =>
+          !isConvertedWorkerApplication(
+            {
+              applicationId: app.id,
+              workerId: resolveApplicationWorkerId(app as ApplicationApplicantSource),
+            },
+            identities
+          )
+      );
     }
 
     const countByWorker = new Map<string, number>();

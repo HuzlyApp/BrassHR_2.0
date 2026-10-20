@@ -23,6 +23,19 @@ function isProfessionalLicenseStep(step: TenantOnboardingStep): boolean {
   return step.step_type === "professional_license" || step.step_type === "document_upload";
 }
 
+function defaultDocumentsForStep(step: TenantOnboardingStep) {
+  if (step.step_type === "document_upload") {
+    return [
+      {
+        title: "Extra File",
+        description: "Upload any additional intake document required for this job.",
+        sort_order: 10,
+      },
+    ] as const;
+  }
+  return DEFAULT_PROFESSIONAL_LICENSE_DOCUMENTS;
+}
+
 /**
  * Ensures default upload slots exist for professional-license steps that have none yet.
  * Returns true when any rows were inserted.
@@ -46,8 +59,9 @@ export async function ensureProfessionalLicenseRequiredDocuments(
     if (countErr) throw countErr;
     if ((count ?? 0) > 0) continue;
 
+    const defaults = defaultDocumentsForStep(step);
     const { error: insertErr } = await supabase.from("tenant_required_documents").insert(
-      DEFAULT_PROFESSIONAL_LICENSE_DOCUMENTS.map((doc) => ({
+      defaults.map((doc) => ({
         tenant_id: tenantId,
         onboarding_step_id: step.id,
         title: doc.title,

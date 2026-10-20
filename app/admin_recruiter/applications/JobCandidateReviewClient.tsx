@@ -60,6 +60,10 @@ import { applicationAiAnalysisHref } from "./CandidateAiAnalysisButton";
 // Overview match/screening/candidate form lives on AI Analysis Overview.
 // import { CandidateAnalysisWorkspace } from "./CandidateAnalysisWorkspace";
 import { CandidateActivityTimeline } from "./CandidateActivityTimeline";
+import { MspSubmissionPanel } from "./MspSubmissionPanel";
+import { filterApplicationStatusesForSource } from "@/lib/jobs/msp-submission";
+import { readStatusGroupFields } from "@/lib/jobs/application-statuses/groups";
+import { GroupedStatusMenuList } from "@/app/admin_recruiter/components/GroupedStatusMenu";
 import { ReplaceResumeConfirmModal } from "./ReplaceResumeConfirmModal";
 import { ResumeHistoryModal, type ResumeHistoryItem } from "./ResumeHistoryModal";
 import { candidateApplicantProfileHref } from "@/app/admin_recruiter/candidates/candidate-links";
@@ -101,6 +105,11 @@ type StatusOption = {
   id: string;
   name: string;
   systemKey: string | null;
+  sortOrder?: number;
+  groupId?: string | null;
+  groupName?: string | null;
+  groupDescription?: string | null;
+  groupSortOrder?: number | null;
 };
 
 type StatusHistoryItem = {
@@ -337,6 +346,11 @@ export default function JobCandidateReviewClient() {
   const currentStatusKey = selected
     ? normalizeApplicationStatus(selected.status)
     : "new";
+  const jobSourceType = String(one(selected?.job_requisitions ?? null).source_type ?? "").trim();
+  const visibleStatusOptions = useMemo(
+    () => filterApplicationStatusesForSource(statusOptions, jobSourceType, selected?.status_id),
+    [jobSourceType, selected?.status_id, statusOptions]
+  );
 
   const secondaryColor = branding.secondaryHex || "#012352";
 
@@ -843,6 +857,8 @@ export default function JobCandidateReviewClient() {
             id: String(row.id),
             name: String(row.name),
             systemKey: (row.systemKey as string | null) ?? null,
+            sortOrder: Number(row.sortOrder ?? 0),
+            ...readStatusGroupFields(row),
           }))
         );
       } catch {
@@ -1793,24 +1809,48 @@ export default function JobCandidateReviewClient() {
                 </p>
               ) : null}
               {statusMenuOpen ? (
-                <div className="absolute left-0 right-0 z-20 mt-1 overflow-hidden rounded-xl border border-[#E5E7EB] bg-white py-1 shadow-lg">
-                  {statusOptions.map((option) => (
-                    <button
-                      key={option.id}
-                      type="button"
-                      onClick={() => beginStatusChange(option)}
-                      className="flex min-h-10 w-full items-center justify-between px-3 py-2 text-left text-sm text-[#334155] hover:bg-[#F8FAFC]"
-                    >
-                      {option.name}
-                      {selected?.status_id === option.id ||
-                      (!selected?.status_id && option.systemKey === currentStatusKey) ? (
-                        <Check className="h-4 w-4" style={{ color: branding.primaryHex }} />
-                      ) : null}
-                    </button>
-                  ))}
+                <div className="absolute left-0 right-0 z-20 mt-1 max-h-80 overflow-y-auto rounded-xl border border-[#E5E7EB] bg-white py-1 shadow-lg">
+                  <GroupedStatusMenuList
+                    options={visibleStatusOptions}
+                    renderOption={(option) => (
+                      <button
+                        type="button"
+                        onClick={() => beginStatusChange(option)}
+                        className="flex min-h-10 w-full items-center justify-between px-3 py-2 text-left text-sm text-[#334155] hover:bg-[#F8FAFC]"
+                      >
+                        {option.name}
+                        {selected?.status_id === option.id ||
+                        (!selected?.status_id && option.systemKey === currentStatusKey) ? (
+                          <Check className="h-4 w-4" style={{ color: branding.primaryHex }} />
+                        ) : null}
+                      </button>
+                    )}
+                  />
                 </div>
               ) : null}
             </div>
+
+            {selected && jobSourceType.toLowerCase() === "msp" ? (
+              <MspSubmissionPanel
+                applicationId={selected.id}
+                onSubmitted={(statusName) => {
+                  const submittedId = statusOptions.find(
+                    (option) => option.name.trim().toLowerCase() === statusName.trim().toLowerCase()
+                  )?.id;
+                  setRows((current) =>
+                    current.map((row) =>
+                      row.id === selected.id
+                        ? {
+                            ...row,
+                            statusName,
+                            status_id: submittedId ?? row.status_id,
+                          }
+                        : row
+                    )
+                  );
+                }}
+              />
+            ) : null}
 
             <div className="max-h-[240px] overflow-y-auto rounded-[12px]">
               <h3 className="text-sm font-semibold text-[#0F172A]">Status History</h3>

@@ -95,6 +95,8 @@ export async function findWorkerByPhoneAndName(
   if (!tenantId || phoneDigits.length < 10 || !nameKey) return null;
 
   const last10 = phoneDigits.slice(-10);
+  // Placeholder phones (e.g. 0000000000 on resume-upload shells) are shared by unrelated applicants.
+  if (/^(\d)\1+$/.test(last10)) return null;
   const { data, error } = await supabase
     .from("worker")
     .select("id, email, phone, first_name, last_name")

@@ -29,6 +29,21 @@ describe("match stage", () => {
     );
   });
 
+  it("keeps progression during Deep Match run and after a failed Deep Match", () => {
+    expect(
+      matchWorkspaceIsAnalyzed({ status: "ANALYZING", stage: "follow_up", hasAnalysis: true })
+    ).toBe(true);
+    expect(
+      matchWorkspaceIsAnalyzed({ status: "FAILED", stage: "follow_up", hasAnalysis: true })
+    ).toBe(true);
+    expect(matchWorkspaceIsAnalyzed({ status: "FAILED", stage: null, hasAnalysis: true })).toBe(
+      false
+    );
+    expect(
+      matchWorkspaceIsAnalyzed({ status: "FAILED", stage: "follow_up", hasAnalysis: false })
+    ).toBe(false);
+  });
+
   it("maps analyze to quick, call_pack to call_pack, follow_up to follow_up, and deep to deep", () => {
     expect(matchStageFromMode("analyze")).toBe("quick");
     expect(matchStageFromMode("call_pack")).toBe("call_pack");

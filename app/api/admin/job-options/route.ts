@@ -21,6 +21,7 @@ export async function GET() {
         .select("id, name, code")
         .or(`tenant_id.is.null,tenant_id.eq.${tenantId}`)
         .eq("is_active", true)
+        .order("sort_order", { ascending: true })
         .order("name"),
       supabase
         .from("specialties")

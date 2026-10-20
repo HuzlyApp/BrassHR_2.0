@@ -35,6 +35,27 @@ const POST_HIRE_STAGE_ORDER = [
   "Day One Ready",
 ] as const;
 
+const POST_HIRE_BOARD_ORDER = [
+  "Payroll & Tax",
+  "Access & Systems",
+  "Training & Policy",
+  "Welcome & Complete",
+] as const;
+
+const POST_HIRE_BOARD_STAGE: Record<(typeof POST_HIRE_STAGE_ORDER)[number], string> = {
+  Kickoff: "Welcome & Complete",
+  Paperwork: "Payroll & Tax",
+  "Payroll & Pay": "Payroll & Tax",
+  Policies: "Training & Policy",
+  "Access & Equipment": "Access & Systems",
+  Training: "Training & Policy",
+  "Day One Ready": "Welcome & Complete",
+};
+
+function postHireBoardStage(stage: string): string {
+  return POST_HIRE_BOARD_STAGE[stage as (typeof POST_HIRE_STAGE_ORDER)[number]] ?? stage;
+}
+
 function step(
   partial: Partial<CandidateWorkflowStepView> & Pick<CandidateWorkflowStepView, "id" | "title" | "stepType">
 ): CandidateWorkflowStepView {
@@ -76,7 +97,7 @@ describe("hire stage catalog", () => {
           title: stepType,
           stepType,
           phase: "post_hire",
-          displayStatus: stage === "Kickoff" ? "completed" : "not_started",
+          displayStatus: postHireBoardStage(stage) === "Payroll & Tax" ? "completed" : "not_started",
         })
       );
 
@@ -84,7 +105,7 @@ describe("hire stage catalog", () => {
     const postGroups = groupStepsIntoHireStages(postHire, "post_hire");
 
     expect(preGroups.map((group) => group.name)).toEqual([...PRE_HIRE_STAGE_ORDER]);
-    expect(postGroups.map((group) => group.name)).toEqual([...POST_HIRE_STAGE_ORDER]);
+    expect(postGroups.map((group) => group.name)).toEqual([...POST_HIRE_BOARD_ORDER]);
     expect(preGroups[0]?.status).toBe("current");
     expect(preGroups.at(-1)?.status).toBe("locked");
     expect(postGroups[0]?.status).toBe("completed");
@@ -96,8 +117,31 @@ describe("hire stage catalog", () => {
         : "post_hire";
       const groups = lifecycle === "pre_hire" ? preGroups : postGroups;
       const group = groups.find((item) => item.steps.some((row) => row.stepType === stepType));
-      expect(group?.name, stepType).toBe(stage);
+      expect(group?.name, stepType).toBe(lifecycle === "pre_hire" ? stage : postHireBoardStage(stage));
     }
+  });
+
+  it("folds stamped post-hire library stages onto the Post-Hire board and keeps them off Pre-Hire", () => {
+    const stamped = (stepType: string, phase: "pre_hire" | "post_hire") =>
+      step({
+        id: `${phase}-${stepType}`,
+        title: stepType,
+        stepType,
+        phase,
+        settings: stampHireStageOnStepSettings(stepType, { phase }),
+      });
+
+    expect(
+      groupStepsIntoHireStages(
+        [stamped("direct-deposit-setup", "post_hire"), stamped("welcome-email", "post_hire")],
+        "post_hire"
+      ).map((group) => group.name)
+    ).toEqual(["Payroll & Tax", "Welcome & Complete"]);
+    expect(
+      groupStepsIntoHireStages([stamped("document-upload", "pre_hire")], "pre_hire").map(
+        (group) => group.name
+      )
+    ).toEqual(["Intake"]);
   });
 
   it("stamps stageName onto new workflow snapshots without replacing an explicit stage", () => {
@@ -111,6 +155,31 @@ describe("hire stage catalog", () => {
         stageName: "Screening",
       }).stageName
     ).toBe("Screening");
+  });
+
+  it("stamps the phase's own stage when a library step is placed in the other phase", () => {
+    expect(stampHireStageOnStepSettings("pay-rate-hire-date", { phase: "post_hire" }).stageName).toBe(
+      "Payroll & Pay"
+    );
+    expect(
+      stampHireStageOnStepSettings("i9-right-to-work-verification", {
+        phase: "post_hire",
+        stageName: "Offer & Agreement",
+      }).stageName
+    ).toBe("Paperwork");
+    expect(stampHireStageOnStepSettings("custom-form", { phase: "post_hire" }).stageName).toBe("Paperwork");
+    expect(stampHireStageOnStepSettings("pay-rate-hire-date", { phase: "pre_hire" }).stageName).toBe(
+      "Offer & Agreement"
+    );
+    expect(stampHireStageOnStepSettings("completion-milestone", { phase: "transition" }).stageName).toBe(
+      "Approvals"
+    );
+    expect(stampHireStageOnStepSettings("completion-milestone", { phase: "post_hire" }).stageName).toBe(
+      "Day One Ready"
+    );
+    expect(
+      stampHireStageOnStepSettings("offer-acceptance", { phase: "post_hire", stageName: "Offer & Agreement" })
+    ).toEqual({ phase: "post_hire" });
   });
 });
 

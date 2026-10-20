@@ -31,6 +31,8 @@ type ClassicTenantLoginProps = {
   otpAuthError?: LoginAuthErrorPayload | null;
   otpResendCount?: number;
   otpMaxResends?: number;
+  otpExpiresInSeconds?: number;
+  otpResendCooldownSeconds?: number;
   onOtpClearError?: () => void;
   onOtpVerify?: (code: string) => void | Promise<void>;
   onOtpSendAgain?: () => void | Promise<void>;
@@ -52,6 +54,8 @@ export default function ClassicTenantLogin({
   otpAuthError,
   otpResendCount = 0,
   otpMaxResends,
+  otpExpiresInSeconds,
+  otpResendCooldownSeconds,
   onOtpClearError,
   onOtpVerify,
   onOtpSendAgain,
@@ -88,6 +92,8 @@ export default function ClassicTenantLogin({
             authError={otpAuthError}
             resendCount={otpResendCount}
             maxResends={otpMaxResends}
+            expiresInSeconds={otpExpiresInSeconds}
+            resendCooldownSeconds={otpResendCooldownSeconds}
             onClearError={onOtpClearError}
             onVerify={onOtpVerify}
             onSendAgain={onOtpSendAgain}

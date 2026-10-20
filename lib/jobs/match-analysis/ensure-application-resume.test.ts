@@ -147,6 +147,7 @@ describe("ensureApplicationResumeFromWorker", () => {
                             parse_status: "completed",
                             parsed_data: {},
                             parsed_json: {},
+                            uploaded_by_user_id: "staff-1",
                           },
                           error: null,
                         }),
@@ -178,6 +179,7 @@ describe("ensureApplicationResumeFromWorker", () => {
       job_application_id: "app-new",
       storage_path: "path/other.pdf",
       extracted_text: "Other job text",
+      uploaded_by_user_id: "staff-1",
     });
     expect(result?.fileName).toBe("other.pdf");
   });

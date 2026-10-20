@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { filterStepLibrary, flattenStepLibrary, stepMatchesSearch } from "./filter-step-library";
+import {
+  collectUsedLibrarySteps,
+  excludeUsedLibrarySteps,
+  filterStepLibrary,
+  flattenStepLibrary,
+  stepMatchesSearch,
+} from "./filter-step-library";
 import type { StepCategory } from "./types";
 
 const library: StepCategory[] = [
@@ -78,5 +84,94 @@ describe("filterStepLibrary", () => {
     const step = filtered[0].steps[0];
     expect(step.id).toBe("policy-acknowledgment");
     expect(step.label).toBe("Policy Acknowledgment");
+  });
+});
+
+describe("excludeUsedLibrarySteps", () => {
+  it("hides steps already on the canvas and restores empty categories", () => {
+    const filtered = excludeUsedLibrarySteps(library, [
+      "document-upload",
+      "tax-forms",
+      "policy-acknowledgment",
+    ]);
+    const ids = flattenStepLibrary(filtered).map((s) => s.id);
+    expect(ids).toEqual([
+      "custom-step",
+      "references-collection",
+      "reference-verification",
+    ]);
+    expect(filtered.some((c) => c.id === "document-esign")).toBe(false);
+  });
+
+  it("keeps Custom Step available even when already used", () => {
+    const filtered = excludeUsedLibrarySteps(library, ["custom-step", "tax-forms"]);
+    const ids = flattenStepLibrary(filtered).map((s) => s.id);
+    expect(ids).toContain("custom-step");
+    expect(ids).not.toContain("tax-forms");
+  });
+
+  it("returns the original library when nothing is used", () => {
+    expect(excludeUsedLibrarySteps(library, [])).toBe(library);
+  });
+
+  it("hides library rows when the canvas uses a legacy alias id", () => {
+    const offerLibrary: StepCategory[] = [
+      {
+        id: "offer-agreement",
+        label: "Offer and agreement",
+        steps: [
+          { id: "pay-rate-hire-date", label: "Pay and start date", icon: null },
+          { id: "offer-prep", label: "Offer prep", icon: null },
+        ],
+      },
+    ];
+    const filtered = excludeUsedLibrarySteps(offerLibrary, ["pay-and-start-date"]);
+    expect(flattenStepLibrary(filtered).map((s) => s.id)).toEqual(["offer-prep"]);
+  });
+
+  it("hides library rows by matching canvas labels when ids diverge", () => {
+    const offerLibrary: StepCategory[] = [
+      {
+        id: "offer-agreement",
+        label: "Offer and agreement",
+        steps: [
+          { id: "offer-prep", label: "Offer prep", icon: null },
+          {
+            id: "i9-right-to-work-verification",
+            label: "I-9 Section 1",
+            icon: null,
+          },
+          { id: "manager-approval", label: "Manager approval", icon: null },
+        ],
+      },
+    ];
+    const filtered = excludeUsedLibrarySteps(offerLibrary, ["i9-section-1"], {
+      usedLabels: ["Offer prep", "Manager approval"],
+    });
+    expect(flattenStepLibrary(filtered).map((s) => s.id)).toEqual([]);
+  });
+});
+
+describe("collectUsedLibrarySteps", () => {
+  it("reads stepId and label from step nodes and ignores drop zones", () => {
+    const { stepIds, labels } = collectUsedLibrarySteps([
+      {
+        type: "step",
+        data: { stepId: "offer-prep", label: "Offer prep" },
+      },
+      {
+        type: "dropZone",
+        data: { kind: "dropZone" },
+      },
+      {
+        type: "step",
+        data: { stepId: "i9-section-1", label: "I-9 Section 1" },
+      },
+    ]);
+    expect(stepIds.has("offer-prep")).toBe(true);
+    expect(stepIds.has("i9-section-1")).toBe(true);
+    expect(stepIds.has("i9-right-to-work-verification")).toBe(true);
+    expect(labels.has("offer prep")).toBe(true);
+    expect(labels.has("i-9 section 1")).toBe(true);
   });
 });

@@ -37,6 +37,8 @@ export type BuildApplicantContextParams = {
   continuationMetadata?: Record<string, unknown>;
   applicationId?: string | null;
   jobToken?: string | null;
+  /** Open this step from the continuation link instead of the candidate's first open step. */
+  continuationTargetStepKey?: string | null;
 };
 
 function formatApplicantName(first: string | null, last: string | null): string {
@@ -111,6 +113,7 @@ export async function buildApplicantEmailContext(
     metadata: params.continuationMetadata,
     applicationId: params.applicationId,
     jobToken: params.jobToken,
+    targetStepKey: params.continuationTargetStepKey,
   });
 
   return {

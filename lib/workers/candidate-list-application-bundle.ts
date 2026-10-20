@@ -106,6 +106,7 @@ function toStatusSummary(
     jobTitle: job?.public_title ?? null,
     clientName: clientNameFromJob(job),
     sourceJobId: sourceJobId || null,
+    sourceType: job?.source_type?.trim() || null,
     ambiguous,
   };
 }

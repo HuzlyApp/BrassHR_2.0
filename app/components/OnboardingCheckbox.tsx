@@ -4,7 +4,7 @@ import type { CSSProperties, ReactNode } from "react"
 import { cn } from "@/lib/utils"
 
 const box =
-  "relative inline-grid h-5 w-5 shrink-0 place-items-center overflow-hidden rounded-[5px] border-2 box-border transition-colors leading-none"
+  "relative inline-grid h-[18px] w-[18px] shrink-0 place-items-center overflow-hidden rounded-[6px] border-2 box-border transition-colors leading-none"
 
 type Props = {
   checked: boolean
@@ -15,6 +15,8 @@ type Props = {
   id?: string
   className?: string
   disabled?: boolean
+  /** Align the box with the first line of a multi-line label (label should use a 20px line height). */
+  alignFirstLine?: boolean
 }
 
 export default function OnboardingCheckbox({
@@ -25,6 +27,7 @@ export default function OnboardingCheckbox({
   id,
   className,
   disabled,
+  alignFirstLine,
 }: Props) {
   const checkboxColor = "var(--brand-secondary)";
   const checkboxStyle = { accentColor: checkboxColor } as CSSProperties;
@@ -42,7 +45,7 @@ export default function OnboardingCheckbox({
           disabled={disabled}
           onChange={(e) => onChange(e.target.checked)}
           style={checkboxStyle}
-          className="h-5 w-5 shrink-0 cursor-pointer rounded-[5px] border-2 border-slate-300 focus:ring-2 focus:ring-[color:var(--brand-secondary)]/30 disabled:cursor-not-allowed disabled:opacity-50"
+          className="h-[18px] w-[18px] shrink-0 cursor-pointer rounded-[6px] border-2 border-slate-300 accent-[color:var(--brand-secondary)] focus:ring-2 focus:ring-[color:var(--brand-secondary)]/30 disabled:cursor-not-allowed disabled:opacity-50"
         />
         {children}
       </div>
@@ -56,13 +59,14 @@ export default function OnboardingCheckbox({
       onClick={() => onChange(!checked)}
       aria-pressed={checked}
       className={cn(
-        "inline-flex items-center gap-3 text-left",
+        "inline-flex gap-3 text-left",
+        alignFirstLine ? "items-start" : "items-center",
         disabled && "cursor-not-allowed opacity-50",
         className
       )}
     >
       <span
-        className={`${box} ${checked ? "text-white" : "border-slate-300 bg-white"}`}
+        className={cn(box, checked ? "text-white" : "border-slate-300 bg-white", alignFirstLine && "mt-px")}
         style={checkedStyle}
         aria-hidden
       >
@@ -84,7 +88,9 @@ export default function OnboardingCheckbox({
         ) : null}
       </span>
       {children ? (
-        <span className="flex min-w-0 flex-1 items-center leading-none">{children}</span>
+        <span className={cn("flex min-w-0 flex-1 leading-none", alignFirstLine ? "items-start" : "items-center")}>
+          {children}
+        </span>
       ) : null}
     </button>
   )

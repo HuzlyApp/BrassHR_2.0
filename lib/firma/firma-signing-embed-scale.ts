@@ -62,7 +62,7 @@ export function resolveFirmaEmbedDimensions(
 }
 
 export const FIRMA_EMBED_MIN_SCALE = 0.38;
-export const FIRMA_EMBED_MAX_SCALE = 1;
+export const FIRMA_EMBED_MAX_SCALE = 2;
 export const FIRMA_EMBED_MOBILE_MAX_SCALE = 1.08;
 
 export function computeFirmaEmbedScale(

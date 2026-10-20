@@ -23,6 +23,7 @@ type WorkerResumeSource = {
   parse_status: string | null;
   parsed_data: unknown;
   parsed_json: unknown;
+  uploaded_by_user_id?: string | null;
 };
 
 function toDisplay(row: {
@@ -62,7 +63,7 @@ export async function ensureApplicationResumeFromWorker(args: {
   const { data: scopedRows, error: scopedError } = await supabase
     .from("worker_resumes")
     .select(
-      "id, extracted_text, file_name, original_file_name, storage_path, file_url, file_type, file_size_bytes, text_length, job_application_id, parsing_status, parse_status, parsed_data, parsed_json, uploaded_at"
+      "id, extracted_text, file_name, original_file_name, storage_path, file_url, file_type, file_size_bytes, text_length, job_application_id, parsing_status, parse_status, parsed_data, parsed_json, uploaded_at, uploaded_by_user_id"
     )
     .eq("tenant_id", tenantId)
     .eq("job_application_id", applicationId)
@@ -80,7 +81,7 @@ export async function ensureApplicationResumeFromWorker(args: {
   const { data: source, error: sourceError } = await supabase
     .from("worker_resumes")
     .select(
-      "id, extracted_text, file_name, original_file_name, storage_path, file_url, file_type, file_size_bytes, text_length, job_application_id, parsing_status, parse_status, parsed_data, parsed_json, uploaded_at"
+      "id, extracted_text, file_name, original_file_name, storage_path, file_url, file_type, file_size_bytes, text_length, job_application_id, parsing_status, parse_status, parsed_data, parsed_json, uploaded_at, uploaded_by_user_id"
     )
     .eq("tenant_id", tenantId)
     .eq("worker_id", workerId)
@@ -138,6 +139,7 @@ export async function ensureApplicationResumeFromWorker(args: {
     parse_completed_at: now,
     parse_error: null,
     job_application_id: applicationId,
+    uploaded_by_user_id: sourceRow.uploaded_by_user_id ?? null,
   });
   if (insertError) {
     console.warn("[ensure-application-resume] clone failed:", insertError.message);

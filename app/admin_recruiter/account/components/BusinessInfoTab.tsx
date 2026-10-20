@@ -449,7 +449,7 @@ export default function BusinessInfoTab() {
                 {activeUserFacingIndustries().map((item) => {
                   const checked = hireForKeys.includes(item.key);
                   return (
-                    <label key={item.key} className="flex items-center gap-2 text-sm text-[#334155]">
+                    <label key={item.key} className="flex items-center gap-2 text-sm text-[#334155] cursor-pointer">
                       <input
                         type="checkbox"
                         checked={checked}
@@ -461,6 +461,8 @@ export default function BusinessInfoTab() {
                             return keys.filter((key) => key !== item.key);
                           });
                         }}
+                        className="h-4 w-4 cursor-pointer rounded border-gray-300 accent-[#012352]"
+                        style={{ accentColor: '#012352' }}
                       />
                       {item.label}
                     </label>

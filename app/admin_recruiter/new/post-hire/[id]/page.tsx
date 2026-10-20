@@ -109,6 +109,7 @@ export default function CandidatePostHirePage() {
           assignment={postHire?.assignment}
           emptyAssignedMessage={POST_HIRE_UNASSIGNED_MESSAGE}
           activationFailed={Boolean(view?.postHireVisible && view.postHireActivationFailed)}
+          onWorkflowChanged={() => void load()}
         />
       </div>
     </div>

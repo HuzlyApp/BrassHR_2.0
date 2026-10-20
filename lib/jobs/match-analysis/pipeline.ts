@@ -39,14 +39,17 @@ import {
   listingRequirementOutcomeCounts,
   type ListingRequirementOutcomeCounts,
   CALL_CONTEXT_QUESTION_KEY,
-  formatScreeningPackForAiNotes,
-  isCallContextQuestionKey,
   normalizeAnalysisScreeningQuestions,
   aiScreeningQuestionKey,
   matchSavedAiScreeningAnswer,
 } from "./workspace";
 import {
+  buildSubmissionEnrichmentFromRows,
+  loadInterviewNotesForSubmission,
+} from "./submission-enrichment";
+import {
   applicationMatchScorePatch,
+  isDeepMatchStage,
   matchStageFromMode,
   matchWorkspaceIsAnalyzed,
   parseMatchStage,
@@ -67,6 +70,7 @@ import { loadVerificationNotesForApplication } from "./verification-notes-servic
 import { summarizeRequirementNotes } from "./verification-notes";
 import {
   checklistFollowUpRows,
+  filterStep3QuestionsAgainstCallPack,
   mergeStageQuestions,
 } from "./follow-up-questions";
 import {
@@ -450,10 +454,31 @@ async function runCallPackQuestionsForApplication(args: {
       analysisProvider,
       progressMode
     );
+    const priorCallPack = normalizeAnalysisScreeningQuestions(
+      existingAnalysis.screening_questions
+    );
+    const questionsForStage =
+      progressMode === "follow_up"
+        ? filterStep3QuestionsAgainstCallPack({
+            questions: generated.questions,
+            callPackQuestions: priorCallPack,
+          })
+        : generated.questions;
+    // If the model only returned Step 2 duplicates / logistics, keep the filtered
+    // list when non-empty; otherwise fall back so the stage still advances.
+    const finalQuestions =
+      progressMode === "follow_up" && questionsForStage.length === 0
+        ? generated.questions.filter((item) => {
+            const text = `${item.question} ${item.relatedRequirement}`;
+            return !/\b(citizenship|green\s*card|sponsorship|onsite|remote|start\s*date|notice\s*period|schedule|location|travel)\b/i.test(
+              text
+            );
+          })
+        : questionsForStage;
     const merged = mergeStageQuestions(
       existingAnalysis,
       progressMode === "follow_up" ? "follow_up" : "call_pack",
-      generated.questions
+      finalQuestions.length > 0 ? finalQuestions : generated.questions
     );
     const previousVersion = await snapshotCurrentAnalysisVersion({
       supabase,
@@ -752,31 +777,32 @@ export async function runMatchAnalysisForApplication(args: {
     }
 
     {
+      // Step 2 screening answers + Step 3 follow-up answers (same pack Step 5 uses).
+      // Previously only screening_questions were joined, so follow-up rows never reached Deep Match.
       const { data: screeningRows } = await supabase
         .from("job_application_ai_screening_answers")
         .select("question_key, question_text, answer_text")
         .eq("tenant_id", tenantId)
         .eq("application_id", jobApplicationId);
-      const byKey = new Map(
-        (screeningRows ?? []).map((row) => [String(row.question_key), row])
-      );
-      const callContext =
-        String(byKey.get(CALL_CONTEXT_QUESTION_KEY)?.answer_text ?? "").trim() || "";
-      const analysisQuestions = normalizeAnalysisScreeningQuestions(
-        (application.ai_analysis as MatchAnalysisResponse | null)?.screening_questions
-      );
-      const packQuestions = analysisQuestions.map((question) => {
-        const key = aiScreeningQuestionKey(question.priority, question.question);
-        const saved = matchSavedAiScreeningAnswer(byKey, key, question.question);
-        return {
-          question: question.question,
-          answer: isCallContextQuestionKey(key) ? "" : saved?.answer_text ?? "",
-        };
-      });
-      const packNotes = formatScreeningPackForAiNotes({
-        questions: packQuestions,
-        callContext,
-      });
+      const [{ data: jobScreeningRows }, interviewNotes] = await Promise.all([
+        supabase
+          .from("application_screening_answers")
+          .select("question_text, answer")
+          .eq("tenant_id", tenantId)
+          .eq("application_id", jobApplicationId),
+        loadInterviewNotesForSubmission({
+          supabase,
+          tenantId,
+          applicationId: jobApplicationId,
+          workerId: application.worker_id ?? null,
+        }),
+      ]);
+      const packNotes = buildSubmissionEnrichmentFromRows({
+        analysis: application.ai_analysis as MatchAnalysisResponse | null,
+        aiAnswers: screeningRows ?? [],
+        jobScreeningAnswers: jobScreeningRows ?? [],
+        interviewNotes,
+      }).promptNotes;
       if (packNotes) {
         notes = notes ? `${notes}\n\n${packNotes}` : packNotes;
       }
@@ -1014,10 +1040,29 @@ export async function runMatchAnalysisForApplication(args: {
     });
 
     const analyzedAt = new Date().toISOString();
-    const stage = matchStageFromMode(analysisMode);
-    const scorePatch = applicationMatchScorePatch({ stage, analysis });
+    const modeStage = matchStageFromMode(analysisMode);
+    const currentStage = parseMatchStage(application.ai_match_stage);
+    const currentIndex = matchProgressionIndexFromStage(currentStage);
+    const targetIndex = matchProgressionIndexFromStage(modeStage);
+    // Never move stage backward on Quick Match re-run (same rule as Verifications).
+    const stage: MatchStage =
+      analysisMode === "deep"
+        ? currentIndex >= 4
+          ? "submission"
+          : "deep"
+        : currentIndex > targetIndex
+          ? (currentStage ?? modeStage)
+          : matchProgressionStageFromIndex(Math.max(currentIndex, targetIndex));
+    // Only rewrite listing score columns on Deep Match, or when still pre-deep.
+    // A Quick Match re-run after Deep must not clear ai_match_score.
+    const scorePatch =
+      analysisMode === "deep"
+        ? applicationMatchScorePatch({ stage: "deep", analysis })
+        : isDeepMatchStage(currentStage)
+          ? { ai_match_stage: stage }
+          : applicationMatchScorePatch({ stage, analysis });
     const persistedScore =
-      stage === "deep" ? analysis.candidate_match.recommended_overall_match_score : null;
+      analysisMode === "deep" ? analysis.candidate_match.recommended_overall_match_score : null;
 
     await updateApplicationMatchFields({
       supabase,
@@ -1137,17 +1182,17 @@ export async function runMatchAnalysisForApplication(args: {
       requestedBy: analyzedByUserId ?? null,
     }).catch(() => undefined);
 
-    // Keep a prior successful analysis visible on listings (Conf/Verify/Not Met + match %).
+    // Keep prior Quick Match / Verifications / Follow-Up visible. Match % only
+    // exists after Deep Match, so do not require ai_match_score — a failed first
+    // Deep Match would otherwise mark FAILED and the UI would snap to step 0.
     const { data: prior } = await supabase
       .from("job_applications")
-      .select("ai_analysis, ai_match_score, ai_analyzed_at")
+      .select("ai_analysis, ai_match_stage, ai_match_score, ai_analyzed_at")
       .eq("id", jobApplicationId)
       .eq("tenant_id", tenantId)
       .maybeSingle();
     const hasPriorAnalysis =
-      prior?.ai_analysis != null &&
-      prior.ai_match_score != null &&
-      Number.isFinite(Number(prior.ai_match_score));
+      prior?.ai_analysis != null || Boolean(parseMatchStage(prior?.ai_match_stage));
 
     await updateApplicationMatchFields({
       supabase,
@@ -1173,36 +1218,46 @@ export async function runMatchAnalysisBulk(args: {
   analysisMode?: AnalysisMode;
   analysisProvider?: AnalysisProvider;
   onProgress?: (applicationId: string, event: MatchAnalysisProgressEvent) => void;
+  /** Defaults to 1 so existing callers stay sequential. */
+  concurrency?: number;
 }): Promise<
   Array<{ jobApplicationId: string; result: RunMatchAnalysisResult | { status: "FAILED"; error: string } }>
 > {
+  const ids = args.jobApplicationIds;
   const results: Array<{
     jobApplicationId: string;
     result: RunMatchAnalysisResult | { status: "FAILED"; error: string };
-  }> = [];
+  }> = new Array(ids.length);
+  const width = Math.max(1, Math.min(args.concurrency ?? 1, ids.length || 1));
+  let cursor = 0;
 
-  for (const id of args.jobApplicationIds) {
-    try {
-      const result = await runMatchAnalysisForApplication({
-        supabase: args.supabase,
-        tenantId: args.tenantId,
-        jobApplicationId: id,
-        analyzedByUserId: args.analyzedByUserId,
-        analysisMode: args.analysisMode,
-        analysisProvider: args.analysisProvider,
-        onProgress: (event) => args.onProgress?.(id, event),
-      });
-      results.push({ jobApplicationId: id, result });
-    } catch (error) {
-      results.push({
-        jobApplicationId: id,
-        result: {
-          status: "FAILED",
-          error: error instanceof Error ? error.message : "Match analysis failed",
-        },
-      });
+  async function runNext(): Promise<void> {
+    while (cursor < ids.length) {
+      const index = cursor++;
+      const id = ids[index];
+      try {
+        const result = await runMatchAnalysisForApplication({
+          supabase: args.supabase,
+          tenantId: args.tenantId,
+          jobApplicationId: id,
+          analyzedByUserId: args.analyzedByUserId,
+          analysisMode: args.analysisMode,
+          analysisProvider: args.analysisProvider,
+          onProgress: (event) => args.onProgress?.(id, event),
+        });
+        results[index] = { jobApplicationId: id, result };
+      } catch (error) {
+        results[index] = {
+          jobApplicationId: id,
+          result: {
+            status: "FAILED",
+            error: error instanceof Error ? error.message : "Match analysis failed",
+          },
+        };
+      }
     }
   }
 
+  await Promise.all(Array.from({ length: width }, () => runNext()));
   return results;
 }

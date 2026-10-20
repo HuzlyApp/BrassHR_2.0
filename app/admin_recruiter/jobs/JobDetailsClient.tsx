@@ -479,7 +479,7 @@ export default function JobDetailsClient({ jobId }: Props) {
         key: "at-msp",
         label: "At MSP Submission",
         count: summary.submission,
-        href: `/admin_recruiter/applications?jobId=${encodeURIComponent(jobId)}&tab=submitted-for-msp-review`,
+        href: `/admin_recruiter/applications?jobId=${encodeURIComponent(jobId)}&tab=submitted-to-msp`,
         iconSrc: `${JOB_DETAILS_ICON_BASE}/at-msp-submission.svg`,
       });
     }

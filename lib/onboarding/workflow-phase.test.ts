@@ -94,6 +94,9 @@ describe("workflow phase helpers", () => {
     ).toBe(false);
     expect(
       applicantMayActOnStep({ activePhase: "post_hire", stepPhase: "pre_hire" })
+    ).toBe(true);
+    expect(
+      applicantMayActOnStep({ activePhase: "completed", stepPhase: "pre_hire" })
     ).toBe(false);
   });
 
@@ -160,5 +163,50 @@ describe("workflow phase helpers", () => {
     expect(applyApplicantPhaseToWorkflow(workflow, "post_hire").steps.map((s) => s.id)).toEqual([
       "post",
     ]);
+  });
+
+  it("enforces pre_hire phase for I-9 section 1 and offer acceptance, while keeping section 2 post_hire", () => {
+    expect(
+      readStepLifecyclePhase(
+        step("i9-s1", "I-9 section 1", "post_hire")
+      )
+    ).toBe("pre_hire");
+
+    expect(
+      readStepLifecyclePhase(
+        step("custom_question_12", "I-9 section 1", "post_hire")
+      )
+    ).toBe("pre_hire");
+
+    expect(
+      readStepLifecyclePhase(
+        step("doc-rtw", "I-9 / Right to Work Verification", "post_hire")
+      )
+    ).toBe("post_hire");
+
+    expect(
+      readStepLifecyclePhase(
+        step("welcome-packet-esign", "Welcome Packet & eSign", "post_hire")
+      )
+    ).toBe("post_hire");
+
+    expect(
+      readStepLifecyclePhase(
+        step("offer-acc", "Pay Rate Accepted", "post_hire")
+      )
+    ).toBe("pre_hire");
+
+    expect(
+      readStepLifecyclePhase(
+        step("i9-s2", "I-9 Section 2 / E-Verify", "post_hire")
+      )
+    ).toBe("post_hire");
+
+    expect(
+      applicantMayActOnStep({
+        activePhase: "pre_hire",
+        stepPhase: readStepLifecyclePhase(step("q12", "I-9 section 1", "post_hire")),
+      })
+    ).toBe(true);
   });
 });

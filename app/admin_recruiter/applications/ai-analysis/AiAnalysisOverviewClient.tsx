@@ -24,7 +24,11 @@ import { useTenantBranding } from "@/app/components/tenant/TenantBrandingContext
 import {
   CANDIDATES_PAGE_TITLE_STYLE,
 } from "@/app/admin_recruiter/candidates/candidates-typography";
-import { candidateApplicantProfileHref } from "@/app/admin_recruiter/candidates/candidate-links";
+import {
+  candidateApplicantProfileHref,
+  candidateHireJourneyHref,
+  candidateProfileHref,
+} from "@/app/admin_recruiter/candidates/candidate-links";
 import {
   CandidatesBreadcrumb,
   JobsBreadcrumb,
@@ -54,7 +58,17 @@ import {
 import { brandingToCssVars } from "@/lib/tenant/tenant-branding";
 import { ResumeHistoryModal, type ResumeHistoryItem } from "../ResumeHistoryModal";
 import { RemoveFromJobConfirmModal } from "../RemoveFromJobConfirmModal";
-import { CandidateApplicationStatusControl } from "@/app/admin_recruiter/components/CandidateApplicationStatusControl";
+import { StageStatusSequenceButtons } from "@/app/admin_recruiter/components/StageStatusSequenceButtons";
+import {
+  isPreHireStatusStageName,
+  type PreHireStatusStageName,
+} from "@/lib/jobs/application-statuses/stage-assignments";
+import { resolvePreHireStatusStageForActions } from "@/lib/jobs/application-statuses/resolve-pre-hire-stage";
+import {
+  currentPreHireStatusStageName,
+  groupStepsIntoHireStages,
+} from "@/lib/onboarding/hire-stage-groups";
+import type { CandidateWorkflowPhaseView } from "@/lib/onboarding/candidate-workflow-phase-view";
 import CandidateCommunicationDialog from "@/app/admin_recruiter/components/CandidateCommunicationDialog";
 import {
   DeepMatchConfirmDialog,
@@ -91,8 +105,6 @@ import {
   matchProgressionInitialIndex,
   matchProgressionFollowUpNeedsConfirm,
   matchProgressionStepRequiresDeepConfirm,
-  matchProgressionPrimaryAction,
-  matchProgressionStageFromIndex,
   type QuickMatchFitBand,
 } from "@/lib/jobs/match-analysis/progression";
 import { fitBandFromQuickRoute, quickRouteFromAnalysis } from "@/lib/jobs/match-analysis/quick-route";
@@ -193,7 +205,23 @@ type AiAnalysisOverviewClientProps = {
   applicationId: string;
   backHref: string;
   jobId?: string;
+  /** Hide breadcrumb when rendered inside candidate detail tabs. */
+  embedded?: boolean;
 };
+
+function candidateProfileHrefForAnalysisContext(
+  workerId: string,
+  backHref: string,
+  jobId?: string
+): string {
+  if (backHref.includes("/admin_recruiter/new/profile")) {
+    return candidateProfileHref(workerId);
+  }
+  return candidateApplicantProfileHref(workerId, {
+    from: backHref.includes("/admin_recruiter/candidates") ? "candidates" : "applications",
+    jobId: jobId || undefined,
+  });
+}
 
 function copyText(value: string, success: string) {
   void navigator.clipboard.writeText(value);
@@ -551,7 +579,7 @@ function statusBadgeClass(status: QualificationDisplayStatus) {
 const OUTCOME_STAT_CARDS = [
   {
     filter: "Confirmed" as const,
-    label: "CONF.",
+    label: "CONFIDENCE",
     title: "Confirmed requirements",
     valueClass: "text-[#16A34A]",
     countKey: "confirmed" as const,
@@ -607,6 +635,7 @@ export function AiAnalysisOverviewClient({
   applicationId,
   backHref,
   jobId,
+  embedded = false,
 }: AiAnalysisOverviewClientProps) {
   const router = useRouter();
   const branding = useTenantBranding();
@@ -690,12 +719,13 @@ export function AiAnalysisOverviewClient({
   const [askCandidateNote, setAskCandidateNote] = useState<VerificationNote | null>(null);
   const [statusName, setStatusName] = useState("");
   const [statusSystemKey, setStatusSystemKey] = useState<string | null>(null);
+  const [statusRevision, setStatusRevision] = useState(0);
+  const [preHireStageName, setPreHireStageName] = useState<PreHireStatusStageName>("Intake");
   const [viewedStep, setViewedStep] = useState(0);
   const [userPickedStep, setUserPickedStep] = useState(false);
   const [confirmDeepOpen, setConfirmDeepOpen] = useState(false);
   const [confirmFollowUpOpen, setConfirmFollowUpOpen] = useState(false);
   const [followUpAdvancing, setFollowUpAdvancing] = useState(false);
-  const [talentPoolBusy, setTalentPoolBusy] = useState(false);
   const pendingProgressionScrollRef = useRef<string | null>(null);
   const resumeInputRef = useRef<HTMLInputElement>(null);
   const screeningUploadRef = useRef<HTMLInputElement>(null);
@@ -913,6 +943,10 @@ export function AiAnalysisOverviewClient({
     data?.job?.title?.trim() ||
     analysis?.job?.job_title?.trim() ||
     "";
+  const jobDetailsId = data?.job?.id?.trim() || jobId?.trim() || "";
+  const jobDetailsHref = jobDetailsId
+    ? `/admin_recruiter/jobs/${encodeURIComponent(jobDetailsId)}`
+    : "";
   const confidencePercent =
     hasDeepMatch && analysis?.candidate_match?.confidence_score != null
       ? Math.round(Number(analysis.candidate_match.confidence_score))
@@ -987,7 +1021,6 @@ export function AiAnalysisOverviewClient({
           applicationId,
         })
       : null;
-  const primaryAction = matchProgressionPrimaryAction(viewedStep, { hasSubmissionResume });
   const canRunPaidDeep = canRunDeepMatch({
     isAnalyzed,
     unlockedIndex,
@@ -1107,55 +1140,11 @@ export function AiAnalysisOverviewClient({
     void advanceToFollowUp();
   }
 
-  async function handlePrimaryProgressionAction() {
-    if (!primaryAction) return;
-    if (primaryAction.kind === "msp") {
-      setCommOpen(true);
-      return;
-    }
-    if (primaryAction.kind === "draft") {
-      if (!hasDeepMatch) {
-        toast.error("Run Deep Match before drafting the submission résumé.");
-        return;
-      }
-      const drafted = await draftSubmissionResume();
-      if (drafted) selectProgressionStep(4);
-      return;
-    }
-    if (primaryAction.kind === "deep") {
-      requestDeepMatchConfirm();
-      return;
-    }
-    if (primaryAction.nextIndex === 1) {
-      moveToVerifications();
-      return;
-    }
-    if (primaryAction.nextIndex === 2) {
-      moveToFollowUp();
-      return;
-    }
-    if (!canAdvance) {
-      toast.error("This candidate is not qualified to continue. Use Talent Pool.");
-      return;
-    }
-    try {
-      await advanceMatchProgress(matchProgressionStageFromIndex(primaryAction.nextIndex) as "call_pack" | "follow_up");
-      selectProgressionStep(primaryAction.nextIndex);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not continue.");
-    }
-  }
-
   async function handleTalentPool() {
-    setTalentPoolBusy(true);
-    try {
-      const ok = await sendToTalentPool();
-      if (ok) {
-        setStatusName("Not a Fit");
-        setStatusSystemKey("rejected");
-      }
-    } finally {
-      setTalentPoolBusy(false);
+    const ok = await sendToTalentPool();
+    if (ok) {
+      setStatusName("Not a Fit");
+      setStatusSystemKey("rejected");
     }
   }
   const analysisHistory = useMemo(() => {
@@ -1191,6 +1180,85 @@ export function AiAnalysisOverviewClient({
     if (app?.status_name) setStatusName(app.status_name);
     if (app?.status_system_key !== undefined) setStatusSystemKey(app.status_system_key ?? null);
   }, [app?.status_name, app?.status_system_key]);
+
+  // Status actions under This Job use the Pre-Hire catalog for the candidate's
+  // current hire-journey stage — never AI Analysis progression steps.
+  useEffect(() => {
+    const scopedWorkerId = workerId?.trim();
+    if (!scopedWorkerId) {
+      setPreHireStageName("Intake");
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [phaseRes, assignRes, appRes] = await Promise.all([
+          fetch(`/api/admin/candidates/${encodeURIComponent(scopedWorkerId)}/workflow-phases`, {
+            cache: "no-store",
+          }),
+          fetch("/api/admin/application-status-stage-assignments", { cache: "no-store" }),
+          fetch(`/api/admin/job-applications/${encodeURIComponent(applicationId)}`, {
+            cache: "no-store",
+          }),
+        ]);
+        const phaseJson = (await phaseRes.json()) as CandidateWorkflowPhaseView & { error?: string };
+        const assignJson = (await assignRes.json()) as {
+          lanes?: Array<{
+            stageName?: string;
+            statusId?: string;
+            lane?: string;
+            workflowId?: string | null;
+            sortOrder?: number;
+          }>;
+          error?: string;
+        };
+        const appJson = (await appRes.json()) as {
+          application?: { status_id?: string | null; workflow_id?: string | null };
+          error?: string;
+        };
+        if (cancelled) return;
+
+        const journeyStages = groupStepsIntoHireStages(phaseRes.ok ? (phaseJson.preHire?.steps ?? []) : [], "pre_hire");
+        const journeyStage = currentPreHireStatusStageName(journeyStages);
+        const laneRows = Array.isArray(assignJson.lanes)
+          ? assignJson.lanes
+              .filter(
+                (row): row is {
+                  stageName: string;
+                  statusId: string;
+                  lane: string;
+                  workflowId: string | null;
+                  sortOrder: number;
+                } =>
+                  typeof row.stageName === "string" &&
+                  typeof row.statusId === "string" &&
+                  typeof row.lane === "string"
+              )
+              .map((row) => ({
+                stageName: row.stageName,
+                statusId: row.statusId,
+                lane: row.lane as "happy_path" | "alternate" | "closed",
+                workflowId: row.workflowId ?? null,
+                sortOrder: Number(row.sortOrder ?? 0),
+              }))
+          : [];
+        const next = resolvePreHireStatusStageForActions({
+          hireJourneyStageName: journeyStage,
+          statusId: appJson.application?.status_id ?? null,
+          workflowId: appJson.application?.workflow_id ?? null,
+          lanes: laneRows,
+        });
+        if (!cancelled && isPreHireStatusStageName(next)) setPreHireStageName(next);
+      } catch {
+        if (!cancelled) setPreHireStageName("Intake");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workerId, applicationId, statusRevision]);
 
   const noteFeedItems = useMemo(() => {
     const verified = (data?.verifiedInformation ?? []).map((item) => ({
@@ -1287,13 +1355,18 @@ export function AiAnalysisOverviewClient({
     }
   }
 
+  const shellClass = embedded
+    ? "box-border w-full min-w-0 max-w-full pb-8"
+    : "box-border w-full min-w-0 max-w-full px-3 pb-10 pt-4 sm:px-5 sm:pt-5 lg:px-8";
+
   if (loading) {
     return (
-      <div
-        className="box-border w-full min-w-0 max-w-full px-3 pb-10 pt-4 sm:px-5 sm:pt-5 lg:px-8"
-        style={brandStyle}
-      >
-        <div className="mt-8 flex items-center gap-2 rounded-xl border border-[#E5E7EB] bg-white px-4 py-6 text-sm text-[#667085]">
+      <div className={shellClass} style={brandStyle}>
+        <div
+          className={`flex items-center gap-2 rounded-xl border border-[#E5E7EB] bg-white px-4 py-6 text-sm text-[#667085] ${
+            embedded ? "" : "mt-8"
+          }`}
+        >
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading AI analysis…
         </div>
@@ -1302,21 +1375,22 @@ export function AiAnalysisOverviewClient({
   }
 
   return (
-    <div
-      className="box-border w-full min-w-0 max-w-full px-3 pb-10 pt-4 sm:px-5 sm:pt-5 lg:px-8"
-      style={brandStyle}
-      data-application-id={applicationId}
-    >
-      {backHref.includes("/admin_recruiter/applications") ? (
-        <JobsBreadcrumb
-          page="ai-analysis"
-          jobCandidatesHref={jobCandidatesHrefForJob(jobId) || backHref}
-        />
-      ) : (
-        <CandidatesBreadcrumb currentLabel="AI Analysis" backHref={backHref} />
-      )}
+    <div className={shellClass} style={brandStyle} data-application-id={applicationId}>
+      {!embedded ? (
+        backHref.includes("/admin_recruiter/applications") ? (
+          <JobsBreadcrumb
+            page="ai-analysis"
+            jobCandidatesHref={jobCandidatesHrefForJob(jobId) || backHref}
+          />
+        ) : (
+          <CandidatesBreadcrumb currentLabel="AI Analysis" backHref={backHref} />
+        )
+      ) : null}
 
-      <div className={`mt-4 ${STEP_SCROLL_MARGIN_CLASS}`} id="ai-analysis-overview-top">
+      <div
+        className={`${embedded ? "" : "mt-4"} ${STEP_SCROLL_MARGIN_CLASS}`}
+        id="ai-analysis-overview-top"
+      >
         <MatchProgressionStepper
           viewedIndex={viewedStep}
           unlockedIndex={unlockedIndex}
@@ -1328,165 +1402,144 @@ export function AiAnalysisOverviewClient({
       <div className="mt-6 grid min-w-0 items-start gap-5 sm:gap-[30px] xl:grid-cols-[minmax(0,1fr)_minmax(16rem,21.875rem)]">
         <div className="min-w-0 space-y-5">
           <section className="overflow-hidden rounded-[12px] border border-[#E5E7EB] bg-white">
-            <div className="flex items-center gap-2 border-b border-[#E5E7EB] px-4 py-3 sm:px-5">
-              <BrandedSvgIcon
-                src="/hugeicons_ai-user.svg"
-                className="h-5 w-5"
-                color={branding.primaryHex}
-              />
-              <h1
-                className="m-0 text-base font-semibold leading-6 tracking-normal sm:text-lg sm:leading-7"
-                style={{ ...CANDIDATES_PAGE_TITLE_STYLE, color: branding.secondaryHex }}
-              >
-                AI Analysis Overview
-              </h1>
-            </div>
-            <div className="flex flex-col gap-4 border-b border-[#E5E7EB] px-4 py-4 sm:px-5">
-              <div className="flex min-w-0 flex-col items-center gap-4 text-center sm:flex-row sm:items-center sm:text-left">
-                <MatchRing
-                  percent={matchScore == null ? null : Math.round(matchScore)}
-                  label={matchLabel}
-                  strokeColor={ringStrokeColor(matchScore)}
-                  fitBand={isAnalyzed ? statusFitBand : null}
+            <div className="flex items-center justify-between border-b border-[#E5E7EB] px-4 py-3 sm:px-5">
+              <div className="flex items-center gap-2">
+                <BrandedSvgIcon
+                  src="/hugeicons_ai-user.svg"
+                  className="h-5 w-5"
+                  color={branding.primaryHex}
                 />
-                <div className="min-w-0 flex-1">
-                  <h2 className="text-lg font-semibold leading-7 text-[#374151] sm:text-2xl sm:leading-8">{candidateName}</h2>
-                  {jobTitle ? (
-                    <p className="mt-0.5 text-sm leading-5 text-[#6B7280]">For: {jobTitle}</p>
-                  ) : null}
-                  <div className="mt-3 flex flex-wrap items-center justify-center gap-2 sm:justify-start">
-                    {confidencePercent != null && confidencePercent > 0 ? (
-                      <span className="inline-flex rounded-full bg-[#001A46] px-2.5 py-1 text-[10px] font-normal leading-[15px] text-white">
-                        Confidence {confidencePercent}%
-                      </span>
-                    ) : null}
-                    {isAnalyzed ? (
-                      <span
-                        className={`inline-flex shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold leading-[15px] ${fitBandTagClassName(statusFitBand)}`}
-                      >
-                        {fitBandLabel(statusFitBand)}
-                      </span>
-                    ) : null}
-                  </div>
-                  {isAnalyzed && outcomeCounts.total > 0 ? (
-                    <div
-                      className="mt-3 flex flex-wrap justify-center gap-2 sm:justify-start"
-                      aria-label="Requirement outcome counts"
-                    >
-                      {OUTCOME_STAT_CARDS.map((card) => {
-                        const active = filter === card.filter;
-                        return (
-                          <button
-                            key={card.label}
-                            type="button"
-                            title={card.title}
-                            aria-pressed={active}
-                            onClick={() => {
-                              setFilter(card.filter);
-                              scrollAiAnalysisBelowHeader("match-step-quick");
-                            }}
-                            className={`inline-flex min-w-[4.5rem] flex-col items-center rounded-lg border px-3 py-1.5 transition ${
-                              active
-                                ? "border-[color:var(--brand-primary)] bg-[color:color-mix(in_srgb,var(--brand-primary)_8%,white)]"
-                                : "border-[#E5E7EB] bg-[#F8FAFC] hover:border-[#D0D5DD]"
-                            }`}
-                          >
-                            <span className="text-[10px] font-semibold uppercase tracking-wide text-[#667085]">
-                              {card.label}
-                            </span>
-                            <span className={`text-base font-semibold tabular-nums leading-5 ${card.valueClass}`}>
-                              {outcomeCounts[card.countKey]}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                </div>
+                <h1
+                  className="m-0 text-base font-semibold leading-6 tracking-normal sm:text-lg sm:leading-7"
+                  style={{ ...CANDIDATES_PAGE_TITLE_STYLE, color: branding.secondaryHex }}
+                >
+                  AI Analysis Overview
+                </h1>
               </div>
-              <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                <div className={`${HEADER_TOOLBAR} justify-center sm:justify-start`}>
-                  {primaryAction && primaryAction.kind !== "advance" ? (
-                    <button
-                      type="button"
-                      className={HEADER_OUTLINE_BTN}
-                      disabled={
-                        analyzing ||
-                        talentPoolBusy ||
-                        draftingSubmissionResume ||
-                        (primaryAction.kind !== "msp" &&
-                          primaryAction.kind !== "draft" &&
-                          !canAdvance &&
-                          primaryAction.kind !== "deep") ||
-                        (primaryAction.kind === "deep" && !canRunPaidDeep) ||
-                        (primaryAction.kind === "draft" && !hasDeepMatch)
-                      }
-                      onClick={() => void handlePrimaryProgressionAction()}
-                    >
-                      {draftingSubmissionResume && primaryAction.kind === "draft"
-                        ? "Drafting résumé…"
-                        : primaryAction.label}
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    className={HEADER_OUTLINE_BTN}
-                    disabled={talentPoolBusy || parkedInTalentPool || savingDecision}
-                    onClick={() => void handleTalentPool()}
-                  >
-                    {parkedInTalentPool ? "In Talent Pool" : talentPoolBusy ? "Moving…" : "Not a fit · Talent Pool"}
-                  </button>
-                  {workerId ? (
-                    <Link
-                      href={candidateApplicantProfileHref(workerId, {
-                        from: backHref.includes("/admin_recruiter/candidates")
-                          ? "candidates"
-                          : "applications",
-                        jobId: jobId || undefined,
-                      })}
-                      className={HEADER_OUTLINE_BTN}
-                    >
-                      View Profile
-                    </Link>
-                  ) : (
-                    <button type="button" disabled className={HEADER_OUTLINE_BTN}>
-                      View Profile
-                    </button>
-                  )}
-                  <CandidateApplicationStatusControl
-                    applicationId={applicationId}
-                    buttonClassName={`${HEADER_OUTLINE_BTN} max-w-[16rem] gap-1`}
-                    onStatusChanged={(next) => {
-                      setStatusName(next.statusName);
-                      setStatusSystemKey(null);
-                    }}
-                  />
-                </div>
-                <div className={`${HEADER_TOOLBAR} justify-center sm:justify-end`}>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-[#667085]">Model</span>
                   <MatchAnalysisModelSelect
                     variant="primary"
                     value={analysisProvider}
                     onChange={setAnalysisProvider}
                     disabled={analyzing}
-                    className="h-8 shrink-0"
+                    className="h-9 shrink-0"
                     claudeAvailable={data?.claudeAvailable}
                   />
-                  <MatchAnalyzeButton
-                    variant="primary"
-                    analyzing={analyzing}
-                    isAnalyzed={isAnalyzed}
-                    viewedStep={viewedStep}
-                    deepPrimary={viewedStep >= 3}
-                    hasVerifications={unlockedIndex >= 1}
-                    hasFollowUp={unlockedIndex >= 2}
-                    hasDeepMatch={hasDeepMatch}
-                    analysisProvider={analysisProvider}
-                    requireDeepConfirm={data?.matchProgression?.requireDeepConfirm !== false}
-                    allowDeep={canRunPaidDeep}
-                    className="shrink-0"
-                    onAnalyze={(mode) => void handleRunAnalyze(mode)}
-                  />
                 </div>
+                <MatchAnalyzeButton
+                  variant="primary"
+                  analyzing={analyzing}
+                  isAnalyzed={isAnalyzed}
+                  viewedStep={viewedStep}
+                  deepPrimary={viewedStep >= 3}
+                  hasVerifications={unlockedIndex >= 1}
+                  hasFollowUp={unlockedIndex >= 2}
+                  hasDeepMatch={hasDeepMatch}
+                  analysisProvider={analysisProvider}
+                  requireDeepConfirm={data?.matchProgression?.requireDeepConfirm !== false}
+                  allowDeep={canRunPaidDeep}
+                  className="shrink-0 h-9"
+                  onAnalyze={(mode) => void handleRunAnalyze(mode)}
+                />
+              </div>
+            </div>
+            <div className="flex flex-col gap-4 border-b border-[#E5E7EB] px-4 py-4 sm:px-5">
+              <div className="flex min-w-0 flex-col items-center justify-between gap-4 sm:flex-row sm:items-center sm:text-left">
+                <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-center">
+                  <MatchRing
+                    percent={matchScore == null ? null : Math.round(matchScore)}
+                    label={matchLabel}
+                    strokeColor={ringStrokeColor(matchScore)}
+                    fitBand={isAnalyzed ? statusFitBand : null}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <h2 className="text-lg font-semibold leading-7 text-[#374151] sm:text-2xl sm:leading-8">{candidateName}</h2>
+                    {jobTitle ? (
+                      <p className="mt-0.5 text-sm leading-5 text-[#6B7280]">
+                        For:{" "}
+                        {jobDetailsHref ? (
+                          <Link
+                            href={jobDetailsHref}
+                            className="font-medium text-[#001A46] underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
+                            title="View job details"
+                          >
+                            {jobTitle}
+                          </Link>
+                        ) : (
+                          <span className="font-medium text-[#001A46]">{jobTitle}</span>
+                        )}
+                      </p>
+                    ) : null}
+                    {workerId ? (
+                      <div className="mt-3 flex items-center gap-3">
+                        <Link
+                          href={candidateProfileHrefForAnalysisContext(workerId, backHref, jobId)}
+                          className="inline-flex items-center justify-center rounded-lg border border-[color:var(--brand-primary)] bg-white px-4 py-1.5 text-sm font-semibold text-[color:var(--brand-primary)] shadow-sm transition hover:bg-[color:color-mix(in_srgb,var(--brand-primary)_4%,white)]"
+                        >
+                          View Profile
+                        </Link>
+                        <Link
+                          href={candidateHireJourneyHref(workerId)}
+                          className="inline-flex items-center justify-center rounded-lg border border-[color:var(--brand-secondary)] bg-[color:var(--brand-secondary)] px-4 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-95"
+                        >
+                          Hiring Journey
+                        </Link>
+                      </div>
+                    ) : null}
+
+                    <div className="mt-3 flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+                      {confidencePercent != null && confidencePercent > 0 ? (
+                        <span className="inline-flex rounded-full bg-[#001A46] px-2.5 py-1 text-[10px] font-normal leading-[15px] text-white">
+                          Confidence {confidencePercent}%
+                        </span>
+                      ) : null}
+                      {isAnalyzed ? (
+                        <span
+                          className={`inline-flex shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold leading-[15px] ${fitBandTagClassName(statusFitBand)}`}
+                        >
+                          {fitBandLabel(statusFitBand)}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+
+                {isAnalyzed && outcomeCounts.total > 0 ? (
+                  <div
+                    className="flex flex-wrap justify-center gap-2 sm:justify-end"
+                    aria-label="Requirement outcome counts"
+                  >
+                    {OUTCOME_STAT_CARDS.map((card) => {
+                      const active = filter === card.filter;
+                      return (
+                        <button
+                          key={card.label}
+                          type="button"
+                          title={card.title}
+                          aria-pressed={active}
+                          onClick={() => {
+                            setFilter(card.filter);
+                            scrollAiAnalysisBelowHeader("match-step-quick");
+                          }}
+                          className={`inline-flex w-[70px] h-[50px] flex-col items-center justify-center rounded-lg border transition ${
+                            active
+                              ? "border-[color:var(--brand-primary)] bg-[color:color-mix(in_srgb,var(--brand-primary)_8%,white)]"
+                              : "border-[#E5E7EB] bg-[#F8FAFC] hover:border-[#D0D5DD]"
+                          }`}
+                        >
+                          <span className="text-[9px] font-semibold uppercase tracking-wide text-[#667085]">
+                            {card.label}
+                          </span>
+                          <span className={`text-base font-semibold tabular-nums leading-5 ${card.valueClass}`}>
+                            {outcomeCounts[card.countKey]}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
               </div>
             </div>
             {app?.ai_analysis_error ? (
@@ -1520,6 +1573,38 @@ export function AiAnalysisOverviewClient({
                 Run Deep Match to fill the submit recommendation.
               </p>
             ) : null}
+          </section>
+
+          <section className="overflow-hidden rounded-[12px] border border-[color:var(--brand-primary)] bg-[#FFFDFC] p-5 shadow-sm">
+            <div className="flex flex-col gap-4">
+              <div>
+                <h2 className="text-xl font-bold text-[#101828]">This Job</h2>
+                <p className="mt-2 text-sm text-[#475467]">
+                  Stage · <span className="font-semibold text-[#101828]">{preHireStageName}</span>
+                </p>
+                {statusName ? (
+                  <p className="mt-1 text-sm text-[#475467]">
+                    Status · <span className="font-semibold text-[#101828]">{statusName}</span>
+                  </p>
+                ) : null}
+              </div>
+              <StageStatusSequenceButtons
+                key={`${preHireStageName}-${statusRevision}`}
+                applicationId={applicationId}
+                stageName={preHireStageName}
+                onStatusChanged={(next) => {
+                  setStatusName(next.statusName);
+                  setStatusSystemKey(null);
+                  setStatusRevision((revision) => revision + 1);
+                }}
+                onException={async (status) => {
+                  if (!status.name.toLowerCase().includes("talent pool")) return false;
+                  await handleTalentPool();
+                  setStatusRevision((revision) => revision + 1);
+                  return true;
+                }}
+              />
+            </div>
           </section>
 
           {progressionStep && progressionHint ? (
@@ -2441,10 +2526,35 @@ export function AiAnalysisOverviewClient({
           </section>
 
           <section className={CARD}>
-            <SidebarSectionHeader
-              title="Notes"
-              subtitle="Recruiter notes and verified evidence for this workspace."
-            />
+            <div className="flex flex-col items-start text-left">
+              <h3 className="text-base font-semibold" style={{ color: "var(--brand-secondary)" }}>Notes</h3>
+              <p className="mt-1 text-xs text-[#64748B]">
+                Recruiter notes and verified evidence for this workspace.
+              </p>
+            </div>
+            
+            <div className="mt-4 mb-5 space-y-3">
+              <textarea
+                value={verifiedDetails}
+                onChange={(event) => {
+                  setVerifiedCategory("note");
+                  setVerifiedTitle("Note");
+                  setVerifiedDetails(event.target.value);
+                }}
+                rows={3}
+                className={AREA}
+                placeholder="Add a note..."
+              />
+              <button
+                type="button"
+                className={`${PRIMARY_BTN} w-full`}
+                disabled={savingVerified || !verifiedDetails.trim()}
+                onClick={() => void addVerified()}
+              >
+                {savingVerified ? "Saving…" : "Add Note"}
+              </button>
+            </div>
+
             {noteFeedItems.length ? (
               <ul className="mt-4 space-y-3">
                 {noteFeedItems.map((entry) =>
@@ -2480,6 +2590,7 @@ export function AiAnalysisOverviewClient({
             )}
           </section>
 
+          {/*
           <section className={CARD}>
             <SidebarSectionHeader
               title="Verified information"
@@ -2538,6 +2649,7 @@ export function AiAnalysisOverviewClient({
               {savingVerified ? "Saving…" : "Add Verified Information"}
             </button>
           </section>
+          */}
 
           <section className={CARD}>
             <SidebarSectionHeader title="Analysis history" />

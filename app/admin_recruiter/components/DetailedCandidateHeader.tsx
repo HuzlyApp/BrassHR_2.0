@@ -7,7 +7,7 @@ import CandidateAvatarIcon from "./CandidateAvatarIcon";
 import { CandidateApplicationStatusControl } from "./CandidateApplicationStatusControl";
 import { useResendApplicationStatusLink } from "@/app/admin_recruiter/hooks/useResendApplicationStatusLink";
 import {
-  candidateAiAnalysisHref,
+  candidateDetailAiAnalysisHref,
   // candidateHireJourneyHref,
 } from "@/app/admin_recruiter/candidates/candidate-links";
 
@@ -64,7 +64,7 @@ export default function DetailedCandidateHeader({
     typeof aiAnalysisHref === "string" && aiAnalysisHref.trim()
       ? aiAnalysisHref.trim()
       : workerId?.trim()
-        ? candidateAiAnalysisHref(workerId.trim())
+        ? candidateDetailAiAnalysisHref(workerId.trim())
         : null;
   // const hireJourneyHref = workerId?.trim()
   //   ? candidateHireJourneyHref(workerId.trim())

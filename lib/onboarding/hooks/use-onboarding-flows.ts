@@ -85,6 +85,8 @@ export type CreateFlowInput = {
   templateId?: string | null;
   createAsBlank?: boolean;
   status?: OnboardingFlowStatus;
+  employmentType?: string | null;
+  professionId?: string | null;
 };
 
 export function useOnboardingFlows(opts?: {
@@ -107,6 +109,22 @@ export function useOnboardingFlows(opts?: {
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
     enabled,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (flowId: string) => {
+      const res = await fetch(`/api/admin/onboarding-flows/${flowId}`, {
+        ...(await staffFetchInit()),
+        method: "DELETE",
+        cache: "no-store",
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error || "Failed to delete workflow");
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: FLOWS_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: LIBRARIES_QUERY_KEY });
+    },
   });
 
   const createMutation = useMutation({
@@ -141,5 +159,7 @@ export function useOnboardingFlows(opts?: {
     createFlow: createMutation.mutateAsync,
     isCreating: createMutation.isPending,
     createError: createMutation.error,
+    deleteFlow: deleteMutation.mutateAsync,
+    isDeleting: deleteMutation.isPending,
   };
 }

@@ -64,6 +64,16 @@ function pathnameMatchesStepGroup(
   return marker.pathIncludes.some((fragment) => pathname.includes(fragment));
 }
 
+function customStepKeyFromPath(pathname: string): string | null {
+  const match = pathname.match(/\/application\/custom-step\/([^/?#]+)/);
+  if (!match?.[1]) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
+}
+
 /** Resolve which enabled step the applicant is on from URL + optional stepKey query. */
 export function resolveApplicantStepFromPath(
   pathname: string,
@@ -72,29 +82,29 @@ export function resolveApplicantStepFromPath(
 ): TenantOnboardingStep | null {
   if (!steps.length) return null;
 
+  const p = pathname || "";
+
+  // The custom-step path is the screen the candidate is on. A stale stepKey query
+  // (left over from the previous workflow step) must not highlight a different step.
+  const pathStepKey = customStepKeyFromPath(p);
+  if (pathStepKey) {
+    const byPath = findApplicantStepByKey(steps, pathStepKey);
+    if (byPath) return byPath;
+  }
+
   const stepKey = readStepKeyFromSearch(search);
   if (stepKey) {
     const byKey = findApplicantStepByKey(steps, stepKey);
     if (byKey) return byKey;
   }
 
-  const p = pathname || "";
+  const routePaths = steps.map((step) => routeForApplicantStep(step).split("?")[0]);
+  // A step's own screen (e.g. SSN / Identity Verification) wins over a step that only borrows it.
+  const exactIndex = routePaths.findIndex((routePath) => p === routePath);
+  if (exactIndex >= 0) return steps[exactIndex];
 
-  if (p.includes("/application/custom-step/")) {
-    const match = p.match(/\/application\/custom-step\/([^/?#]+)/);
-    if (match?.[1]) {
-      try {
-        const decoded = decodeURIComponent(match[1]);
-        return findApplicantStepByKey(steps, decoded);
-      } catch {
-        return null;
-      }
-    }
-  }
-
-  for (const step of steps) {
-    const route = routeForApplicantStep(step);
-    const routePath = route.split("?")[0];
+  for (const [index, step] of steps.entries()) {
+    const routePath = routePaths[index];
     if (p.startsWith(routePath) || p.includes(routePath)) return step;
 
     // Published background-check steps often use step_key "custom_question" but still

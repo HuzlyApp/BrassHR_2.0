@@ -66,5 +66,6 @@ describe("invalidateMatchCachesForJobDescriptionChange", () => {
       })
     );
     expect(result.applicationsReset).toBe(2);
+    expect(result.applicationIds).toEqual(["app-1", "app-2"]);
   });
 });

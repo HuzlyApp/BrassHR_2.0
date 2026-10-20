@@ -33,16 +33,6 @@ export type JobPipelineSummaryRow = {
     | null;
 };
 
-const AT_MSP_SYSTEM_KEYS = new Set([
-  "profile_ready",
-  "submitted",
-  "presented",
-  "approved_by_msp",
-  "at_msp",
-  "msp_submitted",
-  "msp_presented",
-]);
-
 const CLOSED_PIPELINE_KEYS = new Set(["rejected", "undecided", "archived"]);
 const IN_PROCESS_PIPELINE_KEYS = new Set(["reviewing", "shortlisted", "interviewing"]);
 
@@ -119,15 +109,13 @@ export function isInProcessPipelineApplication(row: JobPipelineSummaryRow): bool
 
 export function isAtMspPipelineApplication(row: JobPipelineSummaryRow): boolean {
   const key = applicationSystemKey(row);
-  if (key && AT_MSP_SYSTEM_KEYS.has(key)) return true;
-  if (key.includes("msp") && key !== "msp") return true;
+  if (key === "submitted" || key === "msp_submitted" || key === "at_msp") return true;
   const name = applicationStatusName(row);
   return (
-    name.includes("msp") ||
-    name === "profile ready" ||
-    name === "presented to client" ||
+    name === "submitted to msp" ||
     name === "submitted for msp review" ||
-    name === "approved by msp"
+    name === "at msp" ||
+    name === "at msp submission"
   );
 }
 

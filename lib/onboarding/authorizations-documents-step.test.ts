@@ -5,7 +5,9 @@ import {
   shouldShowFirmaAgreementPanel,
   stepRequiresApplicantAgreement,
   stepRequiresIdentityDocuments,
+  workflowHasIdentityVerificationStep,
 } from "@/lib/onboarding/authorizations-documents-step";
+import { resolveApplicantStepFromPath } from "@/lib/onboarding/find-applicant-step";
 import { DEFAULT_STEP_SETTINGS } from "@/app/components/workflow-builder/types";
 import { isOnboardingStepSkippable } from "@/lib/onboarding/is-step-skippable";
 import { adjacentStepRoute } from "@/lib/onboarding/tenant-step-navigation";
@@ -98,6 +100,27 @@ describe("authorizations-documents-step", () => {
     expect(resolved?.metadata?.firma_inherited_from_step_key).toBe("agreement_signature");
   });
 
+  it("does not borrow the template of an enabled agreement step that signs on its own screen", async () => {
+    const { resolveAuthorizationStepWithFirma } = await import(
+      "@/lib/onboarding/authorizations-documents-step"
+    );
+    const background = step({
+      step_key: "custom_question",
+      step_type: "custom_question",
+      metadata: { workflow_step_id: "background-check" },
+    });
+    const agreement = step({
+      step_key: "authorizations_2",
+      step_type: "authorizations",
+      metadata: {
+        workflow_step_id: "employee-agreement",
+        workflow_settings: { ...DEFAULT_STEP_SETTINGS, firmaRecruiterTemplateId: "tmpl-w2" },
+      },
+    });
+    const resolved = resolveAuthorizationStepWithFirma(background, [background, agreement]);
+    expect(shouldShowFirmaAgreementPanel(resolved)).toBe(false);
+  });
+
   it("only shows Firma UI when the active step has a recruiter template", () => {
     const agreement = zipstaffAuthorizationsConfig().steps.find(
       (s) => s.step_key === "agreement_signature"
@@ -164,6 +187,54 @@ describe("authorizations-documents-step", () => {
     ).toBe(true);
   });
 
+  it("leaves identity documents to the SSN / Identity step when the workflow has one", () => {
+    const background = step({
+      step_key: "custom_question",
+      step_type: "custom_question",
+      metadata: { workflow_step_id: "background-check" },
+    });
+    const identity = step({
+      step_key: "document_upload",
+      step_type: "document_upload",
+      metadata: { workflow_step_id: "ssn-identity-verification" },
+    });
+    const allSteps = [background, identity];
+    expect(workflowHasIdentityVerificationStep(allSteps)).toBe(true);
+    expect(stepRequiresIdentityDocuments(background, allSteps)).toBe(false);
+    expect(
+      isAuthorizationsSaveBlocked({
+        step: background,
+        agreed: true,
+        agreementSigned: true,
+        identityDocsComplete: false,
+        allSteps,
+      })
+    ).toBe(false);
+    expect(stepRequiresIdentityDocuments(background, [background])).toBe(true);
+  });
+
+  it("resolves the identity screen to the SSN step, not the background check that links to it", () => {
+    const background = step({
+      step_key: "custom_question",
+      step_type: "custom_question",
+      sort_order: 10,
+      metadata: { workflow_step_id: "background-check" },
+    });
+    const identity = step({
+      step_key: "document_upload",
+      step_type: "document_upload",
+      sort_order: 20,
+      metadata: { workflow_step_id: "ssn-identity-verification" },
+    });
+    expect(
+      resolveApplicantStepFromPath("/application/identity-verification", "", [background, identity])
+        ?.step_key
+    ).toBe("document_upload");
+    expect(
+      resolveApplicantStepFromPath("/application/identity-verification", "", [background])?.step_key
+    ).toBe("custom_question");
+  });
+
   it("does not require agreement checkbox or documents when the step is optional", () => {
     const optionalBackground = step({
       step_key: "authorization_background_check",
@@ -219,7 +290,7 @@ describe("authorizations-documents-step", () => {
     const config = zipstaffAuthorizationsConfig();
     const background = config.steps.find((s) => s.step_key === "authorization_background_check")!;
     const next = adjacentStepRoute(config, background, 1, "zipstaff");
-    expect(next).toContain("authorizations-documents");
+    expect(next).toContain("agreement-signature");
     expect(next).toContain("stepKey=agreement_signature");
   });
 });

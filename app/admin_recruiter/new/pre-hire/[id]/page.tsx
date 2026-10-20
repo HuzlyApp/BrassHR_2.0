@@ -93,6 +93,7 @@ export default function CandidatePreHirePage() {
           documents={view?.preHire.documents ?? []}
           assignment={view?.preHire.assignment}
           emptyAssignedMessage={PRE_HIRE_UNASSIGNED_MESSAGE}
+          onWorkflowChanged={() => void load()}
         />
       </div>
     </div>

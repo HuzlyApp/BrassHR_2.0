@@ -71,7 +71,7 @@ describe("job requisition validation", () => {
     });
   });
 
-  it("requires workflow but not profession for MSP Recruit & Release publish", () => {
+  it("requires workflow and profession for MSP Recruit & Release publish", () => {
     const errors = validatePublishableJob(
       {
         ...validJob,
@@ -91,12 +91,12 @@ describe("job requisition validation", () => {
       null
     );
     expect(errors.workflowId).toBeDefined();
-    expect(errors.professionId).toBeUndefined();
+    expect(errors.professionId).toBe("Profession is required.");
     expect(errors.commissionPercent).toBeUndefined();
     expect(errors.location).toBeUndefined();
   });
 
-  it("requires workflow but not profession for MSP Recruit & EOR publish", () => {
+  it("requires workflow and profession for MSP Recruit & EOR publish", () => {
     const errors = validatePublishableJob(
       {
         ...validJob,
@@ -113,7 +113,7 @@ describe("job requisition validation", () => {
       null
     );
     expect(errors.workflowId).toBeDefined();
-    expect(errors.professionId).toBeUndefined();
+    expect(errors.professionId).toBe("Profession is required.");
   });
 
   it("requires commission fees for MSP Recruit & Release publish", () => {

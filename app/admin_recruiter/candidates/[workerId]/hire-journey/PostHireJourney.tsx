@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { ChevronDown, ChevronUp, Shield } from "lucide-react";
+import { BrandColoredSvg } from "@/app/admin_recruiter/components/hire-stage/BrandColoredSvg";
 
 type StageUiStatus = "completed" | "current" | "locked";
 
@@ -521,8 +522,12 @@ function Icon({
   alt?: string;
   className?: string;
 }) {
+  if (src.endsWith(".svg")) {
+    return <BrandColoredSvg src={src} width={width} height={height} alt={alt} className={className} />;
+  }
+
   return (
-    // eslint-disable-next-line @next/next/no-img-element -- Figma SVG assets need exact pixel sizes
+    // eslint-disable-next-line @next/next/no-img-element -- Figma PNG stage art needs exact pixel sizes
     <img src={src} alt={alt} width={width} height={height} className={className} draggable={false} />
   );
 }
@@ -673,7 +678,7 @@ function PostHireSummaryBanner({
               James Michael Aragon
             </p>
             <p className="mt-0.5 text-sm text-[#6B7280]">
-              Agreement Signed • Worker record created
+              Authorization e-sign • Worker record created
             </p>
             <p className="mt-2 flex items-center gap-1.5 text-xs text-[#94A3B8]">
               <Icon src={ICONS.calendarDate} width={14} height={14} />
@@ -1055,10 +1060,12 @@ export default function PostHireJourney() {
   }
 
   return (
-    <div className="space-y-5">
-      <PostHireStepper completedFlags={completedFlags} />
+    <div className="flex flex-col gap-5">
+      <div className="flex w-full justify-center">
+        <PostHireStepper completedFlags={completedFlags} />
+      </div>
 
-      <header>
+      <header className="w-full shrink-0">
         <h1 className="text-3xl font-bold tracking-tight" style={{ color: "var(--brand-secondary)" }}>
           Post-hire
         </h1>

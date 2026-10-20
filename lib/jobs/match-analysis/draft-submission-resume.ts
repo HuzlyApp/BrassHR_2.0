@@ -13,7 +13,7 @@ import { isDeepMatchStage } from "./match-stage";
 import { matchProgressionVariantKey } from "./prompt-variant";
 import { matchAnalysisResponseSchema, type MatchAnalysisResponse } from "./schema";
 import { generateOptimizedSubmissionResume } from "./generate-submission-resume";
-import { loadSubmissionEnrichmentNotes } from "./submission-enrichment";
+import { loadSubmissionEnrichment } from "./submission-enrichment";
 import { isSubmissionResumeFileName, submissionResumeFileName, submissionResumeToPlainText } from "./submission-resume";
 import { renderSubmissionResumeDocx } from "./submission-resume-docx";
 import type { SubmissionImprovementSummary } from "./submission-resume-improvement";
@@ -188,9 +188,9 @@ export async function draftSubmissionResumePack(args: {
 
   const analysis = parseStoredAnalysis(application.ai_analysis);
   const workerId = application.worker_id ? String(application.worker_id) : null;
-  const [resumeText, enrichmentNotes, tenantRow] = await Promise.all([
+  const [resumeText, enrichment, tenantRow] = await Promise.all([
     loadSourceResumeText(supabase, tenantId, applicationId, workerId),
-    loadSubmissionEnrichmentNotes({
+    loadSubmissionEnrichment({
       supabase,
       tenantId,
       applicationId,
@@ -278,7 +278,8 @@ export async function draftSubmissionResumePack(args: {
     identity,
     analysis,
     resumeText,
-    enrichmentNotes,
+    enrichmentNotes: enrichment.promptNotes,
+    evidenceNotes: enrichment.evidenceNotes,
     resolved,
   });
   await recordAiPromptRun(supabase, {

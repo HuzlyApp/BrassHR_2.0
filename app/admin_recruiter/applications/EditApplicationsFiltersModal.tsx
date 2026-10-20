@@ -8,6 +8,7 @@ import { brandingToCssVars } from "@/lib/tenant/tenant-branding";
 import { CANDIDATES_PAGE_SUBTITLE_STYLE } from "@/app/admin_recruiter/candidates/candidates-typography";
 import { MatchScoreRangeFilter } from "@/app/admin_recruiter/candidates/MatchScoreRangeFilter";
 import { FilterChipInput } from "@/app/admin_recruiter/components/FilterChipInput";
+import { GroupedFilterOptions } from "@/app/admin_recruiter/components/GroupedStatusMenu";
 import { candidateMatchesMatchScoreFilter } from "@/lib/admin/candidate-match-score-filter";
 
 export type ApplicationsExtendedFilterValues = {
@@ -129,7 +130,14 @@ export function applicationMatchesDateAppliedFilter(
 }
 
 type FilterOptions = {
-  statuses: { value: string; label: string }[];
+  statuses: {
+    value: string;
+    label: string;
+    sortOrder?: number;
+    groupName?: string | null;
+    groupDescription?: string | null;
+    groupSortOrder?: number | null;
+  }[];
   stages: { value: string; label: string }[];
   locations: string[];
   workflows: string[];
@@ -262,11 +270,7 @@ export function EditApplicationsFiltersModal({
                 value={draft.status}
                 onChange={(v) => setField("status", v)}
               >
-                {options.statuses.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
+                <GroupedFilterOptions options={options.statuses} />
               </ModalFilterField>
 
               <ModalFilterField

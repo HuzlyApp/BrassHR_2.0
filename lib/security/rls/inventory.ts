@@ -105,6 +105,14 @@ export const RECRUITING_RESOURCES: ResourceInventory[] = [
     notes: "Staff ALL on tenant_id only. Worker read via worker_owns_record(worker_id) — all applications. No tenant-consistency trigger vs application_id.",
   },
   {
+    resource: "msp_submissions",
+    rls: "on",
+    policyCount: 1,
+    tenantSource: "job_applications.tenant_id",
+    securityClass: "application-private",
+    notes: "Staff SELECT. Inserts are service-role only. One row per application. Trigger checks tenant, requisition, and worker.",
+  },
+  {
     resource: "application_status_history",
     rls: "on",
     policyCount: 1,

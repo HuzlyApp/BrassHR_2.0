@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   candidateIdentityKey,
   candidatePhoneNameKey,
   collapseWorkersToCandidateProfiles,
+  findWorkerByPhoneAndName,
   normalizeCandidatePersonName,
   normalizeCandidatePhone,
   pickCandidateProfile,
@@ -10,6 +11,18 @@ import {
 } from "./candidate-identity";
 
 describe("candidate-identity", () => {
+  it("never matches workers on a placeholder phone shared by resume-upload shells", async () => {
+    const from = vi.fn();
+    const match = await findWorkerByPhoneAndName({ from } as never, {
+      tenantId: "tenant-1",
+      phone: "0000000000",
+      firstName: "Applicant",
+      lastName: "User",
+    });
+    expect(match).toBeNull();
+    expect(from).not.toHaveBeenCalled();
+  });
+
   it("normalizes phone to digits and name to lowercase", () => {
     expect(normalizeCandidatePhone("+1 (475) 224-8003")).toBe("14752248003");
     expect(normalizeCandidatePersonName(" Swetha ", " Reddy ")).toBe("swetha reddy");

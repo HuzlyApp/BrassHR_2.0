@@ -49,6 +49,32 @@ describe("tallyJobPipelineSummary", () => {
     expect(stats.showSubmission).toBe(true);
   });
 
+  it("counts Submitted to MSP separately from later client and rejection stages", () => {
+    const summary = tallyJobPipelineSummary(
+      [
+        {
+          status: "custom",
+          application_statuses: { system_key: null, name: "Submitted to MSP" },
+        },
+        {
+          status: "custom",
+          application_statuses: { system_key: null, name: "Presented to Client" },
+        },
+        {
+          status: "custom",
+          application_statuses: { system_key: null, name: "Profile Ready" },
+        },
+        {
+          status: "rejected",
+          application_statuses: { system_key: null, name: "Rejected by MSP" },
+        },
+      ],
+      { showSubmission: true }
+    );
+    expect(summary.submission).toBe(1);
+    expect(summary.closed).toBe(1);
+  });
+
   it("keeps MSP submission at 0 when show_submission is false", () => {
     const summary = tallyJobPipelineSummary(
       [

@@ -7,7 +7,8 @@ import { persistStepProgress } from "@/lib/onboarding/use-mark-step-in-progress-
 type UpdateStepStatusFn = (
   stepKey: string,
   status: OnboardingStepStatus,
-  data?: Record<string, unknown>
+  data?: Record<string, unknown>,
+  stepId?: string
 ) => Promise<void>;
 
 /**
@@ -15,7 +16,7 @@ type UpdateStepStatusFn = (
  * Does not mark the step completed or run field validation.
  */
 export async function skipOnboardingStep(options: {
-  step: Pick<TenantOnboardingStep, "step_key"> | null | undefined;
+  step: Pick<TenantOnboardingStep, "id" | "step_key"> | null | undefined;
   updateStepStatus?: UpdateStepStatusFn;
   completingRef?: MutableRefObject<boolean>;
   onNavigate: () => void;
@@ -23,7 +24,14 @@ export async function skipOnboardingStep(options: {
   const { step, updateStepStatus, completingRef, onNavigate } = options;
   if (step?.step_key && updateStepStatus) {
     try {
-      await persistStepProgress(updateStepStatus, step.step_key, "skipped", completingRef);
+      await persistStepProgress(
+        updateStepStatus,
+        step.step_key,
+        "skipped",
+        completingRef,
+        undefined,
+        step.id
+      );
     } catch {
       /* continue navigation even if progress sync fails */
     }

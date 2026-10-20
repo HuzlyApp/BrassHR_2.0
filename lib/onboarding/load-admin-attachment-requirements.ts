@@ -8,6 +8,12 @@ import {
 import { loadTenantOnboardingConfig } from "@/lib/onboarding/load-tenant-config";
 import { WORKER_REQUIRED_FILES_BUCKET } from "@/lib/supabase-storage-buckets";
 import { resolveStorageAccessibleUrl } from "@/lib/supabase/resolve-storage-accessible-url";
+import { listActiveProfessionDocuments } from "@/lib/professions/profession-documents";
+import {
+  applyProfessionDocumentsToAttachments,
+  resolveWorkerTenantProfessionId,
+  type ProfessionAttachmentFile,
+} from "@/lib/onboarding/profession-attachment-requirements";
 
 export type LoadAdminAttachmentRequirementsArgs = {
   supabase: SupabaseClient;
@@ -142,9 +148,71 @@ export async function loadAdminAttachmentRequirements(
     if (key && status) legacyStatusByKey.set(key, status);
   }
 
-  return rows.map((row) => {
+  const withLegacyStatus = rows.map((row) => {
     if (row.submitted_document_id || !row.legacy_document_key) return row;
     const legacyStatus = legacyStatusByKey.get(row.legacy_document_key);
     return legacyStatus ? { ...row, status: legacyStatus } : row;
   });
+
+  try {
+    let professionId = await resolveWorkerTenantProfessionId(supabase, tenantId, workerId);
+    if (!professionId) {
+      const { data: documented, error: documentedError } = await supabase
+        .from("tenant_profession_documents")
+        .select("profession_id")
+        .eq("tenant_id", tenantId)
+        .eq("is_active", true);
+      if (documentedError) throw documentedError;
+      const professionIds = [
+        ...new Set((documented ?? []).map((row) => String(row.profession_id ?? "")).filter(Boolean)),
+      ];
+      professionId = professionIds.length === 1 ? professionIds[0] : null;
+    }
+
+    const documents = professionId
+      ? await listActiveProfessionDocuments(supabase, tenantId, professionId)
+      : [];
+
+    const { data: uploads, error: uploadError } = await supabase
+      .from("worker_profession_document_uploads")
+      .select(
+        "id, profession_document_id, file_url, original_file_name, status, uploaded_at, issued_date, expiry_date"
+      )
+      .eq("tenant_id", tenantId)
+      .eq("worker_id", workerId)
+      .order("uploaded_at", { ascending: true });
+    if (uploadError) throw uploadError;
+
+    const filesByDocumentId = new Map<string, ProfessionAttachmentFile[]>();
+    await Promise.all(
+      (uploads ?? []).map(async (upload) => {
+        const documentId = String(upload.profession_document_id ?? "");
+        const fileUrl = String(upload.file_url ?? "").trim();
+        if (!documentId || !fileUrl) return;
+        const signedUrl = await resolveStorageAccessibleUrl(supabase, fileUrl, {
+          defaultBucket: WORKER_REQUIRED_FILES_BUCKET,
+        });
+        const list = filesByDocumentId.get(documentId) ?? [];
+        list.push({
+          id: String(upload.id ?? ""),
+          signedUrl,
+          originalFileName: upload.original_file_name ? String(upload.original_file_name) : null,
+          status: upload.status ? String(upload.status) : null,
+          issuedDate: upload.issued_date ? String(upload.issued_date) : null,
+          expiryDate: upload.expiry_date ? String(upload.expiry_date) : null,
+        });
+        filesByDocumentId.set(documentId, list);
+      })
+    );
+
+    return applyProfessionDocumentsToAttachments(
+      withLegacyStatus,
+      documents,
+      filesByDocumentId,
+      args.legacyUrls
+    );
+  } catch (error) {
+    console.warn("[load-admin-attachment-requirements] profession documents", error);
+    return withLegacyStatus;
+  }
 }

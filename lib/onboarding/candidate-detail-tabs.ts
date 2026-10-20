@@ -1,6 +1,7 @@
 export const CANDIDATE_DETAIL_BASE_TABS = [
-  "Checklist",
+  // "Checklist", // Commented out for now; will be used in future
   "Profile",
+  "AI Analysis",
   "Pre-Hire",
   "Attachments",
   "Skill Assessments",
@@ -16,6 +17,7 @@ export const CANDIDATE_DETAIL_POST_HIRE_TAB = "Post-Hire" as const;
 
 export type CandidateDetailTab =
   | (typeof CANDIDATE_DETAIL_BASE_TABS)[number]
+  | "Checklist"
   | typeof CANDIDATE_DETAIL_ONBOARDED_TAB
   | typeof CANDIDATE_DETAIL_POST_HIRE_TAB;
 

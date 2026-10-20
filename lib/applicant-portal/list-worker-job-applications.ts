@@ -8,6 +8,8 @@ export type WorkerJobApplicationResume = {
   fileName: string;
   fileSizeLabel: string;
   fileType: string | null;
+  /** Application this résumé row is bound to; may differ from the list item when it is a fallback. */
+  jobApplicationId: string | null;
 };
 
 export type WorkerJobApplicationListItem = {
@@ -22,6 +24,9 @@ export type WorkerJobApplicationListItem = {
   status: string;
   statusName: string;
   statusColor: string | null;
+  statusGroupName: string | null;
+  statusGroupDescription: string | null;
+  statusGroupSortOrder: number | null;
   statusNote: string | null;
   resume: WorkerJobApplicationResume | null;
   matchScore: number | null;
@@ -40,10 +45,17 @@ type JobRequisitionJoin = {
   status?: string | null;
 };
 
+type StatusGroupJoin = {
+  name?: string | null;
+  description?: string | null;
+  sort_order?: number | null;
+};
+
 type ApplicationStatusJoin = {
   name?: string | null;
   system_key?: string | null;
   color?: string | null;
+  application_status_groups?: StatusGroupJoin | StatusGroupJoin[] | null;
 };
 
 type TenantJoin = {
@@ -113,7 +125,7 @@ export async function listWorkerJobApplications(
           "ai_match_score",
           "ai_match_category",
           "ai_match_status",
-          "application_statuses(name, system_key, color)",
+          "application_statuses(name, system_key, color, application_status_groups(name, description, sort_order))",
           "job_requisitions(public_title, source_job_title, source_type, employment_type, facility, facility_name, location, status)",
           "tenants:tenant_id(name)",
         ].join(", ")
@@ -165,6 +177,7 @@ export async function listWorkerJobApplications(
   let latestResume: WorkerJobApplicationResume | null = null;
 
   for (const resume of (resumeRows ?? []) as unknown as ResumeRow[]) {
+    const linkedApplicationId = String(resume.job_application_id ?? "").trim();
     const item: WorkerJobApplicationResume = {
       id: String(resume.id),
       fileName: buildWorkerResumeFileName({
@@ -177,9 +190,9 @@ export async function listWorkerJobApplications(
       }),
       fileSizeLabel: formatFileSize(resume.file_size_bytes),
       fileType: resume.file_type ?? null,
+      jobApplicationId: linkedApplicationId || null,
     };
     if (!latestResume) latestResume = item;
-    const linkedApplicationId = String(resume.job_application_id ?? "").trim();
     if (linkedApplicationId && !latestResumeByApplication.has(linkedApplicationId)) {
       latestResumeByApplication.set(linkedApplicationId, item);
     }
@@ -189,6 +202,11 @@ export async function listWorkerJobApplications(
     const applicationId = String(row.id);
     const status = String(row.status ?? "");
     const statusJoin = one(row.application_statuses);
+    const statusGroup = statusJoin?.application_status_groups
+      ? Array.isArray(statusJoin.application_status_groups)
+        ? statusJoin.application_status_groups[0] ?? null
+        : statusJoin.application_status_groups
+      : null;
     const job = one(row.job_requisitions);
     const tenant = one(row.tenants);
     const tenantName = tenant?.name?.trim() || "Company";
@@ -211,6 +229,10 @@ export async function listWorkerJobApplications(
       status,
       statusName: statusJoin?.name?.trim() || applicationStatusLabel(status),
       statusColor: statusJoin?.color?.trim() || null,
+      statusGroupName: statusGroup?.name?.trim() || null,
+      statusGroupDescription: statusGroup?.description?.trim() || null,
+      statusGroupSortOrder:
+        statusGroup?.sort_order == null ? null : Number(statusGroup.sort_order),
       statusNote: note || null,
       resume: latestResumeByApplication.get(applicationId) ?? latestResume,
       matchScore,

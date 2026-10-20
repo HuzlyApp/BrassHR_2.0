@@ -84,9 +84,38 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    if (body.action === "clear_notifications" || body.action === "clear_all_notifications") {
+      const { error } = await auth.supabase
+        .from("notifications")
+        .delete()
+        .eq("user_id", auth.user.id);
+      if (error) throw error;
+
+      return NextResponse.json({ ok: true });
+    }
+
     return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
   } catch (err) {
     console.error("[applicant-portal/notifications:patch]", err);
+    const message = err instanceof Error ? err.message : "Unexpected error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const auth = await requireApprovedApplicant(req);
+    if (auth instanceof NextResponse) return auth;
+
+    const { error } = await auth.supabase
+      .from("notifications")
+      .delete()
+      .eq("user_id", auth.user.id);
+    if (error) throw error;
+
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error("[applicant-portal/notifications:delete]", err);
     const message = err instanceof Error ? err.message : "Unexpected error";
     return NextResponse.json({ error: message }, { status: 500 });
   }

@@ -4,7 +4,6 @@ import { Mail, Phone } from "lucide-react"
 import { CandidateListAvatar } from "@/app/admin_recruiter/components/CandidateListAvatar"
 import { CurrentStageCell } from "@/app/admin_recruiter/components/CurrentStageCell"
 import { CandidateProfileIconLink } from "./CandidateProfileIconLink"
-// import { CandidatePreHireIconLink } from "./CandidatePreHireIconLink"
 import { candidateMailHref, candidateProfileHref } from "./candidate-links"
 import { prefetchWorkerProfile } from "@/lib/admin/staff-detail-fetch-cache"
 import type { CandidateColumnId } from "./column-config"
@@ -135,8 +134,6 @@ export function renderListCell(
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-1">
             <CandidateProfileIconLink workerId={c.id} candidateName={c.name} from="candidates" />
-            {/* Pre-hire / Post-hire icon hidden until the hire journey feature ships. */}
-            {/* <CandidatePreHireIconLink workerId={c.id} candidateName={c.name} /> */}
           </div>
         </div>
       )

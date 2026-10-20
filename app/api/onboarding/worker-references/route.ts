@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
+import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import { getSupabaseUrl } from "@/lib/supabase-env"
 import { isDraftPreviewApplicantId } from "@/lib/onboarding/is-draft-preview"
 import { resolveOrEnsureWorkerForApplicant } from "@/lib/onboarding/resolve-worker-context"
@@ -13,10 +13,97 @@ import {
 } from "@/lib/referencesValidation"
 import { markTenantStepCompletedByType } from "@/lib/onboarding/mark-tenant-step-completed"
 import { isPersonNameTooLong, personNameTooLongMessage } from "@/lib/person-name"
+import { findApplicantByUserId } from "@/lib/applicant-portal"
+import { APPLICANT_CONTINUATION_SESSION_COOKIE } from "@/lib/tenant/constants"
 
 export const runtime = "nodejs"
 
 type ReferenceInput = Partial<ReferenceRow>
+
+function bearerToken(req: NextRequest): string | null {
+  const header = req.headers.get("authorization")?.trim() ?? ""
+  if (!header.toLowerCase().startsWith("bearer ")) return null
+  const token = header.slice(7).trim()
+  return token || null
+}
+
+/** Worker opened through an emailed continuation link, which sets a cookie instead of signing in. */
+async function continuationWorkerId(
+  supabase: SupabaseClient,
+  req: NextRequest,
+  tenantId: string,
+): Promise<string | null> {
+  const linkId = req.cookies.get(APPLICANT_CONTINUATION_SESSION_COOKIE)?.value?.trim()
+  if (!linkId) return null
+  const { data } = await supabase
+    .from("applicant_continuation_links")
+    .select("worker_id, tenant_id, expires_at, revoked_at, completed_at")
+    .eq("id", linkId)
+    .maybeSingle()
+  const link = data as {
+    worker_id: string
+    tenant_id: string
+    expires_at: string
+    revoked_at: string | null
+    completed_at: string | null
+  } | null
+  if (!link || link.tenant_id !== tenantId || link.revoked_at || link.completed_at) return null
+  if (new Date(link.expires_at).getTime() <= Date.now()) return null
+  return link.worker_id
+}
+
+/** The applicant's saved references, so the form can show what they already submitted. */
+export async function GET(req: NextRequest) {
+  try {
+    const url = getSupabaseUrl()
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!url || !key) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 })
+    const supabase = createClient(url, key)
+
+    const tenantSlug = req.nextUrl.searchParams.get("tenant")?.trim().toLowerCase() || ""
+    if (!tenantSlug) return NextResponse.json({ error: "Missing tenant" }, { status: 400 })
+    const tenantRes = await resolveOnboardingTenantId(supabase, tenantSlug)
+    if (!tenantRes.ok) return NextResponse.json({ error: tenantRes.error }, { status: 404 })
+
+    let workerId: string | null = null
+    const token = bearerToken(req)
+    if (token) {
+      const { data: auth } = await supabase.auth.getUser(token)
+      if (auth.user?.id) {
+        workerId = (await findApplicantByUserId(supabase, auth.user.id, tenantRes.tenantId))?.id ?? null
+      }
+    }
+    workerId ??= await continuationWorkerId(supabase, req, tenantRes.tenantId)
+    if (!workerId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+    const { data, error } = await supabase
+      .from("worker_references")
+      .select(
+        "reference_first_name, reference_last_name, reference_phone, reference_email, relationship, company, job_title, years_known, notes, created_at"
+      )
+      .eq("tenant_id", tenantRes.tenantId)
+      .eq("worker_id", workerId)
+      .order("created_at", { ascending: true })
+    if (error) throw error
+
+    const references: ReferenceRow[] = ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+      first: String(row.reference_first_name ?? ""),
+      last: String(row.reference_last_name ?? ""),
+      phone: String(row.reference_phone ?? ""),
+      email: String(row.reference_email ?? ""),
+      relationship: String(row.relationship ?? ""),
+      company: String(row.company ?? ""),
+      jobTitle: String(row.job_title ?? ""),
+      yearsKnown: row.years_known == null ? "" : String(row.years_known),
+      notes: String(row.notes ?? ""),
+    }))
+    return NextResponse.json({ references })
+  } catch (err: unknown) {
+    console.error("[onboarding/worker-references] GET", err)
+    const msg = err instanceof Error ? err.message : "Unexpected error"
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {

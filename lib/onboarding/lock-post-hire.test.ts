@@ -4,6 +4,8 @@ import {
   isPostHireLockedForApplicant,
   shouldSuspendPostHireAfterStatusChange,
   canRevealPostHire,
+  canRevealPostHireForStaffJourney,
+  areRequiredPreHireStepsAlmostComplete,
   shouldRejectPostHirePhaseRequest,
 } from "@/lib/onboarding/lock-post-hire";
 
@@ -62,6 +64,107 @@ describe("lock-post-hire", () => {
         conversionStatus: "in_progress",
       })
     ).toBe(false);
+  });
+
+  it("treats required Pre-Hire progress as almost complete near the end", () => {
+    expect(areRequiredPreHireStepsAlmostComplete([])).toBe(true);
+    expect(
+      areRequiredPreHireStepsAlmostComplete([
+        { required: true, displayStatus: "completed" },
+        { required: true, displayStatus: "completed" },
+        { required: true, displayStatus: "not_started" },
+        { required: false, displayStatus: "not_started" },
+      ])
+    ).toBe(true);
+    expect(
+      areRequiredPreHireStepsAlmostComplete([
+        { required: true, displayStatus: "completed" },
+        { required: true, displayStatus: "not_started" },
+        { required: true, displayStatus: "not_started" },
+        { required: true, displayStatus: "not_started" },
+        { required: true, displayStatus: "not_started" },
+      ])
+    ).toBe(false);
+  });
+
+  it("reveals staff Post-Hire after Selected + nearly complete Pre-Hire", () => {
+    const nearlyDone = [
+      { required: true, displayStatus: "completed" as const },
+      { required: true, displayStatus: "completed" as const },
+      { required: true, displayStatus: "completed" as const },
+      { required: true, displayStatus: "not_started" as const },
+    ];
+    expect(
+      canRevealPostHireForStaffJourney({
+        convertedVisible: false,
+        applicationHired: false,
+        preHireSteps: nearlyDone,
+      })
+    ).toBe(false);
+    expect(
+      canRevealPostHireForStaffJourney({
+        convertedVisible: false,
+        applicationHired: true,
+        preHireSteps: nearlyDone,
+      })
+    ).toBe(true);
+    expect(
+      canRevealPostHireForStaffJourney({
+        convertedVisible: true,
+        applicationHired: false,
+        preHireSteps: [],
+      })
+    ).toBe(true);
+  });
+
+  it("reveals staff Post-Hire only after the recruiter completes Agreement e-sign", () => {
+    const authorizationSigned = [
+      {
+        snapshotStepId: "authorization-esign",
+        title: "Authorization e-sign",
+        required: true,
+        displayStatus: "completed" as const,
+      },
+    ];
+    expect(
+      canRevealPostHireForStaffJourney({
+        convertedVisible: false,
+        applicationHired: false,
+        preHireSteps: authorizationSigned,
+      })
+    ).toBe(false);
+
+    const agreementSubmitted = [
+      {
+        snapshotStepId: "employee-agreement",
+        title: "Agreement e-sign",
+        required: true,
+        displayStatus: "submitted" as const,
+      },
+    ];
+    expect(
+      canRevealPostHireForStaffJourney({
+        convertedVisible: false,
+        applicationHired: false,
+        preHireSteps: agreementSubmitted,
+      })
+    ).toBe(false);
+
+    const agreementCompleted = [
+      {
+        snapshotStepId: "employee-agreement",
+        title: "Agreement e-sign",
+        required: true,
+        displayStatus: "completed" as const,
+      },
+    ];
+    expect(
+      canRevealPostHireForStaffJourney({
+        convertedVisible: false,
+        applicationHired: false,
+        preHireSteps: agreementCompleted,
+      })
+    ).toBe(true);
   });
 
   it("rejects direct Post-Hire endpoint access before conversion", () => {

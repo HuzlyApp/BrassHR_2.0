@@ -42,6 +42,7 @@ export async function GET(
       applicationId: summary?.applicationId ?? null,
       ambiguous: summary?.ambiguous ?? false,
       jobTitle: summary?.jobTitle ?? null,
+      sourceType: summary?.sourceType ?? null,
       status: summary
         ? {
             id: summary.statusId,

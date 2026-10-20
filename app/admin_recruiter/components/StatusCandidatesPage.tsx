@@ -27,6 +27,7 @@ import { CandidateGridCard } from "../candidates/CandidateGridCard";
 import { CandidatesCardBulkSelectHeader } from "../candidates/CandidatesCardBulkSelectHeader";
 import type { CandidateRow } from "../candidates/types";
 import { formatCandidateStatusLabel } from "../candidates/candidate-status-badge";
+import { filterApplicationStatusesForSource } from "@/lib/jobs/msp-submission";
 import { CandidatesListSkeleton } from "../candidates/CandidatesListSkeleton";
 import { useCandidateKpiMetrics } from "../candidates/useCandidateKpiMetrics";
 import { isWorkerClaimEligible } from "@/lib/candidates/claim";
@@ -102,6 +103,7 @@ type WorkerProfile = {
     title?: string | null;
   }> | null;
   application_source_job_id?: string | null;
+  application_source_type?: string | null;
   match_application_id?: string | null;
   ai_match_status?: string | null;
   ai_match_score?: number | null;
@@ -248,7 +250,11 @@ export function StatusCandidatesPage({ fetchUrl, statusLabel, emptyMessage }: St
       return "";
     }
   }, [fetchUrl]);
-  const { kpiCards, refresh: refreshKpis } = useCandidateKpiMetrics({
+  const {
+    kpiCards,
+    loading: kpiLoading,
+    refresh: refreshKpis,
+  } = useCandidateKpiMetrics({
     status: pipelineStatus || undefined,
   });
   const [advancedSearchOpen, setAdvancedSearchOpen] = useState(false);
@@ -396,14 +402,26 @@ export function StatusCandidatesPage({ fetchUrl, statusLabel, emptyMessage }: St
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [candidates]);
 
-  const progressStatusFilterOptions = useMemo(
-    () =>
-      progressStatusOptions.map((option) => ({
-        value: option.id,
-        label: option.name,
-      })),
-    [progressStatusOptions]
-  );
+  const progressStatusFilterOptions = useMemo(() => {
+    const sources = new Set(
+      candidates
+        .map((row) => String(row.applicationSourceType ?? "").trim().toLowerCase())
+        .filter((source) => source === "msp" || source === "internal")
+    );
+    const scopedOptions =
+      sources.size === 1
+        ? filterApplicationStatusesForSource(progressStatusOptions, [...sources][0])
+        : progressStatusOptions;
+    return scopedOptions.map((option) => ({
+      value: option.id,
+      label: option.name,
+      sortOrder: option.sortOrder,
+      groupName: option.groupName,
+      groupDescription: option.groupDescription,
+      groupSortOrder: option.groupSortOrder,
+      groupSystemKey: option.groupSystemKey,
+    }));
+  }, [candidates, progressStatusOptions]);
 
   const assigneeOptions = useMemo(
     () =>
@@ -798,6 +816,7 @@ export function StatusCandidatesPage({ fetchUrl, statusLabel, emptyMessage }: St
         jobRoleOptions={jobRoleOptions}
         locationOptions={locationOptions}
         kpiCards={kpiCards}
+        kpiLoading={kpiLoading}
         hideAddCandidate
         hideClaimCandidates
         view={view}

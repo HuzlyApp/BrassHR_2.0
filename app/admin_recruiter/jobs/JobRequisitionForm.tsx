@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
+import toast from "react-hot-toast";
 import BrandedSvgIcon from "@/app/components/BrandedSvgIcon";
 import { useTenantBranding } from "@/app/components/tenant/TenantBrandingContext";
 import { brandingToCssVars } from "@/lib/tenant/tenant-branding";
@@ -476,6 +477,9 @@ export default function JobRequisitionForm({ jobId }: { jobId?: string }) {
       if (!current.sourceJobTitle?.trim()) {
         errors.sourceJobTitle = "Source Job Title is required.";
       }
+      if (!current.professionId?.trim()) {
+        errors.professionId = "Profession is required.";
+      }
       if (isMspEor) {
         if (current.employmentType !== "W2" && current.employmentType !== "1099") {
           errors.employmentType = "Select W2 or 1099 for EOR placements.";
@@ -485,7 +489,7 @@ export default function JobRequisitionForm({ jobId }: { jobId?: string }) {
       if (!current.publicTitle?.trim()) {
         errors.publicTitle = "Job Title is required.";
       }
-      if (!current.profession?.trim() && !current.professionId) {
+      if (!current.professionId?.trim()) {
         errors.professionId = "Profession is required.";
       }
       if (!current.employmentType) {
@@ -629,6 +633,14 @@ export default function JobRequisitionForm({ jobId }: { jobId?: string }) {
       }
       clearJobRequisitionFormDraft();
       invalidateJobsListCache();
+      const reanalysisCount = Number(payload.matchReanalysisScheduled ?? 0);
+      if (Number.isFinite(reanalysisCount) && reanalysisCount > 0) {
+        toast.success(
+          reanalysisCount === 1
+            ? "Job updated. Re-analyzing 1 candidate against the new description."
+            : `Job updated. Re-analyzing ${reanalysisCount} candidates against the new description.`
+        );
+      }
       router.push("/admin_recruiter/jobs");
       router.refresh();
     } catch (error) {
@@ -940,6 +952,7 @@ export default function JobRequisitionForm({ jobId }: { jobId?: string }) {
                   job={job}
                   ui={ui}
                   fieldErrors={fieldErrors}
+                  professions={options?.professions ?? []}
                   onJobChange={updateJob}
                   onUiChange={updateUi}
                   onServiceAreaBlockedChange={onServiceAreaBlockedChange}

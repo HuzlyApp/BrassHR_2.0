@@ -4,8 +4,11 @@ export const LICENSE_TYPES = [
   "nursing_license",
   "drivers_license",
   "cpr_certification",
+  "bls_certification",
+  "acls_certification",
   "tb_test",
   "other",
+  "other_certification",
 ] as const;
 
 export type LicenseType = (typeof LICENSE_TYPES)[number];
@@ -14,9 +17,42 @@ export const LICENSE_TYPE_LABELS: Record<LicenseType, string> = {
   nursing_license: "Professional / Nursing License",
   drivers_license: "Driver's License",
   cpr_certification: "CPR Certification",
+  bls_certification: "BLS",
+  acls_certification: "ACLS",
   tb_test: "TB Test",
   other: "Other License",
+  other_certification: "Other Certification",
 };
+
+const OTHER_CERTIFICATION_NAME_MAX = 120;
+
+export function normalizeOtherCertificationName(
+  raw: unknown
+): { ok: true; value: string } | { ok: false; error: string } {
+  const value = raw == null ? "" : String(raw).trim().replace(/\s+/g, " ");
+  if (!value) return { ok: false, error: "Enter the certification name." };
+  if (value.length > OTHER_CERTIFICATION_NAME_MAX) {
+    return {
+      ok: false,
+      error: `Certification name must be ${OTHER_CERTIFICATION_NAME_MAX} characters or fewer.`,
+    };
+  }
+  return { ok: true, value };
+}
+
+/** Label shown to applicants and recruiters, including a custom name for Other Certification. */
+export function licenseTypeDisplayLabel(
+  licenseType: string,
+  certificationName?: string | null
+): string {
+  const base =
+    licenseType in LICENSE_TYPE_LABELS
+      ? LICENSE_TYPE_LABELS[licenseType as LicenseType]
+      : licenseType;
+  const name = certificationName?.trim();
+  if (licenseType === "other_certification" && name) return `${base}: ${name}`;
+  return base;
+}
 
 export const LEGACY_DOCUMENT_KEY_BY_LICENSE_TYPE: Partial<Record<LicenseType, string>> = {
   nursing_license: "nursing_license_url",

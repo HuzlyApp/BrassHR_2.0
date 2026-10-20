@@ -2,7 +2,9 @@
 
 import { useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import type { Session } from "@supabase/supabase-js";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { getBrowserSession, isAuthLockContentionError } from "@/lib/auth/browser-session";
 import {
   IDLE_ACTIVITY_THROTTLE_MS,
   IDLE_CHECK_INTERVAL_MS,
@@ -144,9 +146,16 @@ export default function IdleSessionGuard() {
     });
 
     void (async () => {
-      const {
-        data: { session },
-      } = await supabaseBrowser.auth.getSession();
+      let session: Session | null;
+      try {
+        session = await getBrowserSession();
+      } catch (error) {
+        if (!isAuthLockContentionError(error)) {
+          console.warn("[idle-session-guard] could not read session", error);
+        }
+        return;
+      }
+      if (cancelled) return;
       trackedRef.current = isTrackedSessionUser(session?.user);
       if (trackedRef.current) {
         if (isIdleSessionExpired(readActivityCookie())) {

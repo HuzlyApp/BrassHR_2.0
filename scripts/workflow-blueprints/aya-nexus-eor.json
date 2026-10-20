@@ -1,0 +1,389 @@
+{
+  "key": "aya-nexus-eor",
+  "name": "Aya Healthcare - Nexus EOR (W2)",
+  "employmentType": "W2",
+  "librarySlug": "onboarding",
+  "source": "docs/BrassHR_Aya_Nexus_EOR_Workflow(1) 1 (1).docx (v7.0, sections 3.2 and 3.3) + Nexus Step1/Step2/Step3 packets",
+  "stepDefaults": {
+    "clientPerforms": true,
+    "useBraasPartner": false,
+    "provider": "Manual",
+    "notifyHrOnFail": true,
+    "notify": "HR + Recruiter",
+    "timeline": "",
+    "triggerAfter": "",
+    "conditionalLogic": "",
+    "isConditional": false,
+    "unlockCondition": ""
+  },
+  "templates": [
+    {
+      "key": "auth_release",
+      "name": "Nexus - Authorization & Release (Background, Drug, References)",
+      "category": "background_check_authorization",
+      "description": "Candidate authorizes the background check, drug screen, reference checks and credential verification. Includes the Virginia State Police fingerprint / Rap Back acknowledgment for Virginia placements."
+    },
+    {
+      "key": "job_description",
+      "name": "Nexus - RN Job Description Acknowledgment",
+      "category": "contractor_agreement",
+      "description": "Role job description with the essential-functions certification and accommodation request. Duplicate per role (LPN, CNA, ...) and pick the matching one in the builder."
+    },
+    {
+      "key": "employment_agreement",
+      "name": "Nexus - W2 Employment Agreement",
+      "category": "offer_letter",
+      "description": "Nexus W2 offer and employment agreement: duties, required credentials, no-guaranteed-shifts clause, compensation, termination, confidentiality. Signing this is the Pre-Hire to Post-Hire phase gate."
+    },
+    {
+      "key": "i9",
+      "name": "I-9 / Right to Work Verification"
+    },
+    {
+      "key": "orientation_ack",
+      "name": "Nexus - Orientation Acknowledgment",
+      "category": "contractor_agreement",
+      "description": "Orientation handbook attestation: HIPAA, OSHA, Elder Justice Act, CDC infection control, GPS time-tracking app and payroll app."
+    },
+    {
+      "key": "hep_b",
+      "name": "Nexus - Hepatitis B Vaccine Declination",
+      "category": "contractor_agreement",
+      "description": "CDC Hepatitis B vaccine information statement and the OSHA declination for workers who decline or have not provided proof of vaccination."
+    },
+    {
+      "key": "handbook_ack",
+      "name": "Nexus - Employee Handbook Acknowledgment",
+      "category": "contractor_agreement",
+      "description": "Employee handbook receipt and acknowledgment, including at-will status and the registry model (no guaranteed shifts; staff self-select shifts)."
+    }
+  ],
+  "steps": [
+    {
+      "libraryKey": "resume-basic-profile",
+      "label": "Application (Resume & Profile)",
+      "description": "Apply-page resume and contact details. Locked as the first applicant step.",
+      "phase": "pre_hire",
+      "stage": "Intake",
+      "owner": "applicant"
+    },
+    {
+      "libraryKey": "recruiter-screening",
+      "label": "Screening Complete",
+      "description": "Recruiter screening is done. Log each phone attempt on the Activity tab, not as a task.",
+      "phase": "pre_hire",
+      "stage": "Screening",
+      "owner": "recruiter_or_hr"
+    },
+    {
+      "libraryKey": "interview-qualification",
+      "label": "Nexus Interview",
+      "description": "Nexus interview. Log each interview round on the Activity tab.",
+      "phase": "pre_hire",
+      "stage": "Interview",
+      "owner": "recruiter_or_hr"
+    },
+    {
+      "libraryKey": "background-check",
+      "label": "Authorization & Release eSign + Background Check",
+      "description": "Candidate e-signs the authorization and release (background, drug screen, references, credential verification; Virginia fingerprint / Rap Back acknowledgment when placed in Virginia). Recruiter then runs the background check.",
+      "phase": "pre_hire",
+      "stage": "Compliance",
+      "owner": "applicant",
+      "signatureTemplate": "auth_release"
+    },
+    {
+      "libraryKey": "references-collection",
+      "label": "Professional References",
+      "description": "Candidate lists professional references (name, title, facility, phone, email) for the reference checks.",
+      "phase": "pre_hire",
+      "stage": "Compliance",
+      "owner": "applicant"
+    },
+    {
+      "libraryKey": "reference-verification",
+      "label": "Reference Checks",
+      "description": "Recruiter completes the reference checks authorized in the release.",
+      "phase": "pre_hire",
+      "stage": "Compliance",
+      "owner": "recruiter_or_hr"
+    },
+    {
+      "libraryKey": "credential-license-verification",
+      "label": "License (Placement State), TB & CPR",
+      "description": "License in good standing in the placement state, negative TB and current CPR, each with an expiry date. A pending TB file does not block submission to Aya.",
+      "phase": "pre_hire",
+      "stage": "Compliance",
+      "owner": "applicant"
+    },
+    {
+      "libraryKey": "ssn-identity-verification",
+      "label": "SSN & Driver's License",
+      "description": "SSN and driver's license with expiry for the compliance packet.",
+      "phase": "pre_hire",
+      "stage": "Compliance",
+      "owner": "applicant"
+    },
+    {
+      "libraryKey": "drug-test-screening",
+      "label": "Drug Screen",
+      "description": "Drug screen result for the compliance packet.",
+      "phase": "pre_hire",
+      "stage": "Compliance",
+      "owner": "recruiter_or_hr"
+    },
+    {
+      "libraryKey": "oig-exclusion-check",
+      "label": "OIG Exclusion Check",
+      "description": "OIG / exclusion list check. The employment agreement requires the worker is not on any exclusion list.",
+      "phase": "pre_hire",
+      "stage": "Compliance",
+      "owner": "recruiter_or_hr"
+    },
+    {
+      "libraryKey": "release-to-client",
+      "label": "Submit to Aya",
+      "description": "Send the compliance packet to Aya, then move the candidate to Submitted to Aya and wait.",
+      "phase": "pre_hire",
+      "stage": "Submission",
+      "owner": "recruiter_or_hr",
+      "settings": { "triggerAfter": "Compliance packet ready" }
+    },
+    {
+      "libraryKey": "client-review",
+      "label": "Presented to Facility",
+      "description": "Aya has presented the candidate to the facility.",
+      "phase": "pre_hire",
+      "stage": "Submission",
+      "owner": "recruiter_or_hr",
+      "settings": { "triggerAfter": "Submit to Aya" }
+    },
+    {
+      "libraryKey": "candidate-selection",
+      "label": "Client Selected",
+      "description": "Aya / facility said yes. Completing this unlocks Offer & Agreement. If Aya rejects, close the application instead (no worker, no Post-Hire).",
+      "phase": "pre_hire",
+      "stage": "Submission",
+      "owner": "recruiter_or_hr",
+      "settings": { "triggerAfter": "Presented to Facility" }
+    },
+    {
+      "libraryKey": "pay-rate-hire-date",
+      "label": "Pay Rate, Start Date & Status",
+      "description": "Confirm pay rate, start date and employment status (W2 part-time / PRN registry) with the candidate. These feed the agreement's compensation section.",
+      "phase": "pre_hire",
+      "stage": "Offer & Agreement",
+      "owner": "recruiter_or_hr",
+      "settings": { "triggerAfter": "Client Selected", "isConditional": true, "unlockCondition": "client_selected" }
+    },
+    {
+      "libraryKey": "employee-agreement",
+      "label": "Nexus W2 Employment Agreement eSign (Phase Gate)",
+      "description": "Candidate e-signs the Nexus W2 employment agreement. Once signed, the candidate becomes a Nexus worker and Post-Hire opens.",
+      "phase": "pre_hire",
+      "stage": "Offer & Agreement",
+      "owner": "applicant",
+      "signatureTemplate": "employment_agreement",
+      "settings": { "triggerAfter": "Client Selected", "isConditional": true, "unlockCondition": "client_selected" }
+    },
+    {
+      "libraryKey": "offer-acceptance",
+      "label": "Pay Rate Accepted",
+      "description": "Candidate accepts the agreed pay rate.",
+      "phase": "pre_hire",
+      "stage": "Offer & Agreement",
+      "owner": "applicant",
+      "settings": { "triggerAfter": "Nexus W2 Employment Agreement eSign (Phase Gate)", "isConditional": true, "unlockCondition": "client_selected" }
+    },
+    {
+      "libraryKey": "policy-acknowledgment",
+      "label": "Job Description Acknowledgment",
+      "description": "Candidate certifies they can perform the essential functions of the role (with or without accommodation) and lists any accommodation requests.",
+      "phase": "pre_hire",
+      "stage": "Offer & Agreement",
+      "owner": "applicant",
+      "signatureTemplate": "job_description",
+      "settings": { "triggerAfter": "Pay Rate Accepted", "isConditional": true, "unlockCondition": "client_selected" }
+    },
+    {
+      "libraryKey": "i9-right-to-work-verification",
+      "label": "I-9 Section 1",
+      "description": "Employee completes I-9 Section 1 on the current USCIS form (no later than the first day of work).",
+      "phase": "pre_hire",
+      "stage": "Offer & Agreement",
+      "owner": "applicant",
+      "signatureTemplate": "i9",
+      "settings": { "triggerAfter": "Nexus W2 Employment Agreement eSign (Phase Gate)" }
+    },
+    {
+      "libraryKey": "hr-final-approval",
+      "label": "Nexus HR / Manager Approval",
+      "description": "Only when Nexus HR or a manager must approve the hire.",
+      "phase": "pre_hire",
+      "stage": "Approvals",
+      "owner": "hr_admin",
+      "required": false
+    },
+    {
+      "libraryKey": "completion-milestone",
+      "label": "Agreement Signed - Convert to Nexus Worker",
+      "description": "Phase gate: creates or links the Nexus worker, switches to Post-Hire and sets the status to Onboarding.",
+      "phase": "transition",
+      "stage": "Approvals",
+      "owner": "authorized_internal",
+      "settings": { "unlockCondition": "all_required_pre_hire_complete" }
+    },
+    {
+      "libraryKey": "tax-forms",
+      "label": "W-4 & State Tax",
+      "description": "Federal W-4 and state withholding forms.",
+      "phase": "post_hire",
+      "stage": "Payroll & Tax",
+      "owner": "applicant"
+    },
+    {
+      "libraryKey": "direct-deposit-setup",
+      "label": "Direct Deposit (Paychex Flex)",
+      "description": "Worker accepts the Paychex Flex email invite, registers and enters direct deposit details.",
+      "phase": "post_hire",
+      "stage": "Payroll & Tax",
+      "owner": "applicant"
+    },
+    {
+      "libraryKey": "payroll-profile-creation",
+      "label": "Payroll Profile (Paychex Flex)",
+      "description": "Create the worker in Paychex Flex (weekly pay period) and send the registration invite.",
+      "phase": "post_hire",
+      "stage": "Payroll & Tax",
+      "owner": "hr_or_payroll"
+    },
+    {
+      "libraryKey": "benefits-enrollment",
+      "label": "Benefits Enrollment",
+      "description": "Benefits selection when the worker is eligible.",
+      "phase": "post_hire",
+      "stage": "Payroll & Tax",
+      "owner": "applicant",
+      "required": false
+    },
+    {
+      "libraryKey": "401k-enrollment",
+      "label": "401(k) Enrollment",
+      "description": "Retirement enrollment when the worker is eligible.",
+      "phase": "post_hire",
+      "stage": "Payroll & Tax",
+      "owner": "applicant",
+      "required": false
+    },
+    {
+      "libraryKey": "i9-right-to-work-verification",
+      "label": "I-9 Section 2 / E-Verify",
+      "description": "Employer completes I-9 Section 2 and E-Verify within three business days of the start date.",
+      "phase": "post_hire",
+      "stage": "Payroll & Tax",
+      "owner": "applicant_or_hr"
+    },
+    {
+      "libraryKey": "external-integration",
+      "label": "GPS Time-Tracking App Setup",
+      "description": "Worker is set up in the GPS time-tracking app used to clock in/out and validate timesheets, and has watched the training video.",
+      "phase": "post_hire",
+      "stage": "Access & Systems",
+      "owner": "hr_admin"
+    },
+    {
+      "libraryKey": "schedule-assignment",
+      "label": "Scheduling System Access (Self-Select Shifts)",
+      "description": "Registry model: worker gets access to the scheduling system and picks their own shifts. Nexus does not assign mandatory schedules.",
+      "phase": "post_hire",
+      "stage": "Access & Systems",
+      "owner": "hr_admin"
+    },
+    {
+      "libraryKey": "badge-equipment-issuance",
+      "label": "Facility Badge",
+      "description": "Facility badge, when the facility issues one.",
+      "phase": "post_hire",
+      "stage": "Access & Systems",
+      "owner": "operations",
+      "required": false
+    },
+    {
+      "libraryKey": "policy-acknowledgment",
+      "label": "Orientation Acknowledgment",
+      "description": "Worker reviews the orientation handbook (HIPAA, OSHA, Elder Justice Act, CDC infection control, GPS time tracking, payroll) and e-signs the attestation.",
+      "phase": "post_hire",
+      "stage": "Training & Policy",
+      "owner": "applicant",
+      "signatureTemplate": "orientation_ack"
+    },
+    {
+      "libraryKey": "training-modules-quiz",
+      "label": "Dementia Patient Care Training + Assessment",
+      "description": "Dementia / Alzheimer's care module (stages, communication, behaviors, wandering, hallucinations) followed by the assessment.",
+      "phase": "post_hire",
+      "stage": "Training & Policy",
+      "owner": "worker"
+    },
+    {
+      "libraryKey": "policy-acknowledgment",
+      "label": "Hep B Vaccine Info & Declination",
+      "description": "Worker reviews the CDC Hepatitis B vaccine information statement and signs the declination. HR can mark it complete instead when proof of vaccination is on file.",
+      "phase": "post_hire",
+      "stage": "Training & Policy",
+      "owner": "applicant",
+      "signatureTemplate": "hep_b"
+    },
+    {
+      "libraryKey": "policy-acknowledgment",
+      "label": "Employee Handbook & Registry Acknowledgment",
+      "description": "Worker e-signs receipt of the Nexus employee handbook, including at-will status and the registry model.",
+      "phase": "post_hire",
+      "stage": "Training & Policy",
+      "owner": "applicant",
+      "signatureTemplate": "handbook_ack"
+    },
+    {
+      "libraryKey": "safety-training",
+      "label": "Facility Safety Training",
+      "description": "Only when the facility requires its own safety training on top of the Nexus orientation.",
+      "phase": "post_hire",
+      "stage": "Training & Policy",
+      "owner": "worker",
+      "required": false
+    },
+    {
+      "libraryKey": "certification-upload",
+      "label": "Certifications & Modules",
+      "description": "Certifications or training modules required by the facility.",
+      "phase": "post_hire",
+      "stage": "Training & Policy",
+      "owner": "worker",
+      "required": false
+    },
+    {
+      "libraryKey": "welcome-email",
+      "label": "Welcome Message",
+      "description": "Send the welcome message to the new Nexus worker.",
+      "phase": "post_hire",
+      "stage": "Welcome & Complete",
+      "owner": "system"
+    },
+    {
+      "libraryKey": "manager-welcome-call",
+      "label": "Welcome Call",
+      "description": "Welcome call with the new worker.",
+      "phase": "post_hire",
+      "stage": "Welcome & Complete",
+      "owner": "recruiter_or_hr"
+    },
+    {
+      "libraryKey": "completion-milestone",
+      "label": "Onboarding Complete",
+      "description": "Closes the workflow instance and marks the worker Active.",
+      "phase": "post_hire",
+      "stage": "Welcome & Complete",
+      "owner": "authorized_internal"
+    }
+  ]
+}

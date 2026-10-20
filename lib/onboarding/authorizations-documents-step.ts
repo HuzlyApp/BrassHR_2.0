@@ -3,6 +3,7 @@ import {
   workflowStepIdFromMetadata,
   getFirmaRecruiterTemplateId,
 } from "@/lib/onboarding/firma-step-settings";
+import { signsOnOwnScreen } from "@/lib/onboarding/agreement-signature-step";
 import type { TenantOnboardingStep } from "@/lib/onboarding/types";
 
 export function isBackgroundCheckAuthorizationStep(
@@ -22,10 +23,25 @@ export function stepRequiresApplicantAgreement(
   return step?.is_required !== false;
 }
 
+export function isIdentityVerificationStep(
+  step: Pick<TenantOnboardingStep, "metadata"> | null | undefined
+): boolean {
+  return workflowStepIdFromMetadata(step?.metadata) === "ssn-identity-verification";
+}
+
+/** Workflows with an SSN / Identity Verification step collect SSN and license uploads on that screen. */
+export function workflowHasIdentityVerificationStep(
+  steps: Array<Pick<TenantOnboardingStep, "metadata">> | null | undefined
+): boolean {
+  return (steps ?? []).some(isIdentityVerificationStep);
+}
+
 export function stepRequiresIdentityDocuments(
-  step: Pick<TenantOnboardingStep, "step_key" | "step_type" | "metadata" | "is_required"> | null | undefined
+  step: Pick<TenantOnboardingStep, "step_key" | "step_type" | "metadata" | "is_required"> | null | undefined,
+  allSteps?: Array<Pick<TenantOnboardingStep, "metadata">> | null
 ): boolean {
   if (!step || step.is_required === false) return false;
+  if (workflowHasIdentityVerificationStep(allSteps)) return false;
   return isBackgroundCheckAuthorizationStep(step);
 }
 
@@ -49,17 +65,18 @@ export function resolveAuthorizationStepWithFirma(
   if (getFirmaRecruiterTemplateId(activeStep)) return activeStep;
   if (!isBackgroundCheckAuthorizationStep(activeStep)) return activeStep;
 
+  const candidates = (allSteps ?? []).filter((step) => !signsOnOwnScreen(step));
   const donor =
-    (allSteps ?? []).find(
+    candidates.find(
       (step) =>
         step.step_key === "agreement_signature" && Boolean(getFirmaRecruiterTemplateId(step))
     ) ??
-    (allSteps ?? []).find(
+    candidates.find(
       (step) =>
         workflowStepIdFromMetadata(step.metadata) === "employee-agreement" &&
         Boolean(getFirmaRecruiterTemplateId(step))
     ) ??
-    (allSteps ?? []).find(
+    candidates.find(
       (step) =>
         step.id !== activeStep.id &&
         Boolean(getFirmaRecruiterTemplateId(step)) &&
@@ -97,6 +114,7 @@ export type AuthorizationsSaveState = {
   agreed: boolean;
   agreementSigned: boolean;
   identityDocsComplete: boolean;
+  allSteps?: Array<Pick<TenantOnboardingStep, "metadata">> | null;
 };
 
 export function isAuthorizationsSaveBlocked({
@@ -104,6 +122,7 @@ export function isAuthorizationsSaveBlocked({
   agreed,
   agreementSigned,
   identityDocsComplete,
+  allSteps,
 }: AuthorizationsSaveState): boolean {
   if (!step) return true;
 
@@ -111,6 +130,6 @@ export function isAuthorizationsSaveBlocked({
   if (shouldShowFirmaAgreementPanel(step) && stepRequiresApplicantAgreement(step) && !agreementSigned) {
     return true;
   }
-  if (stepRequiresIdentityDocuments(step) && !identityDocsComplete) return true;
+  if (stepRequiresIdentityDocuments(step, allSteps) && !identityDocsComplete) return true;
   return false;
 }

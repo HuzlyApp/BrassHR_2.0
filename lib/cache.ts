@@ -291,6 +291,11 @@ export async function deleteByPattern(pattern: string): Promise<void> {
   }
 }
 
+const getOrSetInflight =
+  ((globalThis as typeof globalThis & {
+    __brassGetOrSetInflight?: Map<string, Promise<unknown>>;
+  }).__brassGetOrSetInflight ??= new Map());
+
 export async function getOrSetCache<T>(
   key: string,
   fetcher: () => Promise<T>,
@@ -302,10 +307,23 @@ export async function getOrSetCache<T>(
     return cached;
   }
 
+  const existing = getOrSetInflight.get(key) as Promise<T> | undefined;
+  if (existing) {
+    logPerf("getOrSetCache", { key, cacheHit: false, coalesced: true, ttlSeconds });
+    return existing;
+  }
+
   logPerf("getOrSetCache", { key, cacheHit: false, ttlSeconds });
-  const value = await fetcher();
-  await setCache(key, value, ttlSeconds);
-  return value;
+  const pending = (async () => {
+    const value = await fetcher();
+    await setCache(key, value, ttlSeconds);
+    return value;
+  })().finally(() => {
+    getOrSetInflight.delete(key);
+  });
+
+  getOrSetInflight.set(key, pending);
+  return pending;
 }
 
 export async function invalidateTableCache(table: string): Promise<void> {

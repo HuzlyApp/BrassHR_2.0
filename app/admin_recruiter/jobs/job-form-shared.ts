@@ -118,16 +118,35 @@ export const JOB_FORM_YEARS_OF_EXPERIENCE = [
 ] as const;
 export const JOB_FORM_SHIFT_TYPES = ["Day", "Evening", "Night", "Rotating", "PRN"] as const;
 
-/** Figma create-job "Employment Type" chips (stored in job_requisitions.shift_type). */
+/** Figma create-job "Job Type" chips (stored in job_requisitions.shift_type). */
 export const JOB_FORM_JOB_TYPES = [
   "Permanent",
   "Paid-time",
   "Full-time",
   "Part-time",
   "Fixed term",
+  "Travel Contract",
+  "Local Contract",
 ] as const;
 
 export type JobFormJobType = (typeof JOB_FORM_JOB_TYPES)[number];
+
+/** Map older chip labels onto the current catalog (case / wording drift). */
+const JOB_FORM_JOB_TYPE_ALIASES: Record<string, JobFormJobType> = {
+  "travel contract": "Travel Contract",
+  "local contract": "Local Contract",
+  "per diem": "Paid-time",
+  "per-diem": "Paid-time",
+};
+
+function normalizeJobFormJobType(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const aliased = JOB_FORM_JOB_TYPE_ALIASES[trimmed.toLowerCase()];
+  if (aliased) return aliased;
+  const exact = JOB_FORM_JOB_TYPES.find((type) => type.toLowerCase() === trimmed.toLowerCase());
+  return exact ?? trimmed;
+}
 
 /** Parse comma-separated employment-type chips; legacy single values stay one item. */
 export function parseJobFormJobTypes(value: string | null | undefined): string[] {
@@ -135,7 +154,7 @@ export function parseJobFormJobTypes(value: string | null | undefined): string[]
   const seen = new Set<string>();
   const result: string[] = [];
   for (const part of value.split(",")) {
-    const next = part.trim();
+    const next = normalizeJobFormJobType(part);
     if (!next || seen.has(next)) continue;
     seen.add(next);
     result.push(next);
@@ -547,12 +566,8 @@ export function applyUiToJob(job: JobRequisitionInput, ui: JobFormUiState): JobR
       job.sourceType === "MSP"
         ? job.facility?.trim() || job.location?.trim() || null
         : job.location,
-    professionId: isMspRecruitAndEor(job)
-      ? null
-      : job.sourceType === "MSP" && isMspRecruitAndRelease(job)
-        ? job.professionId || null
-        : job.professionId,
-    profession: isMspRecruitAndEor(job) ? null : job.profession,
+    professionId: job.professionId || null,
+    profession: job.profession ?? null,
     specialtyId: job.sourceType === "Internal" ? job.specialtyId : null,
     compensationType: isMspRecruitAndRelease(job)
       ? ui.payRatePeriod || compensationType || null

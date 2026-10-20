@@ -1,9 +1,12 @@
 "use client";
 
-import { applicationPath } from "@/lib/tenant/with-tenant";
+import { applicationPath, currentApplicationJobToken } from "@/lib/tenant/with-tenant";
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { CheckCircle2 } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { useTenantBranding } from "@/app/components/tenant/TenantBrandingContext";
 import {
   APPLICANT_SHELL_TALL_CLASS,
   APPLICANT_TITLE_CLASS,
@@ -12,6 +15,9 @@ import OnboardingLayout from "@/app/components/OnboardingLayout";
 import ApplicantRecruiterNotes from "@/app/application/components/ApplicantRecruiterNotes";
 import type { ApplicationStatusKey } from "@/lib/applicant-portal";
 import { sendApplicationSubmissionEmail } from "@/lib/onboarding/send-application-submission-email";
+import PreHireCompletionView from "@/app/application/components/completion/PreHireCompletionView";
+import PostHireCompletionView from "@/app/application/components/completion/PostHireCompletionView";
+import type { WorkflowCompletionResult } from "@/lib/onboarding/workflow-completion-check";
 
 type ApplicationStatusResponse = {
   applicationStatus?: ApplicationStatusKey;
@@ -67,11 +73,14 @@ function statusDescription(status: ApplicationStatusKey): string {
 }
 
 export default function ApplicationStatusPage() {
+  const searchParams = useSearchParams();
+  const branding = useTenantBranding();
   const emailSentRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [applicationStatus, setApplicationStatus] = useState<ApplicationStatusKey>("pending");
   const [statusLabel, setStatusLabel] = useState("Pending");
   const [submittedAt, setSubmittedAt] = useState<string | null>(null);
+  const [completionResult, setCompletionResult] = useState<WorkflowCompletionResult | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -88,18 +97,35 @@ export default function ApplicationStatusPage() {
       }
 
       try {
-        const res = await fetch(
-          `/api/onboarding/application-status?applicantId=${encodeURIComponent(applicantId)}`,
-          { cache: "no-store" }
-        );
-        const data = (await res.json()) as ApplicationStatusResponse;
+        const tenant = searchParams.get("tenant")?.trim() || "";
+        const completionQuery = new URLSearchParams({ applicantId });
+        if (tenant) completionQuery.set("tenant", tenant);
+        const jobToken = searchParams.get("job_token")?.trim() || currentApplicationJobToken();
+        if (jobToken) completionQuery.set("job_token", jobToken);
+        const applicationId = searchParams.get("applicationId")?.trim();
+        if (applicationId) completionQuery.set("applicationId", applicationId);
+        const [statusRes, compRes] = await Promise.allSettled([
+          fetch(
+            `/api/onboarding/application-status?applicantId=${encodeURIComponent(applicantId)}`,
+            { cache: "no-store" }
+          ),
+          fetch(`/api/onboarding/completion-status?${completionQuery}`, { cache: "no-store" }),
+        ]);
+
         if (!alive) return;
-        if (res.ok) {
+
+        if (statusRes.status === "fulfilled" && statusRes.value.ok) {
+          const data = (await statusRes.value.json()) as ApplicationStatusResponse;
           setApplicationStatus(data.applicationStatus ?? "pending");
           setStatusLabel(data.statusLabel ?? "Pending");
           setSubmittedAt(data.submittedAt ?? new Date().toISOString());
         } else {
           setSubmittedAt(new Date().toISOString());
+        }
+
+        if (compRes.status === "fulfilled" && compRes.value.ok) {
+          const compData = (await compRes.value.json()) as WorkflowCompletionResult;
+          setCompletionResult(compData);
         }
       } catch {
         if (alive) setSubmittedAt(new Date().toISOString());
@@ -111,7 +137,7 @@ export default function ApplicationStatusPage() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [searchParams]);
 
   useEffect(() => {
     if (emailSentRef.current) return;
@@ -134,6 +160,45 @@ export default function ApplicationStatusPage() {
 
   const isApproved = applicationStatus === "approved";
   const submittedDateLabel = formatSubmittedDate(submittedAt);
+  const completion = searchParams.get("completion");
+  const isExplicitPreHire = completion === "pre_hire";
+  const isExplicitPostHire = completion === "post_hire";
+
+  const showPostHireCompleted =
+    isExplicitPostHire ||
+    (!isExplicitPreHire &&
+      completionResult?.allComplete === true &&
+      completionResult.hasPostHireSteps);
+
+  const showPreHireCompleted =
+    isExplicitPreHire ||
+    (!isExplicitPostHire &&
+      completionResult?.preHire?.isComplete === true &&
+      !completionResult?.postHire?.isComplete);
+
+  if (showPostHireCompleted) {
+    return (
+      <OnboardingLayout
+        cardClassName="min-[700px]:grid-cols-[minmax(0,2fr)_minmax(180px,1fr)] min-[1200px]:grid-cols-[minmax(0,1.65fr)_minmax(220px,1fr)]"
+        rightPanelImageClassName="object-cover object-center grayscale opacity-60"
+        rightPanelOverlayClassName="bg-white/65"
+      >
+        <PostHireCompletionView completionResult={completionResult} />
+      </OnboardingLayout>
+    );
+  }
+
+  if (showPreHireCompleted) {
+    return (
+      <OnboardingLayout
+        cardClassName="min-[700px]:grid-cols-[minmax(0,2fr)_minmax(180px,1fr)] min-[1200px]:grid-cols-[minmax(0,1.65fr)_minmax(220px,1fr)]"
+        rightPanelImageClassName="object-cover object-center grayscale opacity-60"
+        rightPanelOverlayClassName="bg-white/65"
+      >
+        <PreHireCompletionView completionResult={completionResult} />
+      </OnboardingLayout>
+    );
+  }
 
   return (
     <OnboardingLayout

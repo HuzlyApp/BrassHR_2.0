@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import {
   documentStatusLabel,
   formatDateOnly,
-  LICENSE_TYPE_LABELS,
+  licenseTypeDisplayLabel,
   licenseUrgency,
   type LicenseType,
 } from "@/lib/applicant-portal/documents";
@@ -17,6 +17,7 @@ export const runtime = "nodejs";
 type LicenseRow = {
   id: string;
   license_type: LicenseType;
+  certification_name: string | null;
   license_number: string | null;
   expires_at: string | null;
   storage_path: string | null;
@@ -38,7 +39,8 @@ function serializeLicense(row: LicenseRow) {
   return {
     id: row.id,
     licenseType: row.license_type,
-    licenseTypeLabel: LICENSE_TYPE_LABELS[row.license_type] ?? row.license_type,
+    certificationName: row.certification_name,
+    licenseTypeLabel: licenseTypeDisplayLabel(row.license_type, row.certification_name),
     licenseNumber: row.license_number,
     expiresAt: row.expires_at,
     expiresAtLabel: row.expires_at ? formatDateOnly(row.expires_at) : null,
@@ -98,7 +100,7 @@ export async function GET(req: NextRequest) {
     const licensesRes = await supabase
       .from("worker_license_records")
       .select(
-        "id, license_type, license_number, expires_at, storage_path, file_url, original_file_name, status, review_notes, uploaded_at"
+        "id, license_type, certification_name, license_number, expires_at, storage_path, file_url, original_file_name, status, review_notes, uploaded_at"
       )
       .eq("worker_id", workerId)
       .order("uploaded_at", { ascending: false });
@@ -115,4 +117,11 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+export async function POST() {
+  return NextResponse.json(
+    { error: "New certifications are saved on the worker credential for that document." },
+    { status: 409 }
+  );
 }

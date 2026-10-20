@@ -11,6 +11,12 @@ describe("candidate detail Post-Hire visibility", () => {
     ).not.toContain("Post-Hire");
   });
 
+  it("shows AI Analysis beside Profile", () => {
+    const tabs = candidateDetailTabs({ postHireVisible: false, showOnboarded: false });
+    const profileIndex = tabs.indexOf("Profile");
+    expect(tabs[profileIndex + 1]).toBe("AI Analysis");
+  });
+
   it("does not render Post-Hire for Approved without a worker conversion", () => {
     expect(canRevealPostHire({ workerStatus: "approved" })).toBe(false);
     expect(
@@ -38,6 +44,7 @@ describe("candidate detail Post-Hire visibility", () => {
       hiredAt: null,
       hiredBy: null,
       postHireVisible: false,
+      workflowHasPostHireSteps: true,
       postHireUnlocked: false,
       postHireLocked: true,
       postHireSuspended: false,

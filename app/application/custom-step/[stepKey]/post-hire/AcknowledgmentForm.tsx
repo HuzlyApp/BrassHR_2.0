@@ -1,0 +1,161 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import type { PostHireSubmissionField } from "@/lib/onboarding/post-hire-step-screens";
+import {
+  ActionRow,
+  CheckboxRow,
+  isSignatureComplete,
+  Section,
+  SignatureBlock,
+  type ActionRowProps,
+  type SignatureValue,
+} from "./fields";
+
+/** Policy acknowledgments (typed signature), training completion, and confirmation checkboxes. */
+export default function AcknowledgmentForm({
+  mode,
+  acknowledgmentText,
+  documentUrl,
+  initialAgreed = false,
+  initialSignatureName = "",
+  submit,
+  persistDraft,
+  actions,
+}: {
+  mode: "acknowledgment" | "training" | "confirmation";
+  acknowledgmentText: string;
+  documentUrl: string | null;
+  initialAgreed?: boolean;
+  initialSignatureName?: string;
+  submit: (fields: PostHireSubmissionField[], extra?: Record<string, unknown>) => Promise<void>;
+  persistDraft?: (extra: Record<string, unknown>) => Promise<void>;
+  actions: ActionRowProps;
+}) {
+  const [signature, setSignature] = useState<SignatureValue>({
+    agreed: initialAgreed,
+    name: initialSignatureName,
+  });
+  const [completed, setCompleted] = useState(initialAgreed);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!initialAgreed) return;
+    setCompleted(true);
+    setSignature((current) => ({
+      agreed: true,
+      name: current.name.trim() || initialSignatureName,
+    }));
+  }, [initialAgreed, initialSignatureName]);
+
+  async function persistCheckboxDraft(checked: boolean) {
+    if (!persistDraft) return;
+    try {
+      await persistDraft({
+        checkbox_confirmed: checked,
+        checkbox_label: acknowledgmentText,
+        response: checked ? acknowledgmentText : "",
+        confirmed_at: checked ? new Date().toISOString() : null,
+        ...(mode === "training" ? { training_completed: checked } : {}),
+      });
+    } catch {
+      // Draft save failures should not block the candidate from continuing.
+    }
+  }
+
+  async function handleSave() {
+    setError("");
+    if ((mode === "training" || mode === "confirmation") && !completed) {
+      setError(
+        mode === "training"
+          ? "Confirm you completed this training to continue."
+          : "Check the confirmation to continue."
+      );
+      return;
+    }
+    if (mode === "acknowledgment" && !isSignatureComplete(signature)) {
+      setError("Check the acknowledgment and type your full legal name to sign.");
+      return;
+    }
+    const today = new Date().toLocaleDateString("en-US");
+    const fields: PostHireSubmissionField[] =
+      mode === "training"
+        ? [
+            { label: "Confirmation", value: acknowledgmentText },
+            { label: "Training completed", value: "Yes" },
+            { label: "Completed on", value: today },
+          ]
+        : mode === "confirmation"
+          ? [
+              { label: "Confirmation", value: acknowledgmentText },
+              { label: "Confirmed", value: "Yes" },
+            ]
+          : [
+            { label: "Confirmation", value: acknowledgmentText },
+            { label: "Acknowledged", value: "Yes" },
+            { label: "Document", value: documentUrl ?? "" },
+            { label: "Signature", value: signature.name.trim() },
+            { label: "Signed on", value: today },
+          ];
+    setSaving(true);
+    try {
+      await submit(fields, {
+        checkbox_confirmed: true,
+        checkbox_label: acknowledgmentText,
+        response: acknowledgmentText,
+        confirmed_at: new Date().toISOString(),
+        ...(mode === "training"
+          ? { training_completed: true }
+          : mode === "confirmation"
+            ? {}
+            : { policy_acknowledged: true, signature_name: signature.name.trim() }),
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save your response");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <>
+      {mode === "training" || mode === "confirmation" ? (
+        <Section>
+          <CheckboxRow
+            id={mode === "confirmation" ? "step-confirm" : "training-complete"}
+            checked={completed}
+            onChange={(checked) => {
+              setCompleted(checked);
+              void persistCheckboxDraft(checked);
+            }}
+          >
+            {acknowledgmentText}
+          </CheckboxRow>
+        </Section>
+      ) : (
+        <SignatureBlock
+          idPrefix="ack"
+          statement={acknowledgmentText}
+          value={signature}
+          onChange={(next) => {
+            setSignature(next);
+            if (next.agreed !== signature.agreed) {
+              void persistCheckboxDraft(next.agreed);
+            }
+          }}
+        />
+      )}
+
+      {error ? <p className="mt-3 text-sm text-red-700">{error}</p> : null}
+      <ActionRow
+        {...actions}
+        primaryLabel={
+          mode === "training" ? "Mark complete & continue" : mode === "confirmation" ? "Continue" : "Sign & continue"
+        }
+        onPrimary={() => void handleSave()}
+        saving={saving}
+      />
+    </>
+  );
+}

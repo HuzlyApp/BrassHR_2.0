@@ -7,6 +7,7 @@ import {
 } from "@/lib/jobs/application-statuses";
 import { isApplicationPipelineStatus } from "@/lib/jobs/application-status";
 import { resolveStaffTenantId } from "@/lib/jobs/tenant";
+import { guardJobApplicationStatusChange } from "@/lib/jobs/msp-submission-service";
 import { resolveApplicantEmailAppOrigin } from "@/lib/resolve-app-origin";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
@@ -37,6 +38,7 @@ export async function PATCH(
       statusId?: unknown;
       status?: unknown;
       note?: unknown;
+      stageName?: unknown;
     } | null;
 
     const note =
@@ -49,7 +51,18 @@ export async function PATCH(
     const statusId = typeof body?.statusId === "string" ? body.statusId.trim() : "";
     const legacyStatus =
       typeof body?.status === "string" ? body.status.trim().toLowerCase() : "";
+    const stageName = typeof body?.stageName === "string" ? body.stageName.trim() : "";
     const origin = resolveApplicantEmailAppOrigin(req);
+
+    if (statusId || isApplicationPipelineStatus(legacyStatus)) {
+      await guardJobApplicationStatusChange(supabase, {
+        tenantId,
+        applicationId,
+        statusId: statusId || undefined,
+        systemKey: statusId ? undefined : legacyStatus,
+        stageName: stageName || undefined,
+      });
+    }
 
     let result;
     if (statusId) {
@@ -102,7 +115,11 @@ export async function PATCH(
   } catch (error) {
     if (error instanceof ApplicationStatusError) {
       return NextResponse.json(
-        { error: error.message, code: error.code },
+        { 
+          error: error.message, 
+          code: error.code,
+          ...(error.metadata && { metadata: error.metadata })
+        },
         { status: error.status }
       );
     }

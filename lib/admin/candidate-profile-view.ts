@@ -11,6 +11,7 @@ export type CandidateProfileResume = {
   fileName: string;
   fileSizeLabel: string;
   fileType: string | null;
+  jobApplicationId?: string | null;
 };
 
 export type CandidateProfileApplication = {
@@ -23,6 +24,9 @@ export type CandidateProfileApplication = {
   status: string;
   statusName: string;
   statusColor: string | null;
+  statusGroupName?: string | null;
+  statusGroupDescription?: string | null;
+  statusGroupSortOrder?: number | null;
   statusNote: string | null;
   matchScore: number | null;
   matchCategory: string | null;

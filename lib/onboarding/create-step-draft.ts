@@ -49,7 +49,9 @@ const TYPE_DEFAULTS: Record<
     title: "Document upload",
     description: "Upload required files",
     metadata: {},
-    required_documents: [{ title: "", description: "", is_required: true, sort_order: 10 }],
+    required_documents: [
+      { title: "Extra File", description: "Upload any additional intake documents", is_required: true, sort_order: 10 },
+    ],
   },
   profile_information: {
     title: "Profile information",

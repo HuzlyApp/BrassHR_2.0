@@ -8,6 +8,11 @@ export type ApplicationStatusOption = {
   systemKey: string | null;
   color: string | null;
   sortOrder: number;
+  groupId?: string | null;
+  groupName?: string | null;
+  groupDescription?: string | null;
+  groupSortOrder?: number | null;
+  groupSystemKey?: string | null;
 };
 
 type ApplicationStatusChangeModalProps = {

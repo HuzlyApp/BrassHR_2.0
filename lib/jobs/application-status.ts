@@ -21,7 +21,7 @@ export const APPLICATION_STATUS_TABS: Array<{ id: ApplicationStatusTab; label: s
   { id: "all", label: "All" },
   { id: "new", label: "New / Not Contacted" },
   { id: "reviewing", label: "Screening Complete" },
-  { id: "interviewing", label: "Interview Complete" },
+  { id: "interviewing", label: "Interview Scheduled" },
   { id: "rejected", label: "Not a Fit" },
   { id: "hired", label: "Selected by Client" },
   { id: "shortlisted", label: "Qualified – Ready for Interview" },

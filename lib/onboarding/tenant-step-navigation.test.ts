@@ -3,7 +3,7 @@ import {
   resolveApplicantEnabledSteps,
   resolvePostStepContinueRoute,
 } from "@/lib/onboarding/tenant-step-navigation";
-import type { TenantOnboardingConfig } from "@/lib/onboarding/types";
+import type { TenantOnboardingConfig, TenantOnboardingStep } from "@/lib/onboarding/types";
 import { publishedWorkflow } from "@/lib/onboarding/applicant-workflow-fixtures";
 import { publishedWorkflowToTenantConfig } from "@/lib/onboarding/applicant-workflow";
 
@@ -68,6 +68,71 @@ describe("resolvePostStepContinueRoute", () => {
     const steps = resolveApplicantEnabledSteps(twoStepConfig, false)!;
     const lastStep = steps[steps.length - 1]!;
     const route = resolvePostStepContinueRoute(twoStepConfig, lastStep, "subdomaintest");
-    expect(route).toBe("/application/application-status?tenant=subdomaintest");
+    expect(route).toBe("/application/application-status?completion=pre_hire&tenant=subdomaintest");
+  });
+
+  it("sends the candidate back to a skipped required step after the last step", () => {
+    const steps = [
+      phaseStep("safety", "Safety Training", "post_hire", true),
+      phaseStep("orientation", "Orientation", "post_hire", true),
+      phaseStep("cert", "Certification", "post_hire", false),
+    ];
+    const config = { ...publishedConfig, steps };
+    const route = resolvePostStepContinueRoute(config, steps[2]!, "testcompany", {
+      progress: {
+        progressId: "p1",
+        status: "in_progress",
+        steps: [
+          { onboarding_step_id: "safety", status: "skipped", completed_at: null, data: {} },
+          { onboarding_step_id: "orientation", status: "completed", completed_at: null, data: {} },
+        ],
+      },
+      savedStepId: "cert",
+      savedStatus: "skipped",
+    });
+    expect(route).toContain("stepKey=safety");
+    expect(route).not.toContain("application-status");
+  });
+
+  it("opens the final screen when only optional steps were skipped", () => {
+    const steps = [
+      phaseStep("safety", "Safety Training", "post_hire", true),
+      phaseStep("cert", "Certification", "post_hire", false),
+    ];
+    const config = { ...publishedConfig, steps };
+    const route = resolvePostStepContinueRoute(config, steps[1]!, "testcompany", {
+      progress: {
+        progressId: "p1",
+        status: "in_progress",
+        steps: [
+          { onboarding_step_id: "safety", status: "completed", completed_at: null, data: {} },
+        ],
+      },
+      savedStepId: "cert",
+      savedStatus: "skipped",
+    });
+    expect(route).toBe("/application/application-status?completion=post_hire&tenant=testcompany");
   });
 });
+
+function phaseStep(
+  id: string,
+  title: string,
+  phase: "pre_hire" | "post_hire",
+  required: boolean
+): TenantOnboardingStep {
+  return {
+    id,
+    step_key: id,
+    title,
+    description: null,
+    step_type: "custom_question",
+    sort_order: 1,
+    is_required: required,
+    is_enabled: true,
+    metadata: {
+      workflow_step_id: id,
+      workflow_settings: { phase, completionOwner: "applicant" },
+    },
+  };
+}

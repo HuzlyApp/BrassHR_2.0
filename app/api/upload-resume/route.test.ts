@@ -56,16 +56,33 @@ vi.mock("@/lib/supabase-env", () => ({
 }))
 
 const storageUploadMock = vi.hoisted(() => vi.fn(async () => ({ error: null })))
+const startOrResumeJobApplicationMock = vi.hoisted(() => vi.fn())
+const deletedApplicationIds = vi.hoisted(() => [] as string[])
+
+vi.mock("@/lib/jobs/service", () => ({
+  startOrResumeJobApplication: (...args: unknown[]) => startOrResumeJobApplicationMock(...args),
+}))
+vi.mock("@/lib/jobs/match-analysis/auto-quick-match", () => ({
+  scheduleAutoQuickMatchForApplication: vi.fn(),
+}))
 
 vi.mock("@supabase/supabase-js", () => ({
   createClient: vi.fn(() => ({
-    from: () => ({
+    from: (table: string) => ({
       select: () => ({
         eq: () => ({
           maybeSingle: async () => ({
             data: { first_name: "Jane", last_name: "Doe" },
             error: null,
           }),
+        }),
+      }),
+      delete: () => ({
+        eq: (_column: string, id: string) => ({
+          eq: async () => {
+            if (table === "job_applications") deletedApplicationIds.push(id)
+            return { error: null }
+          },
         }),
       }),
     }),
@@ -93,6 +110,7 @@ function makeDocxFile() {
 describe("POST /api/upload-resume", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    deletedApplicationIds.length = 0
     process.env.SUPABASE_SERVICE_ROLE_KEY = "service-key"
     runResumeParseJobMock.mockResolvedValue(undefined)
     persistRecordMock.mockResolvedValue("resume-uuid-1")
@@ -200,6 +218,40 @@ describe("POST /api/upload-resume", () => {
     expect(res.status).toBe(500)
     const json = await res.json()
     expect(json.error).toContain("resume database record was not created")
+  })
+
+  it("removes a newly created job application when the resume cannot be saved", async () => {
+    startOrResumeJobApplicationMock.mockResolvedValueOnce({
+      application: { id: "app-new", status: "new" },
+      resumed: false,
+    })
+    persistRecordMock.mockRejectedValueOnce(new Error("worker_resumes insert failed"))
+    const fd = new FormData()
+    fd.append("file", makePdfFile())
+    fd.append("applicantId", "applicant-1")
+    fd.append("jobToken", "job-token-1")
+
+    const res = await POST(new Request("http://localhost/api/upload-resume", { method: "POST", body: fd }))
+
+    expect(res.status).toBe(500)
+    expect(deletedApplicationIds).toEqual(["app-new"])
+  })
+
+  it("keeps a resumed job application when the resume cannot be saved", async () => {
+    startOrResumeJobApplicationMock.mockResolvedValueOnce({
+      application: { id: "app-existing", status: "new" },
+      resumed: true,
+    })
+    persistRecordMock.mockRejectedValueOnce(new Error("worker_resumes insert failed"))
+    const fd = new FormData()
+    fd.append("file", makePdfFile())
+    fd.append("applicantId", "applicant-1")
+    fd.append("jobToken", "job-token-1")
+
+    const res = await POST(new Request("http://localhost/api/upload-resume", { method: "POST", body: fd }))
+
+    expect(res.status).toBe(500)
+    expect(deletedApplicationIds).toEqual([])
   })
 
   it("supports Test workflow / draft preview without creating a production worker", async () => {

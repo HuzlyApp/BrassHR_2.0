@@ -62,7 +62,14 @@ export type CandidatesListShellProps = {
   statusOptions?: string[];
   progressStatusFilter?: string;
   onProgressStatusFilterChange?: (value: string) => void;
-  progressStatusOptions?: { value: string; label: string }[];
+  progressStatusOptions?: {
+    value: string;
+    label: string;
+    sortOrder?: number;
+    groupName?: string | null;
+    groupDescription?: string | null;
+    groupSortOrder?: number | null;
+  }[];
   jobFilter?: string;
   onJobFilterChange?: (value: string) => void;
   jobOptions?: string[];
@@ -90,6 +97,8 @@ export type CandidatesListShellProps = {
   /** Shown when rows are selected (bulk delete). */
   deleteButton?: React.ReactNode;
   kpiCards?: CandidateKpiCard[];
+  /** True only on the first metrics fetch (not background revalidation). */
+  kpiLoading?: boolean;
   totalCount: number | null;
   loading: boolean;
   totalLabel: string;
@@ -336,6 +345,7 @@ export function CandidatesListShell({
   onClaimCandidates,
   deleteButton,
   kpiCards,
+  kpiLoading = false,
   totalCount,
   loading,
   totalLabel,
@@ -587,7 +597,7 @@ export function CandidatesListShell({
 
       {resolvedKpiCards ? (
         <div className="mt-4 sm:mt-5">
-          <CandidatesKpiRow cards={resolvedKpiCards} />
+          <CandidatesKpiRow cards={resolvedKpiCards} loading={kpiLoading} />
         </div>
       ) : null}
 

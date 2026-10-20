@@ -3,6 +3,7 @@ import "server-only"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Step1FormFields } from "@/lib/onboardingStep1Validation"
 import { ensureWorkerOnboardingProgress } from "@/lib/onboarding/ensure-worker-progress"
+import { adoptSessionApplications } from "@/lib/onboarding/adopt-session-applications"
 import {
   invalidateResourceCache,
   invalidateTableCache,
@@ -337,6 +338,7 @@ export async function persistWorkerRow(
     { ...baseRow },
   ]
 
+  const sessionWorkerBefore = await findWorkerByUser(supabase, tenantId, applicantId)
   const resolved = await resolvePersistTarget(supabase, tenantId, applicantId, emailNorm)
   if (!resolved.ok) {
     const taken = tenantEmailTakenResult()
@@ -436,6 +438,26 @@ export async function persistWorkerRow(
   const workerId = byUserAfter?.id ?? byEmailAfter?.id ?? targetId
   if (!workerId) {
     return { ok: false, error: "Worker row missing after save", status: 500 }
+  }
+
+  if (sessionWorkerBefore && sessionWorkerBefore.id !== workerId) {
+    try {
+      const adopted = await adoptSessionApplications(supabase, {
+        tenantId,
+        applicantAuthUserId: applicantId,
+        fromWorkerId: sessionWorkerBefore.id,
+        toWorkerId: workerId,
+      })
+      if (adopted.moved.length || adopted.skipped.length) {
+        console.info("[persist-worker-row] session applications moved to resolved worker", {
+          fromWorkerId: sessionWorkerBefore.id,
+          toWorkerId: workerId,
+          ...adopted,
+        })
+      }
+    } catch (adoptErr) {
+      console.error("[persist-worker-row] session application move failed", adoptErr)
+    }
   }
 
   if (!input.skipOnboardingProgressInit) {

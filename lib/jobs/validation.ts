@@ -143,10 +143,11 @@ export function validatePublishableJob(
   const industryError = industryKeyValidationMessage(input.industryKey);
   if (industryError) errors.industryKey = industryError;
 
+  if (!input.professionId && !input.profession?.trim()) {
+    errors.professionId = "Profession is required.";
+  }
+
   if (!isMsp) {
-    if (!input.professionId && !input.profession?.trim()) {
-      errors.professionId = "Profession is required.";
-    }
     if (requiresWorkflow && !workflowId) {
       errors.workflowId = "A matching published workflow is required.";
     }

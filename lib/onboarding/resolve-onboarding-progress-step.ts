@@ -20,8 +20,11 @@ function preferEnabled(
 }
 
 function isAuthorizationFamilyKey(stepKey: string): boolean {
+  // Exact alias only. Numbered keys like custom_question_11 are distinct post-hire
+  // training steps and must never collapse into the background-check family.
   if (AUTHORIZATION_STEP_KEY_ALIASES.has(stepKey)) return true;
   const base = stepKey.replace(/_\d+$/, "");
+  if (base === "custom_question") return false;
   return AUTHORIZATION_STEP_KEY_ALIASES.has(base);
 }
 
@@ -49,16 +52,15 @@ export function resolveOnboardingProgressStep(
   if (exact) return exact;
 
   const baseKey = stepKey.replace(/_\d+$/, "");
-  if (baseKey !== stepKey) {
-    const byBase = preferEnabled(steps, (step) => step.step_key === baseKey);
-    if (byBase) return byBase;
+  // Only unnumbered lookups (e.g. "custom_question") may match numbered variants.
+  // Looking up custom_question_11 must NOT resolve to custom_question_10.
+  if (baseKey === stepKey) {
+    const byPrefixed = preferEnabled(
+      steps,
+      (step) => step.step_key.startsWith(`${baseKey}_`) || step.step_key === baseKey
+    );
+    if (byPrefixed) return byPrefixed;
   }
-
-  const byPrefixed = preferEnabled(
-    steps,
-    (step) => step.step_key.startsWith(`${baseKey}_`) || step.step_key === baseKey
-  );
-  if (byPrefixed) return byPrefixed;
 
   if (isAuthorizationFamilyKey(stepKey)) {
     const authStep = preferEnabled(

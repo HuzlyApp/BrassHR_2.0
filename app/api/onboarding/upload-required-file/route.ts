@@ -9,6 +9,11 @@ import { enforceRateLimit, getClientIp } from "@/lib/security/rate-limit"
 export const runtime = "nodejs"
 const MAX_UPLOAD_BYTES = Number(process.env.MAX_REQUIRED_FILE_UPLOAD_BYTES ?? 10 * 1024 * 1024)
 const ALLOWED_UPLOAD_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"]
+const ALLOWED_EXTRA_FILE_TYPES = [
+  ...ALLOWED_UPLOAD_TYPES,
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]
 
 function sanitizeFileName(name: string): string {
   return name.replace(/[/\\?%*:|"<>]/g, "_").slice(0, 200)
@@ -45,16 +50,21 @@ export async function POST(req: Request) {
     if (file.size > MAX_UPLOAD_BYTES) {
       return NextResponse.json({ error: "File is too large" }, { status: 400 })
     }
-    if (!isAcceptedDocumentFileType(file, ALLOWED_UPLOAD_TYPES)) {
-      return NextResponse.json(
-        { error: "File type not allowed. Upload a PNG, JPG, WebP, or PDF." },
-        { status: 400 }
-      )
-    }
-
     const allowedFolder = /^(ssn|license|tb|cpr|other)$/
     if (!allowedFolder.test(folder)) {
       return NextResponse.json({ error: "Invalid folder" }, { status: 400 })
+    }
+    const allowedTypes = folder === "other" ? ALLOWED_EXTRA_FILE_TYPES : ALLOWED_UPLOAD_TYPES
+    if (!isAcceptedDocumentFileType(file, allowedTypes)) {
+      return NextResponse.json(
+        {
+          error:
+            folder === "other"
+              ? "File type not allowed. Upload a PNG, JPG, WebP, PDF, DOC, or DOCX."
+              : "File type not allowed. Upload a PNG, JPG, WebP, or PDF.",
+        },
+        { status: 400 }
+      )
     }
     console.info("[debug-doc-upload] upload-required-file:start", {
       route: "/api/onboarding/upload-required-file",

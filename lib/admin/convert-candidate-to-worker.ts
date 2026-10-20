@@ -21,6 +21,7 @@ export type CandidateConversionSnapshot = {
   job_role?: string | null;
   city?: string | null;
   state?: string | null;
+  profile_photo?: string | null;
   status?: string | null;
   converted_worker_type?: string | null;
   converted_at?: string | null;
@@ -147,7 +148,12 @@ export function formatWorkerDisplayId(
 export function buildEmploymentWorkerRow(
   candidate: CandidateConversionSnapshot,
   type: ConvertWorkerType,
-  convertedAt: string
+  convertedAt: string,
+  transfer?: {
+    sourceJobApplicationId?: string | null;
+    applicationSnapshot?: Record<string, unknown> | null;
+    documentsManifest?: unknown[] | null;
+  }
 ) {
   const fields = workerConversionFields(type);
   return {
@@ -159,9 +165,13 @@ export function buildEmploymentWorkerRow(
     phone: candidate.phone?.trim() || null,
     job_role: candidate.job_role?.trim() || null,
     location: buildEmploymentWorkerLocationFromCandidate(candidate),
+    profile_photo: candidate.profile_photo?.trim() || null,
     status: "active",
     ...fields,
     converted_at: convertedAt,
     updated_at: convertedAt,
+    source_job_application_id: transfer?.sourceJobApplicationId ?? null,
+    application_snapshot: transfer?.applicationSnapshot ?? {},
+    documents_manifest: transfer?.documentsManifest ?? [],
   };
 }

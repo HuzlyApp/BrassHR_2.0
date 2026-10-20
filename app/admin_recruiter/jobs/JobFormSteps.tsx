@@ -89,8 +89,9 @@ import {
   type CommissionFeeType,
 } from "./job-form-shared";
 import { JobFormRequiredMark } from "./JobFormRequiredMark";
-import { activeUserFacingIndustries } from "@/lib/ai-catalog/industry-catalog";
-import { matchProfessionIdByName, professionInputValue } from "@/lib/jobs/profession-text";
+// Job Industry UI hidden on create — industry_key still set from tenant primary in JobRequisitionForm (AI prompts).
+// import { activeUserFacingIndustries } from "@/lib/ai-catalog/industry-catalog";
+
 
 function BrandedCheckbox({
   checked,
@@ -369,7 +370,8 @@ export function JobFormStepRequisition({
           </div>
         </div>
 
-        <div className="grid gap-4 min-[700px]:grid-cols-2">
+        <div>
+          {/* Job Industry — hidden on create/edit form (keep tenant primary industry_key for AI prompts).
           <div>
             <label className={JOB_FORM_LABEL_CLASS} htmlFor="job-industry">
               Job Industry
@@ -390,27 +392,34 @@ export function JobFormStepRequisition({
             </select>
             <FieldError error={fieldErrors.industryKey} />
           </div>
-          <div>
-            <label className={JOB_FORM_LABEL_CLASS} htmlFor="profession">
-              Profession
-              <JobFormRequiredMark />
-            </label>
-            <input
-              id="profession"
-              className={JOB_FORM_INPUT_CLASS}
-              value={professionInputValue(job, professions)}
-              onChange={(event) => {
-                const next = event.target.value;
-                const nextId = matchProfessionIdByName(professions, next);
-                onJobChange("profession", next);
-                onJobChange("professionId", nextId);
-                if ((job.professionId || null) !== nextId) {
-                  onJobChange("specialtyId", null);
-                }
-              }}
-            />
-            <FieldError error={fieldErrors.professionId} />
-          </div>
+          */}
+          <label className={JOB_FORM_LABEL_CLASS} htmlFor="profession">
+            Profession
+            <JobFormRequiredMark />
+          </label>
+          <select
+            id="profession"
+            className={JOB_FORM_SELECT_CLASS}
+            style={{ backgroundImage: JOB_FORM_SELECT_CHEVRON }}
+            value={job.professionId ?? ""}
+            onChange={(event) => {
+              const nextId = event.target.value || null;
+              const selected = professions.find((item) => item.id === nextId);
+              onJobChange("professionId", nextId);
+              onJobChange("profession", selected?.name ?? null);
+              if ((job.professionId || null) !== nextId) {
+                onJobChange("specialtyId", null);
+              }
+            }}
+          >
+            <option value="">Select Profession</option>
+            {professions.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+          <FieldError error={fieldErrors.professionId} />
         </div>
 
         <div>
@@ -734,6 +743,7 @@ export function JobFormStepMspDetails({
   job,
   ui,
   fieldErrors,
+  professions,
   onJobChange,
   onUiChange,
   onServiceAreaBlockedChange,
@@ -741,6 +751,7 @@ export function JobFormStepMspDetails({
   job: JobRequisitionInput;
   ui: JobFormUiState;
   fieldErrors: Record<string, string>;
+  professions: JobFormOption[];
   onJobChange: <K extends keyof JobRequisitionInput>(key: K, value: JobRequisitionInput[K]) => void;
   onUiChange: (patch: Partial<JobFormUiState>) => void;
   onServiceAreaBlockedChange?: (blocked: boolean, message: string | null) => void;
@@ -814,6 +825,37 @@ export function JobFormStepMspDetails({
       </div>
 
       <div>
+        <label className={JOB_FORM_LABEL_CLASS} htmlFor="msp-profession">
+          Profession
+          <JobFormRequiredMark />
+        </label>
+        <select
+          id="msp-profession"
+          className={JOB_FORM_SELECT_CLASS}
+          style={{ backgroundImage: JOB_FORM_SELECT_CHEVRON }}
+          value={job.professionId ?? ""}
+          onChange={(event) => {
+            const nextId = event.target.value || null;
+            const selected = professions.find((item) => item.id === nextId);
+            onJobChange("professionId", nextId);
+            onJobChange("profession", selected?.name ?? null);
+            if ((job.professionId || null) !== nextId) {
+              onJobChange("specialtyId", null);
+            }
+          }}
+        >
+          <option value="">Select Profession</option>
+          {professions.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.name}
+            </option>
+          ))}
+        </select>
+        <FieldError error={fieldErrors.professionId} />
+      </div>
+
+      {/* Job Industry — hidden on MSP create/edit form (industry_key still from tenant primary).
+      <div>
         <label className={JOB_FORM_LABEL_CLASS} htmlFor="msp-job-industry">
           Job Industry
         </label>
@@ -833,6 +875,7 @@ export function JobFormStepMspDetails({
         </select>
         <FieldError error={fieldErrors.industryKey} />
       </div>
+      */}
 
       <div>
         <label className={JOB_FORM_LABEL_CLASS} htmlFor="source-job-id">
@@ -2279,6 +2322,7 @@ export function JobFormStepReview({
             value={job.sourceJobTitle ?? ""}
             onEdit={() => onEditField("sourceJobTitle")}
           />
+          <ReviewRow label="Profession" value={professionName} readOnly />
           <ReviewRow
             label="Internal Reference / Source Job ID"
             value={job.externalRequisitionId ?? ""}

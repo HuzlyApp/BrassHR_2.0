@@ -44,9 +44,20 @@ function fallbackResumeFileName(
   return base || `resume${ext}`;
 }
 
+/** Worker shells created before the applicant enters their name are stored as "Applicant User". */
+export function isPlaceholderWorkerName(
+  firstName: string | null | undefined,
+  lastName: string | null | undefined
+): boolean {
+  return (
+    String(firstName ?? "").trim().toLowerCase() === "applicant" &&
+    String(lastName ?? "").trim().toLowerCase() === "user"
+  );
+}
+
 /**
  * Canonical resume filename: `Joe_Bloe_resume.pdf`.
- * Falls back to the original upload name when first/last are missing.
+ * Falls back to the original upload name when first/last are missing or still the placeholder.
  */
 export function buildWorkerResumeFileName(input: {
   firstName?: string | null;
@@ -54,8 +65,9 @@ export function buildWorkerResumeFileName(input: {
   originalFileName?: string | null;
 }): string {
   const ext = resumeFileExtension(input.originalFileName);
-  const first = sanitizeResumeNamePart(input.firstName ?? "");
-  const last = sanitizeResumeNamePart(input.lastName ?? "");
+  const placeholder = isPlaceholderWorkerName(input.firstName, input.lastName);
+  const first = placeholder ? "" : sanitizeResumeNamePart(input.firstName ?? "");
+  const last = placeholder ? "" : sanitizeResumeNamePart(input.lastName ?? "");
   const base = [first, last].filter(Boolean).join("_");
   if (base) {
     const kind = isSubmissionResumeFileName(input.originalFileName)

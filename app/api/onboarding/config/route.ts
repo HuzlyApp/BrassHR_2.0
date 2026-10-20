@@ -10,6 +10,7 @@ import { JobApplicationGateError } from "@/lib/jobs/validate-job-application";
 import { normalizeJobToken } from "@/lib/jobs/public-application-routing";
 import { phaseGateApplicantConfig } from "@/lib/onboarding/phase-gate-applicant-config";
 import { resolveOnboardingWorker } from "@/lib/onboarding/resolve-onboarding-worker";
+import { inferApplicantJobToken } from "@/lib/onboarding/infer-applicant-job-token";
 
 export const runtime = "nodejs";
 
@@ -33,15 +34,28 @@ export async function GET(req: NextRequest) {
       ? await resolveOnboardingWorker(supabase, applicantId, slug)
       : null;
 
-    if (jobToken) {
+    // Navigation can drop job_token; an applicant with one live application still belongs on its workflow.
+    const inferred =
+      !jobToken && workerCtx && req.nextUrl.searchParams.get("infer_application") === "1"
+        ? await inferApplicantJobToken(supabase, {
+            tenantId: workerCtx.tenantId,
+            workerId: workerCtx.workerId,
+            userId: workerCtx.userId,
+            applicationId,
+          })
+        : null;
+    const effectiveJobToken = jobToken || inferred?.jobToken || "";
+    const effectiveApplicationId = applicationId || inferred?.applicationId || "";
+
+    if (effectiveJobToken) {
       try {
-        const jobConfig = await loadApplicantConfigForJobToken(supabase, slug || null, jobToken);
+        const jobConfig = await loadApplicantConfigForJobToken(supabase, slug || null, effectiveJobToken);
         const gated = await phaseGateApplicantConfig(supabase, {
           tenantId: jobConfig.tenantId,
           config: jobConfig.config,
           workerId: workerCtx?.workerId,
-          applicationId: applicationId || null,
-          jobToken,
+          applicationId: effectiveApplicationId || null,
+          jobToken: effectiveJobToken,
         });
         return NextResponse.json({
           config: gated.config,
@@ -54,14 +68,16 @@ export async function GET(req: NextRequest) {
           workflowPhase: gated.workflowPhase,
           applicationId: gated.applicationId,
           postHireActivatedAt: gated.postHireActivatedAt,
+          allWorkflowSteps: gated.allWorkflowSteps,
         });
       } catch (err: unknown) {
-        if (err instanceof JobApplicationGateError) {
+        if (!(err instanceof JobApplicationGateError)) throw err;
+        if (jobToken) {
           const status =
             err.code === "TENANT_NOT_FOUND" || err.code === "JOB_NOT_FOUND" ? 404 : 403;
           return NextResponse.json({ error: err.message, code: err.code }, { status });
         }
-        throw err;
+        // An inferred job that no longer accepts applicants falls back to the tenant workflow.
       }
     }
 
@@ -85,6 +101,7 @@ export async function GET(req: NextRequest) {
           workflowPhase: gated.workflowPhase,
           applicationId: gated.applicationId,
           postHireActivatedAt: gated.postHireActivatedAt,
+          allWorkflowSteps: gated.allWorkflowSteps,
         });
       } catch (err: unknown) {
         if (err instanceof JobApplicationGateError) {
@@ -168,6 +185,7 @@ export async function GET(req: NextRequest) {
       workflowPhase: gated.workflowPhase,
       applicationId: gated.applicationId,
       postHireActivatedAt: gated.postHireActivatedAt,
+      allWorkflowSteps: gated.allWorkflowSteps,
     });
   } catch (err: unknown) {
     console.error("[onboarding/config]", err);

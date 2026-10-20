@@ -1,8 +1,11 @@
 import { isUploadResumeStep } from "@/lib/onboarding/enforce-upload-resume-first";
 import { applicantStepHasNavigableScreen } from "@/lib/onboarding/applicant-step-navigability";
 import { readStepTemplatePhase } from "@/lib/onboarding/workflow-phase";
+import { isTenantStepBlocking } from "@/lib/onboarding/reference-verification";
+import { isUuid } from "@/lib/validation/uuid";
 import type {
   OnboardingStepStatus,
+  StepProgressRow,
   TenantOnboardingStep,
   WorkerOnboardingProgressPayload,
 } from "@/lib/onboarding/types";
@@ -44,6 +47,20 @@ function preferStatus(
   return nextRank >= currentRank ? next : (current ?? "pending");
 }
 
+/** Progress row for a configured step. Placeholder ids may match a published row by step_key. */
+export function findProgressRowForStep(
+  steps: StepProgressRow[] | null | undefined,
+  step: { id: string; step_key?: string | null }
+): StepProgressRow | null {
+  const rows = steps ?? [];
+  const byId = rows.find((row) => row.onboarding_step_id === step.id);
+  if (byId) return byId;
+  if (isUuid(step.id)) return null;
+  const key = step.step_key?.trim();
+  if (!key) return null;
+  return rows.find((row) => row.step_key === key) ?? null;
+}
+
 /**
  * Map each enabled config step id → DB progress status.
  * Matches by step id first, then step_key (including progress.step_key) so job-workflow
@@ -73,6 +90,11 @@ export function buildProgressStatusMaps(
 
   return new Map(
     enabledSteps.map((step) => {
+      // Published steps own their progress row by id (republish keeps ids stable). Keys are
+      // shared by unrelated steps across flows, so only placeholder ids may resolve through them.
+      if (isUuid(step.id)) {
+        return [step.id, byStepId.get(step.id) ?? "pending"] as const;
+      }
       const baseKey = step.step_key.replace(/_\d+$/, "");
       const status =
         byStepId.get(step.id) ??
@@ -116,7 +138,7 @@ export function computeMaxAllowedStepIndexFromProgress(
       } else if (st === "in_progress") {
         max = Math.max(max, i + 1);
         break;
-      } else if (!enabledSteps[i]!.is_required) {
+      } else if (!isTenantStepBlocking(enabledSteps[i]!)) {
         max = Math.max(max, i + 2);
       } else if (!applicantStepHasNavigableScreen(enabledSteps[i]!, enabledSteps)) {
         max = Math.max(max, i + 2);

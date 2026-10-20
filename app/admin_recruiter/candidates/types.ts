@@ -46,6 +46,8 @@ export type CandidateRow = {
   applicationClientName?: string | null
   /** MSP Source Job ID from latest application job (external_requisition_id). */
   applicationSourceJobId?: string | null
+  /** Latest application job source (MSP or Internal). */
+  applicationSourceType?: string | null
   matchApplicationId?: string | null
   aiMatchStatus?: string | null
   aiMatchScore?: number | null

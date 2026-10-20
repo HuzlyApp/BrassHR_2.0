@@ -9,28 +9,53 @@ import {
 import { loadTenantOnboardingConfig } from "@/lib/onboarding/load-tenant-config";
 import { loadApplicantConfigForJobToken } from "@/lib/onboarding/load-config-for-job-workflow";
 import { isPreviewOnboardingStepId } from "@/lib/onboarding/load-applicant-draft-config";
+import {
+  ensureJobWorkflowStepAnchors,
+  tenantStepToAnchorDraft,
+} from "@/lib/onboarding/ensure-job-workflow-step-anchors";
 import { normalizeJobToken } from "@/lib/jobs/public-application-routing";
 import { dispatchWorkflowIntegrationPartner } from "@/lib/onboarding/integration-partner-dispatch";
 import { notifyHrOnOnboardingStepFailure } from "@/lib/onboarding/notify-hr-on-step-failure";
+import { sendConfiguredStepCompletionEmail } from "@/lib/onboarding/step-completion-email";
 import { shouldPauseFlowOnStepFailure } from "@/lib/onboarding/workflow-settings";
 import { isUploadResumeStep } from "@/lib/onboarding/enforce-upload-resume-first";
+import {
+  isCollectExtraFilesStep,
+  loadProfessionDocumentChecklist,
+} from "@/lib/onboarding/profession-document-checklist";
 import { isOnboardingStepSkippable } from "@/lib/onboarding/is-step-skippable";
 import { isValidStep1Email } from "@/lib/onboardingStep1Validation";
 import { getEnabledTenantSteps } from "@/lib/onboarding/tenant-step-navigation";
+import { computeCandidateOnboardingFrontier } from "@/lib/onboarding/candidate-onboarding-projection";
+import { applyApplicantConfigFilters } from "@/lib/onboarding/filter-applicant-steps";
 import { persistFarthestReachedStepIndex } from "@/lib/onboarding/persist-farthest-reached-step";
 import { resolveOnboardingProgressStep } from "@/lib/onboarding/resolve-onboarding-progress-step";
-import type { OnboardingStepStatus, TenantOnboardingConfig } from "@/lib/onboarding/types";
+import type {
+  OnboardingStepStatus,
+  TenantOnboardingConfig,
+  WorkerOnboardingProgressPayload,
+} from "@/lib/onboarding/types";
 import { formatApiError } from "@/lib/api/format-api-error";
 import { resolveApplicationWorkflowPhase } from "@/lib/onboarding/resolve-application-workflow-phase";
 import {
   applicantMayActOnStep,
   isPlacementAcceptedStatus,
+  isPreHireWorkflowStep,
   readStepLifecyclePhase,
 } from "@/lib/onboarding/workflow-phase";
+import { recruiterVerificationStaysAfterRefresh } from "@/lib/onboarding/assigned-workflow-steps";
 import {
   commitOnboardingStepProgress,
   StepProgressConflictError,
 } from "@/lib/onboarding/step-progress-write";
+import {
+  autoConvertCandidateAfterOfferAccepted,
+} from "@/lib/onboarding/auto-convert-after-agreement";
+import {
+  isOfferAcceptanceStep,
+  readOfferDecision,
+} from "@/lib/onboarding/offer-acceptance";
+import { notifyRecruiterOnAgreementStepCompletion } from "@/lib/onboarding/notify-recruiter-on-agreement-step";
 
 export const runtime = "nodejs";
 
@@ -92,12 +117,14 @@ export async function POST(req: NextRequest) {
     if (!applicationId && phaseRecord?.applicationId) {
       applicationId = phaseRecord.applicationId;
     }
+    const unscopedOnly = Boolean(jobToken) && !applicationId;
 
     const payload = await ensureWorkerOnboardingProgress(
       supabase,
       ctx.workerId,
       ctx.tenantId,
-      applicationId || null
+      applicationId || null,
+      unscopedOnly
     );
 
     let tenantConfig = await loadTenantOnboardingConfig(supabase, ctx.tenantId, {
@@ -141,19 +168,26 @@ export async function POST(req: NextRequest) {
           supabase,
           ctx.workerId,
           ctx.tenantId,
-          applicationId || null
+          applicationId || null,
+          unscopedOnly
         );
       }
     }
 
-    // Job workflows may surface preview-* ids for steps not in the last-published tenant config.
-    // Persist progress against the best matching published tenant step when needed.
+    const candidateFacingStep = stepRow;
+
+    // Job workflows may surface preview-* ids for steps that are not in the tenant catalog.
+    // Persist against a real step row so Skip / Continue can move to the next step.
     let persistStep = stepRow;
     if (stepRow && isPreviewOnboardingStepId(stepRow.id)) {
-      persistStep =
-        resolveOnboardingProgressStep(tenantConfig, {
-          stepKey: stepRow.step_key,
-        }) ?? stepRow;
+      const anchorBase = tenantConfig ?? config;
+      if (anchorBase) {
+        const anchored = await ensureJobWorkflowStepAnchors(supabase, anchorBase, [
+          tenantStepToAnchorDraft(stepRow),
+        ]);
+        persistStep =
+          resolveOnboardingProgressStep(anchored, { stepKey: stepRow.step_key }) ?? stepRow;
+      }
     }
 
     const stepId =
@@ -166,13 +200,49 @@ export async function POST(req: NextRequest) {
     stepRow = persistStep ?? stepRow;
 
     const activePhase = phaseRecord?.phase ?? "pre_hire";
+    const withWorkflowPhase = (
+      progress: WorkerOnboardingProgressPayload
+    ): WorkerOnboardingProgressPayload =>
+      progress.workflowPhase ? progress : { ...progress, workflowPhase: activePhase };
+    progressPayload = withWorkflowPhase(progressPayload);
+    const isPreHire =
+      isPreHireWorkflowStep({
+        key: candidateFacingStep?.step_key || stepRow?.step_key || body.stepKey,
+        title: candidateFacingStep?.title || stepRow?.title,
+        snapshotId: String(
+          candidateFacingStep?.metadata?.workflow_step_id ??
+          stepRow?.metadata?.workflow_step_id ??
+          body.stepId ??
+          ""
+        ),
+        stepId: String(
+          candidateFacingStep?.metadata?.stepId ??
+          stepRow?.metadata?.stepId ??
+          body.stepId ??
+          ""
+        ),
+        data: body.data,
+      });
+
+    const effectiveStepPhase = isPreHire
+      ? "pre_hire"
+      : candidateFacingStep
+      ? readStepLifecyclePhase(candidateFacingStep)
+      : stepRow
+      ? readStepLifecyclePhase(stepRow)
+      : "pre_hire";
+
     if (
       stepRow &&
       (status === "completed" || status === "skipped" || status === "in_progress" || status === "failed") &&
       !applicantMayActOnStep({
         activePhase,
-        stepPhase: readStepLifecyclePhase(stepRow),
-        isHired: isPlacementAcceptedStatus(phaseRecord?.status),
+        stepPhase: effectiveStepPhase,
+        isHired:
+          isPlacementAcceptedStatus(phaseRecord?.status) ||
+          Boolean(phaseRecord?.postHireActivatedAt) ||
+          activePhase === "post_hire" ||
+          phaseRecord?.phase === "post_hire",
         postHireSuspended: Boolean(phaseRecord?.postHireSuspendedAt),
       })
     ) {
@@ -185,8 +255,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const completed_at = status === "completed" ? new Date().toISOString() : null;
-
     if (status === "skipped" && stepRow && isUploadResumeStep(stepRow)) {
       return NextResponse.json({ error: "Upload Resume cannot be skipped." }, { status: 400 });
     }
@@ -196,6 +264,21 @@ export async function POST(req: NextRequest) {
         { error: "This required step cannot be skipped." },
         { status: 400 }
       );
+    }
+
+    if (
+      (status === "completed" || status === "skipped") &&
+      (isCollectExtraFilesStep(candidateFacingStep) || isCollectExtraFilesStep(stepRow))
+    ) {
+      const checklist = await loadProfessionDocumentChecklist(supabase, ctx.tenantId, ctx.workerId);
+      if (checklist.missingRequired.length) {
+        return NextResponse.json(
+          {
+            error: `Upload the required documents before continuing: ${checklist.missingRequired.join(", ")}.`,
+          },
+          { status: 400 }
+        );
+      }
     }
 
     if (status === "completed" && stepRow && isUploadResumeStep(stepRow)) {
@@ -243,7 +326,7 @@ export async function POST(req: NextRequest) {
 
     const { data: existingRow } = await supabase
       .from("worker_onboarding_step_progress")
-      .select("status")
+      .select("status, completed_at")
       .eq("worker_onboarding_progress_id", progressPayload.progressId)
       .eq("onboarding_step_id", stepId)
       .maybeSingle();
@@ -260,9 +343,59 @@ export async function POST(req: NextRequest) {
         supabase,
         ctx.workerId,
         ctx.tenantId,
-        applicationId || null
+        applicationId || null,
+        unscopedOnly
       );
-      return NextResponse.json({ progress, noop: true });
+      return NextResponse.json({ progress: withWorkflowPhase(progress), noop: true });
+    }
+
+    const signingStep = stepRow ?? candidateFacingStep;
+    const keepOriginalCompletion =
+      status === "completed" &&
+      existingStatus === "completed" &&
+      Boolean(existingRow?.completed_at) &&
+      Boolean(
+        signingStep &&
+          recruiterVerificationStaysAfterRefresh({
+            snapshotStepId:
+              typeof signingStep.metadata?.workflow_step_id === "string"
+                ? signingStep.metadata.workflow_step_id
+                : null,
+            stepKey: signingStep.step_key,
+            stepType: signingStep.step_type,
+            title: signingStep.title,
+          })
+      );
+    const completed_at =
+      status === "completed"
+        ? keepOriginalCompletion
+          ? String(existingRow?.completed_at)
+          : new Date().toISOString()
+        : null;
+
+    // The screen marks itself in_progress on mount, which can fire before the client route
+    // guard redirects away from a step still locked behind a required internal step.
+    if (status === "in_progress" && stepRow && config) {
+      const target = stepRow;
+      const gatedConfig = applyApplicantConfigFilters(config, { activePhase });
+      const candidateSteps = getEnabledTenantSteps(gatedConfig);
+      const stepIndex = candidateSteps.findIndex(
+        (candidate) => candidate.id === target.id || candidate.step_key === target.step_key
+      );
+      if (stepIndex >= 0) {
+        const frontier = computeCandidateOnboardingFrontier({
+          engineOrder: gatedConfig.candidateEngineOrder,
+          candidateSteps,
+          progress: progressPayload,
+        });
+        if (stepIndex + 1 > frontier.maxAllowedStepIndex) {
+          return NextResponse.json({
+            progress: withWorkflowPhase(progressPayload),
+            noop: true,
+            locked: true,
+          });
+        }
+      }
     }
 
     let stepData: Record<string, unknown> =
@@ -380,9 +513,10 @@ export async function POST(req: NextRequest) {
         supabase,
         ctx.workerId,
         ctx.tenantId,
-        applicationId || null
+        applicationId || null,
+        unscopedOnly
       );
-      return NextResponse.json({ progress, noop: true });
+      return NextResponse.json({ progress: withWorkflowPhase(progress), noop: true });
     }
 
     if (config) {
@@ -397,13 +531,117 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    let postHireConversion: Awaited<ReturnType<typeof autoConvertCandidateAfterOfferAccepted>> | null = null;
+    if (status === "completed") {
+      if (existingStatus !== "completed") {
+        await sendConfiguredStepCompletionEmail(supabase, {
+          tenantId: ctx.tenantId,
+          workerId: ctx.workerId,
+          origin: req.nextUrl.origin,
+          settings: stepRow?.metadata?.workflow_settings,
+          stepTitle: stepRow?.title ?? null,
+          stepId: stepRow?.id ?? stepId,
+          request: req,
+        });
+      }
+
+      const isOfferStep = isOfferAcceptanceStep({
+        snapshotStepId: String(stepRow?.metadata?.workflow_step_id ?? ""),
+        stepKey: stepRow?.step_key ?? body.stepKey,
+        stepType: stepRow?.step_type,
+        title: stepRow?.title,
+        metadata: stepRow?.metadata as Record<string, unknown> | null,
+      });
+
+      const offerDecision = readOfferDecision(body.data, status);
+
+      if (isOfferStep && offerDecision?.decision === "accepted") {
+        try {
+          postHireConversion = await autoConvertCandidateAfterOfferAccepted(supabase, {
+            tenantId: ctx.tenantId,
+            workerId: ctx.workerId,
+            applicationId: applicationId || null,
+            step: stepRow,
+            data: body.data,
+            origin: req.nextUrl.origin,
+          });
+        } catch (offerConversionError) {
+          console.error("[onboarding/progress/step] offer accepted conversion failed", offerConversionError);
+        }
+      } else {
+        try {
+          await notifyRecruiterOnAgreementStepCompletion(supabase, {
+            tenantId: ctx.tenantId,
+            workerId: ctx.workerId,
+            applicationId: applicationId || null,
+            step: stepRow,
+            stepKey: body.stepKey,
+            data: body.data,
+            origin: req.nextUrl.origin,
+            request: req,
+          });
+        } catch (notifyError) {
+          console.warn("[onboarding/progress/step] recruiter agreement notification failed", notifyError);
+        }
+      }
+
+      try {
+        const workflowStepId =
+          (typeof stepRow?.metadata?.workflow_step_id === "string"
+            ? stepRow.metadata.workflow_step_id
+            : null) || (stepRow?.step_key ?? body.stepKey ?? null);
+        const workflowNodeId =
+          typeof stepRow?.metadata?.workflow_node_id === "string"
+            ? stepRow.metadata.workflow_node_id
+            : null;
+
+        const { data: instances } = await supabase
+          .from("applicant_workflow_instances")
+          .select("id")
+          .eq("tenant_id", ctx.tenantId)
+          .eq("worker_id", ctx.workerId)
+          .order("created_at", { ascending: false });
+
+        if (instances?.length) {
+          const instanceIds = instances.map((i) => i.id);
+          const { data: recs } = await supabase
+            .from("applicant_workflow_step_records")
+            .select("id, step_type, snapshot_step_id, status")
+            .eq("tenant_id", ctx.tenantId)
+            .in("workflow_instance_id", instanceIds);
+
+          const matchingRec = (recs ?? []).find(
+            (r) =>
+              (workflowNodeId && r.snapshot_step_id === workflowNodeId) ||
+              (workflowStepId && r.step_type === workflowStepId) ||
+              (body.stepKey && r.snapshot_step_id === body.stepKey)
+          );
+
+          if (matchingRec && matchingRec.status !== "completed") {
+            await supabase
+              .from("applicant_workflow_step_records")
+              .update({
+                status: "completed",
+                completed_at,
+                updated_at: completed_at,
+              })
+              .eq("id", matchingRec.id)
+              .eq("tenant_id", ctx.tenantId);
+          }
+        }
+      } catch (syncErr) {
+        console.warn("[onboarding/progress/step] sync applicant step record failed", syncErr);
+      }
+    }
+
     const progress = await ensureWorkerOnboardingProgress(
       supabase,
       ctx.workerId,
       ctx.tenantId,
-      applicationId || null
+      applicationId || null,
+      unscopedOnly
     );
-    return NextResponse.json({ progress });
+    return NextResponse.json({ progress: withWorkflowPhase(progress), postHireConversion });
   } catch (err: unknown) {
     if (err instanceof StepProgressConflictError) {
       return NextResponse.json({ error: err.message }, { status: 409 });

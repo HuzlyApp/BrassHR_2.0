@@ -80,7 +80,7 @@ describe("firma step settings", () => {
     });
   });
 
-  it("routes Firma-enabled authorizations steps to authorizations-documents", () => {
+  it("routes Firma-enabled agreement steps to the agreement signing screen", () => {
     const route = routeForApplicantStep({
       step_key: "employee_agreement",
       step_type: "authorizations",
@@ -93,11 +93,11 @@ describe("firma step settings", () => {
       },
     });
 
-    expect(route).toContain(APPLICATION_ROUTES.authorizationsDocuments);
+    expect(route).toContain(APPLICATION_ROUTES.agreementSignature);
     expect(route).not.toContain(APPLICATION_ROUTES.firmaSign);
   });
 
-  it("routes Firma-enabled library e-sign steps to authorizations-documents", () => {
+  it("routes Firma-enabled library e-sign steps to the agreement signing screen", () => {
     const route = routeForApplicantStep({
       step_key: "policy_acknowledgment",
       step_type: "custom_question",
@@ -110,7 +110,7 @@ describe("firma step settings", () => {
       },
     });
 
-    expect(route).toContain(APPLICATION_ROUTES.authorizationsDocuments);
+    expect(route).toContain(APPLICATION_ROUTES.agreementSignature);
     expect(route).not.toContain(APPLICATION_ROUTES.firmaSign);
   });
 
@@ -1847,7 +1847,7 @@ describe("zoho separation", () => {
       },
     });
 
-    expect(route).toContain("/application/authorizations-documents");
+    expect(route).toContain("/application/agreement-signature");
     expect(route).not.toContain("zoho");
   });
 });

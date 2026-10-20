@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import DetailedCandidateHeader from "../../../components/DetailedCandidateHeader";
 import DetailedTabs from "../../../components/DetailedTabs";
 import CandidateDetailLoader from "../../../components/CandidateDetailLoader";
@@ -228,8 +228,16 @@ function RowBadge({ text, state }: { text: string; state: ItemState }) {
 }
 
 export default function NewApplicantChecklistPage() {
+  const router = useRouter();
   const params = useParams<{ id: string }>();
   const applicantId = params?.id;
+
+  // Checklist tab is disabled for now; redirect to Profile tab (kept for future use)
+  useEffect(() => {
+    if (applicantId) {
+      router.replace(`/admin_recruiter/new/profile/${applicantId}`);
+    }
+  }, [applicantId, router]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -381,6 +389,13 @@ export default function NewApplicantChecklistPage() {
   return (
     <div className="w-full min-w-0 overflow-auto admin-recruiter-page-pad">
       <div className="admin-recruiter-content-width">
+        <CandidateDetailLoader label="Opening candidate profile..." />
+      </div>
+
+      {/* Checklist tab content is hidden for now and not needed in candidate details screen. Kept for future use. */}
+      {false && (
+        <>
+          <div className="admin-recruiter-content-width">
             <DetailedTabs applicantId={applicantId} activeTab="Checklist" checklistPayload={data} />
 
             {error ? (
@@ -747,6 +762,8 @@ export default function NewApplicantChecklistPage() {
           }}
         />
       ) : null}
+        </>
+      )}
     </div>
   );
 }

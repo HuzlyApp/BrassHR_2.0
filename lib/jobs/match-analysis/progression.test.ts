@@ -31,6 +31,24 @@ describe("match progression steps", () => {
     ]);
   });
 
+  it("does not collapse to step 0 when prior analysis exists but Deep Match failed", () => {
+    // UI should pass isAnalyzed=true when status is FAILED but stage+analysis remain.
+    expect(
+      matchProgressionFurthestIndex({
+        isAnalyzed: true,
+        stage: "follow_up",
+        hasDeepMatch: false,
+      })
+    ).toBe(2);
+    expect(
+      matchProgressionFurthestIndex({
+        isAnalyzed: false,
+        stage: "follow_up",
+        hasDeepMatch: false,
+      })
+    ).toBe(0);
+  });
+
   it("does not skip ahead from Screening status — only saved stage counts", () => {
     expect(
       matchProgressionFurthestIndex({

@@ -116,5 +116,6 @@ export {
   runAutoQuickMatchForApplications,
   scheduleAutoQuickMatchForApplication,
   scheduleAutoQuickMatchForApplications,
+  scheduleReanalysisAfterJobDescriptionChange,
   type AutoQuickMatchResult,
 } from "./auto-quick-match";

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildProgressStatusMaps,
   computeMaxAllowedStepIndexFromProgress,
+  findProgressRowForStep,
 } from "@/lib/onboarding/compute-max-allowed-from-progress";
 import { createDefaultOnboardingStepDrafts } from "@/lib/onboarding/default-onboarding-steps";
 import type { TenantOnboardingStep, WorkerOnboardingProgressPayload } from "@/lib/onboarding/types";
@@ -52,11 +53,54 @@ describe("buildProgressStatusMaps", () => {
 
     const map = buildProgressStatusMaps(steps, progress);
     expect(map.get(license.id)).toBe("completed");
+    expect(findProgressRowForStep(progress.steps, license)?.status).toBe("completed");
+  });
+
+  it("does not give a published step another step's status through a shared key", () => {
+    const base = legacySteps()[0]!;
+    const offer: TenantOnboardingStep = {
+      ...base,
+      id: "cdbc0968-5f43-49dd-87fc-caeb0b47063b",
+      step_key: "custom_question_11",
+      step_type: "custom_question",
+      title: "Offer Accepted",
+    };
+    const ssn: TenantOnboardingStep = {
+      ...base,
+      id: "1e962519-816a-492f-934c-72d39961f4a2",
+      step_key: "document_upload",
+      step_type: "document_upload",
+      title: "SSN / Identity Verification",
+    };
+    const progress: WorkerOnboardingProgressPayload = {
+      progressId: "p1",
+      status: "in_progress",
+      steps: [
+        {
+          onboarding_step_id: "db479d24-6104-4fa8-8fac-6bc82ecb7b4b",
+          step_key: "custom_question",
+          status: "completed",
+          completed_at: "2026-01-01",
+          data: {},
+        },
+        {
+          onboarding_step_id: "604c7e2f-1a94-4e82-96c7-f16e10865d6c",
+          step_key: "document_upload",
+          status: "completed",
+          completed_at: "2026-01-01",
+          data: {},
+        },
+      ],
+    };
+
+    const map = buildProgressStatusMaps([offer, ssn], progress);
+    expect(map.get(offer.id)).toBe("pending");
+    expect(map.get(ssn.id)).toBe("pending");
   });
 });
 
 describe("computeMaxAllowedStepIndexFromProgress", () => {
-  it("allows profile review when resume step is completed in DB", () => {
+  it("unlocks past the upload-later credential step once the resume step is completed in DB", () => {
     const steps = legacySteps();
     const progress: WorkerOnboardingProgressPayload = {
       progressId: "p1",
@@ -71,7 +115,8 @@ describe("computeMaxAllowedStepIndexFromProgress", () => {
       ],
     };
 
-    expect(computeMaxAllowedStepIndexFromProgress(steps, progress)).toBe(2);
+    expect(steps[1]!.metadata?.workflow_step_id).toBe("credential-license-verification");
+    expect(computeMaxAllowedStepIndexFromProgress(steps, progress)).toBe(3);
   });
 
   it("does not treat missing progress as fully unlocked", () => {

@@ -49,6 +49,16 @@ describe("buildWorkerResumeFileName", () => {
     ).toBe("Resume (39).pdf");
   });
 
+  it("keeps the uploaded filename while the worker still has the placeholder name", () => {
+    expect(
+      buildWorkerResumeFileName({
+        firstName: "Applicant",
+        lastName: "User",
+        originalFileName: "Sujith Resume.pdf",
+      })
+    ).toBe("Sujith Resume.pdf");
+  });
+
   it("defaults to resume.pdf when nothing usable is provided", () => {
     expect(buildWorkerResumeFileName({})).toBe("resume.pdf");
   });

@@ -5,10 +5,30 @@ export {
   getStatusBySystemKey,
   createApplicationStatus,
   updateApplicationStatus,
+  deleteApplicationStatus,
   reorderApplicationStatuses,
+  listApplicationStatusGroups,
+  createApplicationStatusGroup,
+  updateApplicationStatusGroup,
   changeApplicationStatus,
   changeApplicationStatusBySystemKey,
   listApplicationStatusHistory,
+  ensureDefaultPreHireGroupStageAssignments,
+  ensureDefaultAiMatchGroupStageAssignments,
+  listApplicationStatusGroupStageAssignments,
+  assignGroupToPreHireStage,
+  unassignGroupFromPreHireStage,
+  listApplicationStatusStageLanes,
+  replaceApplicationStatusStageLanes,
+  listApplicationStatusStageReasonCodes,
+  replaceApplicationStatusStageReasonCodes,
+  appendApplicationStatusStageReasonCode,
+  listApplicationStatusStageNotes,
+  findOrCreateApplicationStatusStageNote,
+  listApplicationStatusStageButtons,
+  getApplicationStatusButtonLabels,
+  saveApplicationStatusButtonLabels,
+  replaceGroupButtonLanes,
 } from "./service";
 export {
   getApplicationStatusSummariesForWorkers,
@@ -17,7 +37,84 @@ export {
 export type { WorkerApplicationStatusSummary } from "./attach-worker-application-status";
 export type {
   ApplicationStatusRecord,
+  ApplicationStatusGroupRecord,
   ApplicationStatusHistoryRecord,
   ChangeApplicationStatusResult,
 } from "./types";
 export { ApplicationStatusError } from "./types";
+export {
+  APPLICATION_STATUS_GROUP_KEYS,
+  SHARED_CLOSED_STATUS_GROUP_KEY,
+  DEFAULT_APPLICATION_STATUS_GROUPS,
+  STATUS_GROUP_PRE_HIRE_STAGES,
+  defaultStatusGroupKey,
+  groupStatuses,
+  groupSelectOptions,
+  readStatusGroupFields,
+  formatGroupStatusSummary,
+  closedGroupPickerLabel,
+  isSharedClosedGroupKey,
+  isSharedFollowUpStatusName,
+  normalizeStatusCatalogName,
+} from "./groups";
+export type {
+  ApplicationStatusGroupKey,
+  GroupableStatus,
+  StatusGroupSection,
+  GroupedSelectOption,
+} from "./groups";
+export {
+  PRE_HIRE_STATUS_STAGE_NAMES,
+  AI_MATCH_STATUS_STAGES,
+  AI_MATCH_STAGE_BY_STEP_ID,
+  DEFAULT_GROUP_PRE_HIRE_STAGES,
+  isPreHireStatusStageName,
+  isAiMatchStatusStageName,
+  isAssignableStatusStageName,
+  aiMatchStatusStageName,
+  isAssignableCatalogGroupKey,
+} from "./stage-assignments";
+export {
+  resolvePreHireStageNameFromStatusLanes,
+  resolvePreHireStatusStageForActions,
+} from "./resolve-pre-hire-stage";
+export type {
+  PreHireStatusStageName,
+  AiMatchStatusStageName,
+  AiMatchProgressionStepId,
+  StatusStageName,
+  ApplicationStatusGroupStageAssignmentRecord,
+} from "./stage-assignments";
+export {
+  filterStatusesForAssignedGroups,
+  sequenceStatusesForStage,
+  statusGroupIsOnStage,
+} from "./stage-status-filter";
+export {
+  STAGE_STATUS_LANES,
+  defaultStageStatusLane,
+  isDefaultFollowUpStatusName,
+  isStageStatusLane,
+  normalizeStageStatusLane,
+  applyStageButtonVisibility,
+  normalizeStageButtonLabel,
+  resolveStageButtonLabel,
+  resolveConfiguredStageStatusLanes,
+  resolveGroupStatusLanes,
+  resolveStageStatusLanes,
+  selectWorkflowScopedLaneRows,
+  sequenceOrderedStatuses,
+  composeStatusChangeNote,
+} from "./stage-status-lanes";
+export type {
+  SavedStageStatusLane,
+  StageActionButtonLane,
+  StageButtonVisibility,
+  StageLaneStatus,
+  StageStatusLane,
+} from "./stage-status-lanes";
+export {
+  DEFAULT_ALTERNATE_BUTTON_LABEL,
+  DEFAULT_CLOSED_BUTTON_LABEL,
+  STAGE_BUTTON_LABEL_MAX,
+} from "./stage-status-lanes";

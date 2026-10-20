@@ -76,12 +76,20 @@ async function resolveWorkerForUpload(
   workerIdHint: string,
   tenantIdHint: string,
 ): Promise<WorkerContext | null> {
-  if (workerIdHint && tenantIdHint) {
-    return { workerId: workerIdHint, tenantId: tenantIdHint, userId: applicantId }
+  // Hints come from the browser; only accept the worker this applicant owns in that tenant.
+  if (tenantIdHint) {
+    const owned = await resolveWorkerByApplicantId(supabase, applicantId, tenantIdHint)
+    if (owned) {
+      if (workerIdHint && owned.workerId !== workerIdHint) {
+        console.warn("[upload-resume] ignoring workerId hint not owned by applicant", {
+          applicantId,
+          workerIdHint,
+          resolvedWorkerId: owned.workerId,
+        })
+      }
+      return owned
+    }
   }
-
-  const existing = await resolveWorkerByApplicantId(supabase, applicantId)
-  if (existing) return existing
 
   return resolveOrEnsureWorkerForApplicant(supabase, applicantId, tenantSlug || null)
 }
@@ -336,6 +344,25 @@ export async function POST(req: Request) {
     }
   }
 
+  // An application without its resume is an orphan entry on the job; undo it when the upload fails.
+  const newApplicationId =
+    jobApplication && !jobApplication.resumed ? jobApplication.application.id : null
+  const applicationTenantId = workerCtx.tenantId
+  const discardNewApplication = async () => {
+    if (!newApplicationId) return
+    const { error } = await supabase
+      .from("job_applications")
+      .delete()
+      .eq("id", newApplicationId)
+      .eq("tenant_id", applicationTenantId)
+    if (error) {
+      console.error("[upload-resume] failed to discard application after upload error", {
+        applicationId: newApplicationId,
+        error: error.message,
+      })
+    }
+  }
+
   const folder = applicantId
   const { data: workerNames } = await supabase
     .from("worker")
@@ -371,12 +398,14 @@ export async function POST(req: Request) {
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Resume storage upload timed out"
     console.error("[upload-resume] storage upload timeout", msg)
+    await discardNewApplication()
     return NextResponse.json({ error: msg }, { status: 504 })
   }
   const storageUploadMs = storageTimer.elapsedMs()
 
   if (uploadError) {
     console.error("[upload-resume] storage upload", uploadError)
+    await discardNewApplication()
     return NextResponse.json(
       { error: uploadError.message || "Failed to store resume" },
       { status: 500 }
@@ -400,6 +429,7 @@ export async function POST(req: Request) {
     text = await extractText(buffer, { name: file.name, type: file.type || "application/octet-stream" })
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Could not read resume"
+    await discardNewApplication()
     return NextResponse.json({ error: msg }, { status: 400 })
   }
   const extractionMs = extractionTimer.elapsedMs()
@@ -453,6 +483,7 @@ export async function POST(req: Request) {
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to save resume record"
     console.error("[upload-resume] worker_resumes", e)
+    await discardNewApplication()
     return NextResponse.json(
       { error: msg },
       { status: isResumeUploadValidationError(e) ? 400 : 500 },
@@ -460,6 +491,7 @@ export async function POST(req: Request) {
   }
 
   if (!resumeId) {
+    await discardNewApplication()
     return NextResponse.json(
       { error: "Resume was uploaded but the resume database record was not created." },
       { status: 500 },

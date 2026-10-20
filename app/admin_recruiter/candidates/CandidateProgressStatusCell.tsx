@@ -19,11 +19,14 @@ import {
   type ApplicationStatusOption,
 } from "../applications/ApplicationStatusUi";
 import { applicationStatusDotClassName, applicationStatusLabel } from "@/lib/jobs/application-status";
+import { filterApplicationStatusesForSource } from "@/lib/jobs/msp-submission";
+import { readStatusGroupFields } from "@/lib/jobs/application-statuses/groups";
+import { GroupedStatusMenuList } from "@/app/admin_recruiter/components/GroupedStatusMenu";
 import type { CandidateRow } from "./types";
 
 const FORM_SURFACE_CLASS = "rounded-lg border border-[#CBD5E1] bg-white";
-const STATUS_DROPDOWN_WIDTH = 180;
-const STATUS_DROPDOWN_ESTIMATED_HEIGHT = 280;
+const STATUS_DROPDOWN_WIDTH = 240;
+const STATUS_DROPDOWN_ESTIMATED_HEIGHT = 420;
 
 export function mapWorkerProgressStatusFields(item: {
   application_id?: string | null;
@@ -31,6 +34,7 @@ export function mapWorkerProgressStatusFields(item: {
   application_status_name?: string | null;
   application_status_key?: string | null;
   application_status_ambiguous?: boolean | null;
+  application_source_type?: string | null;
 }) {
   return {
     progressStatusApplicationId: item.application_id?.trim() || null,
@@ -38,6 +42,7 @@ export function mapWorkerProgressStatusFields(item: {
     progressStatusName: item.application_status_name?.trim() || null,
     progressStatusKey: item.application_status_key?.trim() || null,
     progressStatusAmbiguous: Boolean(item.application_status_ambiguous),
+    applicationSourceType: item.application_source_type?.trim() || null,
   };
 }
 
@@ -129,21 +134,24 @@ function ProgressStatusDropdownPortal({
       {selectable.length === 0 ? (
         <p className="px-3 py-2 text-sm text-[#94A3B8]">No other statuses</p>
       ) : (
-        selectable.map((option) => (
-          <button
-            key={option.id}
-            type="button"
-            role="menuitem"
-            disabled={busy}
-            onClick={() => {
-              onSelect(option);
-              onClose();
-            }}
-            className="flex w-full items-center px-3 py-2 text-left text-sm text-[#334155] hover:bg-[#F8FAFC] disabled:opacity-50"
-          >
-            {option.name}
-          </button>
-        ))
+        <GroupedStatusMenuList
+          options={selectable}
+          renderOption={(option) => (
+            <button
+              key={option.id}
+              type="button"
+              role="menuitem"
+              disabled={busy}
+              onClick={() => {
+                onSelect(option);
+                onClose();
+              }}
+              className="flex w-full items-center px-3 py-2 text-left text-sm text-[#334155] hover:bg-[#F8FAFC] disabled:opacity-50"
+            >
+              {option.name}
+            </button>
+          )}
+        />
       )}
     </div>,
     document.body
@@ -231,6 +239,7 @@ export function useCandidateProgressStatus(
             systemKey: (row.systemKey as string | null) ?? null,
             color: (row.color as string | null) ?? null,
             sortOrder: Number(row.sortOrder ?? 0),
+            ...readStatusGroupFields(row),
           }))
         );
       } catch {
@@ -339,7 +348,11 @@ export function useCandidateProgressStatus(
     <>
       {statusMenu && menuRow ? (
         <ProgressStatusDropdownPortal
-          options={statusOptions}
+          options={filterApplicationStatusesForSource(
+            statusOptions,
+            menuRow.applicationSourceType,
+            menuRow.progressStatusId
+          )}
           currentStatusId={menuRow.progressStatusId ?? null}
           anchor={statusMenu.anchor}
           busy={statusBusyWorkerId === statusMenu.workerId}

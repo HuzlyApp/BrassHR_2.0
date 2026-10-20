@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { applicantDisplayName } from "@/lib/applicant-portal";
-import { documentStatusLabel, formatDateOnly } from "@/lib/applicant-portal/documents";
+import { documentStatusLabel, formatDateOnly, licenseTypeDisplayLabel } from "@/lib/applicant-portal/documents";
 import { createSignedPortalFileUrl } from "@/lib/applicant-portal/upload";
 import { computeWorkerProfileCompletionPercent } from "@/lib/applicant-portal/worker-profile-completion";
 import { normalizeApplicationStatus } from "@/lib/jobs/application-status";
@@ -376,7 +376,7 @@ export async function loadWorkerAccountOverview(
       .eq("worker_id", workerId),
     supabase
       .from("worker_license_records")
-      .select("id, license_type, original_file_name, expires_at, status, uploaded_at")
+      .select("id, license_type, certification_name, original_file_name, expires_at, status, uploaded_at")
       .eq("worker_id", workerId)
       .order("uploaded_at", { ascending: false })
       .limit(6),
@@ -491,11 +491,16 @@ export async function loadWorkerAccountOverview(
 
   const certifications = (licensesRes.data ?? []).map((row) => {
     const expiresLabel = row.expires_at ? formatDateOnly(String(row.expires_at)) : null;
+    const licenseType = String(row.license_type ?? "");
+    const certificationName =
+      row.certification_name != null ? String(row.certification_name) : null;
 
     return {
       id: String(row.id),
-      title: String(row.original_file_name ?? row.license_type ?? "Certification"),
-      licenseType: String(row.license_type ?? ""),
+      title: licenseType
+        ? licenseTypeDisplayLabel(licenseType, certificationName)
+        : String(row.original_file_name ?? "Certification"),
+      licenseType,
       expiresLabel,
       statusLabel: documentStatusLabel(String(row.status ?? "uploaded")),
     };

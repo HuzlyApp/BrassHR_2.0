@@ -806,7 +806,7 @@ export function BusinessStep({
             {activeUserFacingIndustries().map((item) => {
               const checked = (businessInfo.hireForIndustryKeys ?? []).includes(item.key);
               return (
-                <label key={item.key} className="flex items-center gap-2 text-sm text-[#334155]">
+                <label key={item.key} className="flex items-center gap-2 text-sm text-[#334155] cursor-pointer">
                   <input
                     type="checkbox"
                     checked={checked}
@@ -819,6 +819,8 @@ export function BusinessStep({
                         : current.filter((key) => key !== item.key);
                       handleBusinessFieldChange({ hireForIndustryKeys: next });
                     }}
+                    className="h-4 w-4 cursor-pointer rounded border-gray-300 accent-[#012352]"
+                    style={{ accentColor: '#012352' }}
                   />
                   {item.label}
                 </label>
@@ -1619,6 +1621,13 @@ export function BrandingStep({
         </p>
       </div>
 
+      <div className="mt-[28px] rounded-[16px] border border-[#e2e8f0] bg-[#f8fafc] p-[16px]">
+        <p className="mb-[12px] text-[13px] font-semibold uppercase tracking-wide text-[#64748b]" style={interStyle}>
+          Live preview
+        </p>
+        <PreviewCard b={preview} />
+      </div>
+
       <div className="mt-[28px] space-y-[28px]">
         <section>
           <h3 className="text-[16px] font-semibold leading-[22px] text-[#334155]" style={interStyle}>
@@ -1826,12 +1835,6 @@ export function BrandingStep({
           </div>
         </section>
 
-        <div className="rounded-[16px] border border-[#e2e8f0] bg-[#f8fafc] p-[16px]">
-          <p className="mb-[12px] text-[13px] font-semibold uppercase tracking-wide text-[#64748b]" style={interStyle}>
-            Live preview
-          </p>
-          <PreviewCard b={preview} />
-        </div>
       </div>
 
       <StepActions

@@ -23,6 +23,8 @@ import { isServiceAreaValidationCode } from "@/lib/service-area/http";
 import { serviceAreaMessage } from "@/lib/service-area/copy";
 
 export const runtime = "nodejs";
+/** Background Quick Match after a job-description edit runs in `after()` on this route. */
+export const maxDuration = 300;
 
 function formatApiError(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message) return error.message;

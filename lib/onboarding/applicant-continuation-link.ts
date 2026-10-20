@@ -4,7 +4,7 @@ import { ensureWorkerOnboardingProgress } from "@/lib/onboarding/ensure-worker-p
 import { resolveApplicantNavBoundaries } from "@/lib/onboarding/farthest-reached-step";
 import { computeMaxAllowedStepIndexFromProgress } from "@/lib/onboarding/compute-max-allowed-from-progress";
 import { loadTenantOnboardingConfig } from "@/lib/onboarding/load-tenant-config";
-import { routeForOnboardingStep } from "@/lib/onboarding/step-routes";
+import { routeForApplicantStep } from "@/lib/onboarding/step-routes";
 import { getEnabledTenantSteps } from "@/lib/onboarding/tenant-step-navigation";
 import type { OnboardingStepType } from "@/lib/onboarding/types";
 import { resolveApplicantEmailOrigin } from "@/lib/email/applicant-public-origin";
@@ -20,7 +20,8 @@ export type ContinuationReason =
   | "resume_continuation"
   | "welcome"
   | "manual_notification"
-  | "placement_accepted";
+  | "placement_accepted"
+  | "step_ready";
 
 type WorkerContinuationRow = {
   id: string;
@@ -74,6 +75,22 @@ function withApplicationQuery(
   return qs ? `${pathname}?${qs}` : pathname;
 }
 
+async function loadPublicJobToken(
+  supabase: SupabaseClient,
+  tenantId: string,
+  jobRequisitionId: string | null | undefined
+): Promise<string | null> {
+  if (!jobRequisitionId) return null;
+  const { data } = await supabase
+    .from("job_requisitions")
+    .select("public_job_token")
+    .eq("id", jobRequisitionId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+  const token = (data as { public_job_token?: string | null } | null)?.public_job_token;
+  return typeof token === "string" && token.trim() ? token.trim() : null;
+}
+
 export async function resolveApplicantContinuationTarget(
   supabase: SupabaseClient,
   params: {
@@ -82,6 +99,7 @@ export async function resolveApplicantContinuationTarget(
     tenantSlug?: string | null;
     applicationId?: string | null;
     jobToken?: string | null;
+    targetStepKey?: string | null;
   }
 ): Promise<ApplicantContinuationTarget> {
   const { resolveApplicationWorkflowPhase } = await import(
@@ -99,16 +117,21 @@ export async function resolveApplicantContinuationTarget(
     jobToken: params.jobToken,
   });
   const activePhase = phaseRecord?.phase ?? "pre_hire";
+  // Without job_token the portal loads the wrong workflow and live applicants
+  // are redirected to the public jobs board.
+  const jobToken =
+    params.jobToken?.trim() ||
+    (await loadPublicJobToken(supabase, params.tenantId, phaseRecord?.jobRequisitionId));
 
   let config = await loadTenantOnboardingConfig(supabase, params.tenantId, {
     workerFacing: true,
   });
-  if (params.jobToken) {
+  if (jobToken) {
     try {
       const jobConfig = await loadApplicantConfigForJobToken(
         supabase,
         params.tenantSlug ?? null,
-        params.jobToken
+        jobToken
       );
       config = jobConfig.config;
     } catch {
@@ -117,7 +140,12 @@ export async function resolveApplicantContinuationTarget(
   }
   config = config ? applyApplicantConfigFilters(config, { activePhase }) : config;
   const enabled = getEnabledTenantSteps(config);
-  const progress = await ensureWorkerOnboardingProgress(supabase, params.workerId, params.tenantId);
+  const progress = await ensureWorkerOnboardingProgress(
+    supabase,
+    params.workerId,
+    params.tenantId,
+    params.applicationId ?? phaseRecord?.applicationId ?? null
+  );
   const byStep = new Map(progress.steps.map((step) => [step.onboarding_step_id, step]));
   const naturalFrontier = computeMaxAllowedStepIndexFromProgress(enabled, progress);
   const { farthestReachedIndex } = resolveApplicantNavBoundaries(
@@ -126,7 +154,9 @@ export async function resolveApplicantContinuationTarget(
     naturalFrontier
   );
 
+  const requestedKey = params.targetStepKey?.trim();
   const target =
+    (requestedKey ? enabled.find((step) => step.step_key === requestedKey) : undefined) ??
     enabled.find((step, index) => {
       const status = byStep.get(step.id)?.status ?? "pending";
       return index + 1 <= farthestReachedIndex && status !== "completed" && status !== "skipped";
@@ -142,7 +172,7 @@ export async function resolveApplicantContinuationTarget(
 
   const applicationQuery = {
     applicationId: params.applicationId ?? phaseRecord?.applicationId ?? null,
-    jobToken: params.jobToken ?? null,
+    jobToken: jobToken || null,
   };
 
   if (!target) {
@@ -158,10 +188,7 @@ export async function resolveApplicantContinuationTarget(
   }
 
   return {
-    path: withApplicationQuery(
-      withTenant(routeForOnboardingStep(target.step_key, target.step_type), params.tenantSlug),
-      applicationQuery
-    ),
+    path: withApplicationQuery(routeForApplicantStep(target, params.tenantSlug), applicationQuery),
     stepKey: target.step_key,
     stepType: target.step_type,
   };
@@ -179,6 +206,7 @@ export async function createApplicantContinuationLink(
     metadata?: Record<string, unknown>;
     applicationId?: string | null;
     jobToken?: string | null;
+    targetStepKey?: string | null;
   }
 ): Promise<ApplicantContinuationLinkResult | null> {
   const { data: worker, error: workerError } = await supabase
@@ -209,6 +237,7 @@ export async function createApplicantContinuationLink(
     tenantSlug,
     applicationId,
     jobToken: params.jobToken,
+    targetStepKey: params.targetStepKey,
   });
 
   const token = randomBytes(TOKEN_BYTES).toString("base64url");

@@ -109,11 +109,14 @@ export async function runAutoQuickMatchForApplication(args: {
   }
 }
 
+/** Parallel Quick Match runs after a job-description edit. */
+const JOB_DESCRIPTION_REANALYSIS_CONCURRENCY = 3;
+
 /** Keep serverless invocations alive for background Quick Match (Vercel/Next). */
 function runInRequestBackground(task: () => Promise<void>): void {
   try {
-    after(() => {
-      void task();
+    after(async () => {
+      await task();
     });
   } catch {
     // Outside a request context (tests/scripts) — still fire-and-forget.
@@ -149,6 +152,7 @@ export async function runAutoQuickMatchForApplications(args: {
   analyzedByUserId?: string | null;
   analysisProvider?: AnalysisProvider;
   reason?: string;
+  concurrency?: number;
 }): Promise<AutoQuickMatchResult[]> {
   const ids = [...new Set(args.jobApplicationIds.map((id) => id.trim()).filter(Boolean))];
   if (!ids.length) return [];
@@ -161,6 +165,7 @@ export async function runAutoQuickMatchForApplications(args: {
       analyzedByUserId: args.analyzedByUserId ?? null,
       analysisMode: "analyze",
       analysisProvider: args.analysisProvider ?? DEFAULT_ANALYSIS_PROVIDER,
+      concurrency: args.concurrency,
     });
     const mapped = results.map((row) => {
       const result = row.result;
@@ -195,10 +200,34 @@ export function scheduleAutoQuickMatchForApplications(args: {
   analyzedByUserId?: string | null;
   analysisProvider?: AnalysisProvider;
   reason?: string;
+  concurrency?: number;
 }): void {
   const ids = [...new Set(args.jobApplicationIds.map((id) => id.trim()).filter(Boolean))];
   if (!ids.length) return;
   runInRequestBackground(async () => {
-    await runAutoQuickMatchForApplications(args);
+    await runAutoQuickMatchForApplications({ ...args, jobApplicationIds: ids });
   });
+}
+
+/**
+ * Re-run Quick Match for applications whose scores were cleared because the
+ * job description (or other matching fields) changed.
+ */
+export function scheduleReanalysisAfterJobDescriptionChange(args: {
+  supabase: SupabaseClient;
+  tenantId: string;
+  jobApplicationIds: string[];
+  analyzedByUserId?: string | null;
+}): number {
+  const ids = [...new Set(args.jobApplicationIds.map((id) => id.trim()).filter(Boolean))];
+  if (!ids.length) return 0;
+  scheduleAutoQuickMatchForApplications({
+    supabase: args.supabase,
+    tenantId: args.tenantId,
+    jobApplicationIds: ids,
+    analyzedByUserId: args.analyzedByUserId ?? null,
+    reason: "job_description_changed",
+    concurrency: JOB_DESCRIPTION_REANALYSIS_CONCURRENCY,
+  });
+  return ids.length;
 }

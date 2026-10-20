@@ -11,7 +11,7 @@ import {
   type WorkerProfileFieldKey,
 } from "@/lib/admin/worker-profile-field-update"
 import { syncApplicantProfileFromWorkerField } from "@/lib/admin/sync-applicant-profile-from-worker"
-import { LICENSE_TYPE_LABELS } from "@/lib/applicant-portal/documents"
+import { licenseTypeDisplayLabel } from "@/lib/applicant-portal/documents"
 import { writeActivityLog } from "@/lib/audit/activity-log"
 import {
   invalidateResourceCache,
@@ -486,7 +486,7 @@ export async function GET(req: NextRequest) {
       supabase
         .from("worker_license_records")
         .select(
-          "id, license_type, license_number, expires_at, file_url, storage_path, status, uploaded_at"
+          "id, license_type, certification_name, license_number, expires_at, file_url, storage_path, status, uploaded_at"
         )
         .eq("worker_id", workerId)
         .order("uploaded_at", { ascending: false })
@@ -543,13 +543,12 @@ export async function GET(req: NextRequest) {
 
     const licenseRecords = ((licenseRecordRows ?? []) as Record<string, unknown>[]).map((row) => {
       const licenseType = asTrimmedString(row.license_type) ?? ""
+      const certificationName = asTrimmedString(row.certification_name)
       return {
         id: row.id != null ? String(row.id) : null,
         license_type: licenseType,
-        license_type_label:
-          licenseType in LICENSE_TYPE_LABELS
-            ? LICENSE_TYPE_LABELS[licenseType as keyof typeof LICENSE_TYPE_LABELS]
-            : licenseType,
+        certification_name: certificationName,
+        license_type_label: licenseTypeDisplayLabel(licenseType, certificationName),
         license_number: asTrimmedString(row.license_number),
         expires_at: row.expires_at != null ? String(row.expires_at) : null,
         has_file: Boolean(asTrimmedString(row.storage_path) || asTrimmedString(row.file_url)),
@@ -1092,22 +1091,7 @@ async function upsertPrimaryLicenseRecord(
     return { id: String(existing.id) }
   }
 
-  const licenseType = patch.license_type ?? "nursing_license"
-  const { data: inserted, error } = await supabase
-    .from("worker_license_records")
-    .insert({
-      worker_id: workerId,
-      tenant_id: tenantId,
-      license_type: licenseType,
-      expires_at: patch.expires_at ?? null,
-      status: "under_review",
-    } as never)
-    .select("id")
-    .maybeSingle()
-
-  if (error) throw error
-  const insertedRow = inserted as { id?: string | number | null } | null
-  return { id: insertedRow?.id != null ? String(insertedRow.id) : null }
+  return { id: null }
 }
 
 export async function PATCH(req: NextRequest) {

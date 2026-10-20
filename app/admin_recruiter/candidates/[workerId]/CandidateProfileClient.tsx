@@ -17,7 +17,12 @@ import { formatPhoneForDisplay } from "@/lib/admin/worker-profile-field-client";
 import { applicationCurrentStageMeta } from "@/lib/jobs/application-status";
 import { profileMatchRingColor } from "@/lib/jobs/match-analysis/display";
 import { workTypeLabel } from "@/lib/admin/candidate-profile-view";
-import type { CandidateProfileActivity, CandidateProfilePayload } from "@/lib/admin/candidate-profile-view";
+import { GroupedFilterOptions } from "@/app/admin_recruiter/components/GroupedStatusMenu";
+import type {
+  CandidateProfileActivity,
+  CandidateProfilePayload,
+  CandidateProfileResume,
+} from "@/lib/admin/candidate-profile-view";
 import { exportRowsAsCsv } from "@/lib/admin/export-list-download";
 import { CandidateProfileDocumentsTab } from "./CandidateProfileDocumentsTab";
 import {
@@ -527,9 +532,28 @@ export function CandidateProfileClient({ workerId }: { workerId: string }) {
     return Array.from(new Set(applications.map((row) => row.workType.trim()).filter(Boolean))).sort();
   }, [applications]);
   const statusOptions = useMemo(() => {
-    return Array.from(
-      new Set(applications.map((row) => row.statusName.trim() || row.status).filter(Boolean))
-    ).sort();
+    const seen = new Map<
+      string,
+      {
+        value: string;
+        label: string;
+        groupName: string | null;
+        groupDescription: string | null;
+        groupSortOrder: number | null;
+      }
+    >();
+    for (const row of applications) {
+      const label = row.statusName.trim() || row.status;
+      if (!label || seen.has(label)) continue;
+      seen.set(label, {
+        value: label,
+        label,
+        groupName: row.statusGroupName ?? null,
+        groupDescription: row.statusGroupDescription ?? null,
+        groupSortOrder: row.statusGroupSortOrder ?? null,
+      });
+    }
+    return [...seen.values()];
   }, [applications]);
   const filteredApplications = useMemo(() => {
     return applications.filter((row) => {
@@ -542,12 +566,13 @@ export function CandidateProfileClient({ workerId }: { workerId: string }) {
     });
   }, [applications, statusFilter, workTypeFilter]);
 
-  function openResume(applicationId: string, resumeId: string) {
+  function openResume(applicationId: string, resume: CandidateProfileResume) {
     window.open(
       adminWorkerResumePreviewHref({
         workerId,
-        resumeId,
-        applicationId,
+        resumeId: resume.id,
+        // A fallback résumé is bound to another application; the preview route rejects a mismatch.
+        applicationId: resume.jobApplicationId?.trim() || applicationId,
       }),
       "_blank",
       "noopener,noreferrer"
@@ -790,11 +815,7 @@ export function CandidateProfileClient({ workerId }: { workerId: string }) {
                     onChange={(event) => setStatusFilter(event.target.value)}
                   >
                     <option value="all">All Status</option>
-                    {statusOptions.map((status) => (
-                      <option key={status} value={status}>
-                        {status}
-                      </option>
-                    ))}
+                    <GroupedFilterOptions options={statusOptions} />
                   </select>
                   <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#64748B]" />
                 </label>
@@ -893,7 +914,7 @@ export function CandidateProfileClient({ workerId }: { workerId: string }) {
                             {row.resume ? (
                               <button
                                 type="button"
-                                onClick={() => void openResume(row.id, row.resume!.id)}
+                                onClick={() => void openResume(row.id, row.resume!)}
                                 className="flex min-w-0 cursor-pointer items-start gap-2 text-left"
                               >
                                 <BrandedFileTypeIcon

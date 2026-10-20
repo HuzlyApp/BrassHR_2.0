@@ -145,15 +145,53 @@ describe("selectBuilderCanvas fallback", () => {
 });
 
 describe("hydrateCanvasFromFlowDraft", () => {
-  it("falls back to tenant defaults when a flow draft is empty", () => {
+  it("keeps an empty flow draft as a blank sheet", () => {
     const result = hydrateCanvasFromFlowDraft(
       { nodes: [], edges: [] },
-      { config: null, publishStatus: "published", builderDraft: { nodes: [], edges: [] } },
+      { config: publishedConfig, publishStatus: "published", builderDraft: { nodes: [], edges: [] } },
       []
     );
 
-    expect(result.source).toBe("default");
-    expect(result.nodes.map((node) => node.data.label)).toEqual([...DEFAULT_WORKFLOW_STEP_LABELS]);
+    expect(result.source).toBe("blank");
+    expect(result.nodes).toEqual([]);
+    expect(result.edges).toEqual([]);
+  });
+
+  it("keeps authored flow steps without inserting Upload Resume", () => {
+    const result = hydrateCanvasFromFlowDraft(
+      {
+        nodes: [
+          {
+            id: "step-contact",
+            stepId: "contact-history",
+            label: "Contact History",
+            description: "",
+            position: { x: 120, y: 40 },
+            day: 1,
+            required: true,
+            settings: {
+              required: true,
+              clientPerforms: true,
+              useBraasPartner: false,
+              notifyHrOnFail: false,
+              datePriority: "Day 1",
+              provider: "",
+              triggerAfter: "",
+              notify: "",
+              timeline: "",
+              conditionalLogic: "",
+              phase: "pre_hire",
+            },
+          },
+        ],
+        edges: [],
+      },
+      { config: publishedConfig, publishStatus: "published", builderDraft: { nodes: [], edges: [] } },
+      []
+    );
+
+    expect(result.source).toBe("flow");
+    expect(result.nodes.map((node) => node.data.label)).toEqual(["Contact History"]);
   });
 
   it("uses a published custom flow draft when present", () => {

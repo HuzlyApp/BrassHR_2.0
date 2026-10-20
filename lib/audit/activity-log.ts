@@ -7,7 +7,7 @@ export type ActivityLogInput = {
   entityId?: string | null;
   /** Required for `activity_logs` table (NOT NULL tenant_id). */
   tenantId?: string | null;
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, unknown> | null;
   request?: Request;
 };
 

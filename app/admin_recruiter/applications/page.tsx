@@ -64,7 +64,7 @@ import {
 import SuccessModal from "@/app/components/SuccessModal";
 import ErrorModal from "@/app/components/ErrorModal";
 import { CandidateProfileIconLink } from "@/app/admin_recruiter/candidates/CandidateProfileIconLink";
-// import { CandidatePreHireIconLink } from "@/app/admin_recruiter/candidates/CandidatePreHireIconLink";
+import { CandidatePreHireIconLink } from "@/app/admin_recruiter/candidates/CandidatePreHireIconLink";
 import { useTenantBranding } from "@/app/components/tenant/TenantBrandingContext";
 import {
   CANDIDATES_PAGE_TITLE_CLASS,
@@ -108,6 +108,8 @@ import {
   ApplicationStatusHistoryDialog,
   type ApplicationStatusOption,
 } from "./ApplicationStatusUi";
+import { GroupedFilterOptions, GroupedStatusMenuList } from "@/app/admin_recruiter/components/GroupedStatusMenu";
+import { groupStatuses, readStatusGroupFields } from "@/lib/jobs/application-statuses/groups";
 import { CandidateRowActionsMenu } from "./CandidateRowActionsMenu";
 import { MatchScoreCell, RequirementOutcomeCountCell, FitBandCell } from "./MatchAnalysisPanel";
 import UpdateResumeModal from "./UpdateResumeModal";
@@ -137,6 +139,7 @@ import {
   tabCountsFromBuckets,
   type ApplicationListBucket,
 } from "@/lib/admin/staff-application-list-query";
+import { filterApplicationStatusesForSource } from "@/lib/jobs/msp-submission";
 
 type ApplicationStatus = string;
 
@@ -215,6 +218,7 @@ type JobHeader = {
   published_at?: string | null;
   shift_type?: string | null;
   schedule?: string | null;
+  source_type?: string | null;
 };
 
 type JobOption = {
@@ -241,8 +245,8 @@ const FILTER_SELECT_CHEVRON = {
   )}")`,
 } as const;
 
-const STATUS_DROPDOWN_WIDTH = 180;
-const STATUS_DROPDOWN_ESTIMATED_HEIGHT = 280;
+const STATUS_DROPDOWN_WIDTH = 240;
+const STATUS_DROPDOWN_ESTIMATED_HEIGHT = 420;
 
 function StatusDropdownPortal({
   options,
@@ -322,21 +326,23 @@ function StatusDropdownPortal({
       {selectable.length === 0 ? (
         <p className="px-3 py-2 text-sm text-[#94A3B8]">No other statuses</p>
       ) : (
-        selectable.map((option) => (
-          <button
-            key={option.id}
-            type="button"
-            role="menuitem"
-            disabled={busy}
-            onClick={() => {
-              onSelect(option);
-              onClose();
-            }}
-            className="flex w-full items-center px-3 py-2 text-left text-sm text-[#334155] hover:bg-[#F8FAFC] disabled:opacity-50"
-          >
-            {option.name}
-          </button>
-        ))
+        <GroupedStatusMenuList
+          options={selectable}
+          renderOption={(option) => (
+            <button
+              type="button"
+              role="menuitem"
+              disabled={busy}
+              onClick={() => {
+                onSelect(option);
+                onClose();
+              }}
+              className="flex w-full items-center px-3 py-2 text-left text-sm text-[#334155] hover:bg-[#F8FAFC] disabled:opacity-50"
+            >
+              {option.name}
+            </button>
+          )}
+        />
       )}
     </div>,
     document.body
@@ -392,6 +398,7 @@ function toJobHeader(row: Partial<JobHeader> & { id: string }): JobHeader {
     published_at: row.published_at ?? null,
     shift_type: row.shift_type ?? null,
     schedule: row.schedule ?? null,
+    source_type: row.source_type ?? null,
   };
 }
 
@@ -467,15 +474,27 @@ function resolveApplicationTabParam(
   if (byKey) return byKey.id;
 
   const slug = raw.toLowerCase();
-  const byNameSlug = options.find((option) => {
-    const nameSlug = option.name
+  const nameSlugOf = (name: string) =>
+    name
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "");
-    return nameSlug === slug || option.name.trim().toLowerCase() === slug;
-  });
+  const byNameSlug = options.find(
+    (option) => nameSlugOf(option.name) === slug || option.name.trim().toLowerCase() === slug
+  );
   if (byNameSlug) return byNameSlug.id;
+
+  const submissionAlias =
+    slug === "submitted-to-msp"
+      ? "submitted-for-msp-review"
+      : slug === "submitted-for-msp-review"
+        ? "submitted-to-msp"
+        : null;
+  if (submissionAlias) {
+    const alias = options.find((option) => nameSlugOf(option.name) === submissionAlias);
+    if (alias) return alias.id;
+  }
 
   return raw;
 }
@@ -796,6 +815,7 @@ export default function JobApplicationsPage() {
             systemKey: (row.systemKey as string | null) ?? null,
             color: (row.color as string | null) ?? null,
             sortOrder: Number(row.sortOrder ?? 0),
+            ...readStatusGroupFields(row),
           }))
         );
       } catch {
@@ -1224,9 +1244,23 @@ export default function JobApplicationsPage() {
   const jobCompany = jobCompanyName(activeJob);
   const jobType = jobTypeLabel(activeJob);
 
+  const jobScopedStatusOptions = useMemo(() => {
+    if (!jobId) return statusOptions;
+    return filterApplicationStatusesForSource(statusOptions, job?.source_type);
+  }, [job?.source_type, jobId, statusOptions]);
+
   const listingStatusOptions = useMemo(
-    () => statusOptions.map((option) => ({ value: option.id, label: option.name })),
-    [statusOptions]
+    () =>
+      jobScopedStatusOptions.map((option) => ({
+        value: option.id,
+        label: option.name,
+        sortOrder: option.sortOrder,
+        groupName: option.groupName,
+        groupDescription: option.groupDescription,
+        groupSortOrder: option.groupSortOrder,
+        groupSystemKey: option.groupSystemKey,
+      })),
+    [jobScopedStatusOptions]
   );
 
   const listingJobOptions = useMemo(
@@ -1336,14 +1370,36 @@ export default function JobApplicationsPage() {
   }, []);
 
   const statusTabs = useMemo(() => {
-    const pipeline = statusOptions.filter((option) => option.systemKey !== "archived");
+    const pipeline = jobScopedStatusOptions.filter((option) => option.systemKey !== "archived");
     const archivedTab = statusOptions.find((option) => option.systemKey === "archived");
+    const visible = archivedTab
+      ? [...pipeline.filter((option) => option.id !== archivedTab.id), archivedTab]
+      : pipeline;
     return [
-      { id: "all" as const, label: "All" },
-      ...pipeline.map((s) => ({ id: s.id, label: s.name })),
-      ...(archivedTab ? [{ id: archivedTab.id, label: archivedTab.name }] : []),
+      { id: "all" as const, label: "All", sortOrder: -1, groupId: null, groupName: null, groupDescription: null, groupSortOrder: null, groupSystemKey: null },
+      ...visible.map((option) => ({
+        id: option.id,
+        label: option.name,
+        sortOrder: option.sortOrder,
+        groupId: option.groupId ?? null,
+        groupName: option.groupName ?? null,
+        groupDescription: option.groupDescription ?? null,
+        groupSortOrder: option.groupSortOrder ?? null,
+        groupSystemKey: option.groupSystemKey ?? null,
+      })),
     ];
-  }, [statusOptions]);
+  }, [jobScopedStatusOptions, statusOptions]);
+
+  const pipelineTabSections = useMemo(() => {
+    const rest = statusTabs.filter((tab) => tab.id !== "all");
+    return groupStatuses(
+      rest.map((tab) => ({
+        ...tab,
+        id: tab.id,
+        name: tab.label,
+      }))
+    );
+  }, [statusTabs]);
 
   const resolvedActiveTab = useMemo(
     () => resolveApplicationTabParam(String(activeTab), statusOptions),
@@ -2289,8 +2345,7 @@ export default function JobApplicationsPage() {
                 jobId={jobId || undefined}
                 from="applications"
               />
-              {/* Pre-hire / Post-hire icon hidden until the hire journey feature ships. */}
-              {/* <CandidatePreHireIconLink workerId={workerId} candidateName={name} /> */}
+              <CandidatePreHireIconLink workerId={workerId} candidateName={name} />
             </div>
           </div>
         );
@@ -2812,10 +2867,12 @@ export default function JobApplicationsPage() {
         className="applications-status-tabs-scroll mb-4 w-full min-w-0 overflow-x-auto"
         aria-label="Candidates status"
       >
-        <div className="flex w-max flex-nowrap items-center justify-start gap-5">
-          {statusTabs.map((tab) => {
-            const active = resolvedActiveTab === tab.id;
-            return (
+        <div className="flex w-max flex-nowrap items-end justify-start gap-5">
+          {statusTabs
+            .filter((tab) => tab.id === "all")
+            .map((tab) => {
+              const active = resolvedActiveTab === tab.id;
+              return (
                 <button
                   key={tab.id}
                   ref={active ? activeStatusTabRef : undefined}
@@ -2823,8 +2880,7 @@ export default function JobApplicationsPage() {
                   onClick={() => {
                     setActiveTab(tab.id);
                     const params = new URLSearchParams(searchParams.toString());
-                    if (tab.id === "all") params.delete("tab");
-                    else params.set("tab", tab.id);
+                    params.delete("tab");
                     router.replace(`${pathname}?${params.toString()}`);
                   }}
                   className={`relative inline-flex shrink-0 flex-col items-center px-2 pb-2.5 pt-0 text-sm font-medium leading-none whitespace-nowrap transition-colors ${
@@ -2847,8 +2903,53 @@ export default function JobApplicationsPage() {
                     aria-hidden
                   />
                 </button>
-            );
-          })}
+              );
+            })}
+          {pipelineTabSections.map((section) => (
+            <div key={section.key} className="flex items-end gap-4 border-l border-[#E5E7EB] pl-4">
+              <span
+                className="pb-2.5 text-[10px] font-semibold uppercase tracking-wide text-[#94A3B8]"
+                title={section.description ?? undefined}
+              >
+                {section.name}
+              </span>
+              {section.statuses.map((tab) => {
+                const active = resolvedActiveTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    ref={active ? activeStatusTabRef : undefined}
+                    type="button"
+                    onClick={() => {
+                      setActiveTab(tab.id);
+                      const params = new URLSearchParams(searchParams.toString());
+                      params.set("tab", tab.id);
+                      router.replace(`${pathname}?${params.toString()}`);
+                    }}
+                    className={`relative inline-flex shrink-0 flex-col items-center px-2 pb-2.5 pt-0 text-sm font-medium leading-none whitespace-nowrap transition-colors ${
+                      active
+                        ? "text-[color:var(--brand-primary)]"
+                        : "text-[#2B3D51] hover:text-[color:var(--brand-primary)]"
+                    }`}
+                    aria-current={active ? "page" : undefined}
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <span>{tab.name}</span>
+                      <span className="admin-recruiter-tab-count rounded-sm">
+                        {tabCounts[tab.id] ?? 0}
+                      </span>
+                    </span>
+                    <span
+                      className={`absolute inset-x-0 bottom-0 block h-0.5 rounded-full ${
+                        active ? "bg-[color:var(--brand-primary)]" : "bg-transparent"
+                      }`}
+                      aria-hidden
+                    />
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </div>
       </nav>
 
@@ -3209,7 +3310,17 @@ export default function JobApplicationsPage() {
 
       {statusMenu ? (
         <StatusDropdownPortal
-          options={selectableStatusOptions}
+          options={(() => {
+            const menuRow = rows.find((row) => row.id === statusMenu.rowId);
+            const source = String(
+              one(menuRow?.job_requisitions ?? null).source_type ?? job?.source_type ?? ""
+            );
+            return filterApplicationStatusesForSource(
+              selectableStatusOptions,
+              source,
+              menuRow ? rowStatusId(menuRow) : null
+            );
+          })()}
           currentStatusId={(() => {
             const menuRow = rows.find((row) => row.id === statusMenu.rowId);
             return menuRow ? rowStatusId(menuRow) : null;

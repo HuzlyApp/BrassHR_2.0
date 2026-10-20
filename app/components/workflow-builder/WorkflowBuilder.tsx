@@ -40,11 +40,15 @@ import {
 } from "./constants";
 import { applyWorkflowNodeDataPatch } from "@/lib/onboarding/apply-workflow-node-patch";
 import { cloneWorkflowState } from "@/lib/onboarding/clone-workflow-state";
-import type {
-  StepCategory,
-  WorkflowCanvasNodeData,
-  WorkflowNodeData,
-  WorkflowState,
+import {
+  collectUsedLibrarySteps,
+  excludeUsedLibrarySteps,
+} from "./filter-step-library";
+import {
+  type StepCategory,
+  type WorkflowCanvasNodeData,
+  type WorkflowNodeData,
+  type WorkflowState,
 } from "./types";
 import { withLeafDropZones } from "./workflow-canvas-utils";
 
@@ -100,6 +104,8 @@ export type WorkflowBuilderProps = {
   pastingWorkflow?: boolean;
   onPasteWorkflow?: () => void;
   onResetCanvas?: () => void;
+  onDeleteWorkflow?: () => void;
+  deletingWorkflow?: boolean;
   registerUndoControls?: (
     controls: { canUndo: boolean; undo: () => void; canRedo: boolean; redo: () => void } | null
   ) => void;
@@ -148,6 +154,8 @@ function WorkflowBuilderInner({
   pastingWorkflow = false,
   onPasteWorkflow,
   onResetCanvas,
+  onDeleteWorkflow,
+  deletingWorkflow = false,
   registerUndoControls,
 }: WorkflowBuilderProps) {
   const hydratedInitial = useMemo(
@@ -281,6 +289,11 @@ function WorkflowBuilderInner({
     if (n?.type === "step") return n as Node<WorkflowNodeData>;
     return null;
   }, [nodes, selectedNodeId]);
+
+  const availableLibrary = useMemo(() => {
+    const { stepIds, labels } = collectUsedLibrarySteps(nodes);
+    return excludeUsedLibrarySteps(stepLibrary, stepIds, { usedLabels: labels });
+  }, [nodes, stepLibrary]);
 
   const currentState: WorkflowState = useMemo(
     () => ({ nodes, edges }),
@@ -467,10 +480,12 @@ function WorkflowBuilderInner({
               color="#98a2b3"
             />
             <input
-              type="search"
+              type="text"
+              role="searchbox"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search Steps"
+              aria-label="Search the steps library"
               className="h-9 w-[240px] rounded-lg border bg-[#f9fafb] pl-9 pr-3 text-xs outline-none transition focus:border-[#BC8B41] focus:bg-white focus:ring-2 focus:ring-[#BC8B41]/20"
               style={{ borderColor: CARD_BORDER, color: TEXT_PRIMARY }}
             />
@@ -561,8 +576,9 @@ function WorkflowBuilderInner({
         ) : null}
 
         <StepsLibrary
-          categories={stepLibrary}
+          categories={availableLibrary}
           searchTerm={searchTerm}
+          onSearchTermChange={setSearchTerm}
           readOnly={readOnly}
           compactMode={isCompactBuilder}
           panelOpen={libraryPanelOpen}
@@ -695,7 +711,7 @@ function WorkflowBuilderInner({
               setEdges={setEdges}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
-              categories={stepLibrary}
+              categories={availableLibrary}
               selectedNodeId={selectedNodeId}
               onSelectNode={setSelectedNodeId}
               onBeforeChange={recordChange}
@@ -797,8 +813,23 @@ function WorkflowBuilderInner({
                   onClick={onResetCanvas}
                   className={FOOTER_BTN}
                   style={{ borderColor: "#d0d5dd", color: TEXT_PRIMARY }}
+                  aria-label="Blank sheet"
+                  title="Clear the canvas and build this workflow from scratch"
                 >
-                  Reset
+                  Blank sheet
+                </button>
+              ) : null}
+              {!readOnly && onDeleteWorkflow ? (
+                <button
+                  type="button"
+                  onClick={onDeleteWorkflow}
+                  disabled={deletingWorkflow || savingPublish || savingTemplate}
+                  className={FOOTER_BTN}
+                  style={{ borderColor: "#FDA29B", color: "#B42318" }}
+                  aria-label="Delete workflow"
+                  title="Delete this workflow"
+                >
+                  {deletingWorkflow ? "Deleting…" : "Delete"}
                 </button>
               ) : null}
             </div>

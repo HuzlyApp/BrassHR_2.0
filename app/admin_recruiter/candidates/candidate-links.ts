@@ -31,6 +31,19 @@ export function candidateFinalApprovalHref(workerId: string) {
   return `/admin_recruiter/new/final-approval/${encodeURIComponent(workerId)}`;
 }
 
+/** AI Analysis tab on the recruiter candidate detail screen (new/profile flow). */
+export function candidateDetailAiAnalysisHref(
+  workerId: string,
+  opts?: { applicationId?: string | null }
+) {
+  const params = new URLSearchParams();
+  if (opts?.applicationId?.trim()) params.set("applicationId", opts.applicationId.trim());
+  const query = params.toString();
+  return `/admin_recruiter/new/ai-analysis/${encodeURIComponent(workerId)}${
+    query ? `?${query}` : ""
+  }`;
+}
+
 /** AI Analysis Overview for a worker's job application (defaults to best analyzed match). */
 export function candidateAiAnalysisHref(
   workerId: string,

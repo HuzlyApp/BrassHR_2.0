@@ -8,6 +8,7 @@ import {
   JobsViewToggle,
   type JobsListingView,
 } from "@/app/admin_recruiter/jobs/JobsViewToggle";
+import SearchableSelectField from "@/app/tenant-onboarding/SearchableSelectField";
 import { applicantPortalApiPath, resolveApplicantPortalTenantSlug } from "@/lib/applicant-portal/client-tenant";
 import type { WorkerJobApplicationListItem } from "@/lib/applicant-portal/list-worker-job-applications";
 import { jobDescriptionPlainText } from "@/lib/jobs/job-description-html";
@@ -16,10 +17,11 @@ import {
   publicJobDisplayTitle,
 } from "@/lib/jobs/public-application-routing";
 import { normalizeApplicationStatus } from "@/lib/jobs/application-status";
+import { useUsLocationOptions } from "@/lib/location/use-us-location-options";
 import { useApplicantPortal } from "./ApplicantPortalProvider";
 import { WORKER_BTN_OUTLINE, WORKER_BTN_PRIMARY, WORKER_BTN_PRIMARY_SM } from "./worker-portal-buttons";
-import { US_STATE_NAME_TO_CODE } from "@/lib/us-state-names";
 import { SERVICE_AREA_COPY } from "@/lib/service-area/copy";
+import { normalizeStateCode } from "@/lib/service-area/normalize";
 import { useServiceAreaPreview } from "@/lib/service-area/use-service-area-preview";
 import {
   WORKER_PORTAL_PAGE_PAD_CLASS,
@@ -118,7 +120,13 @@ type WorkerJobRow = {
 };
 
 const FILTER_INPUT_CLASS =
-  "h-10 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 text-sm text-[#0F172A] outline-none transition placeholder:text-[#94A3B8] focus:border-[color:var(--brand-primary)]";
+  "h-10 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 text-sm text-[#0F172A] outline-none transition placeholder:text-[#94A3B8] focus:border-[color:var(--brand-primary)] focus:ring-2 focus:ring-[color:color-mix(in_srgb,var(--brand-primary)_20%,transparent)]";
+
+const APPLY_ZIP_INPUT_CLASS =
+  "mt-1 h-11 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 text-sm text-[#0F172A] outline-none transition placeholder:text-[#94A3B8] focus:border-[color:var(--brand-primary)] focus:ring-2 focus:ring-[color:color-mix(in_srgb,var(--brand-primary)_20%,transparent)]";
+
+const APPLY_RADIO_CLASS =
+  "h-4 w-4 shrink-0 cursor-pointer accent-[color:var(--brand-checkbox,var(--brand-primary))]";
 
 const SELECT_CHEVRON = {
   backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(
@@ -359,6 +367,31 @@ function ApplyConfirmModal({
   onClose: () => void;
   onConfirm: () => void;
 }) {
+  const {
+    stateOptions,
+    cityOptions,
+    locationLoading,
+    citiesLoading,
+    displayStateValue,
+  } = useUsLocationOptions(workState, open);
+
+  const effectiveCityOptions = useMemo(() => {
+    const current = workCity.trim();
+    if (!current || cityOptions.includes(current)) return cityOptions;
+    return [...cityOptions, current].sort((a, b) => a.localeCompare(b));
+  }, [workCity, cityOptions]);
+
+  useEffect(() => {
+    if (!open) return;
+    const current = workCity.trim();
+    if (!current || cityOptions.length === 0) return;
+    if (cityOptions.includes(current)) return;
+    const match = cityOptions.find(
+      (option) => option.toLowerCase() === current.toLowerCase()
+    );
+    if (match) onWorkCity(match);
+  }, [open, workCity, cityOptions, onWorkCity]);
+
   if (!open) return null;
 
   return (
@@ -389,76 +422,96 @@ function ApplyConfirmModal({
           </button>
         </div>
 
-        <div className="space-y-3 px-4 py-5 sm:px-5">
+        <div className="space-y-4 px-4 py-5 sm:px-5">
           <p className="text-sm text-[#64748B]">
             Confirm where you will work this job. Home address, school, and travel city are not used.
             Your latest uploaded resume from Documents will be attached automatically.
           </p>
-          <label className="block text-sm font-medium text-[#0F172A]" htmlFor="worker-work-city">
-            Work city
-          </label>
-          <input
-            id="worker-work-city"
-            className={FILTER_INPUT_CLASS}
+
+          <SearchableSelectField
+            label="Work state"
+            required
+            compact
+            loading={locationLoading}
+            disabled={submitting || locationLoading}
+            value={displayStateValue}
+            onChange={(value) => {
+              onWorkState(value);
+              onWorkCity("");
+            }}
+            placeholder="Search state"
+            searchPlaceholder="Type to search states"
+            options={stateOptions}
+            emptyMessage="No states found. Try another search."
+          />
+
+          <SearchableSelectField
+            label="Work city"
+            required
+            compact
+            loading={citiesLoading}
+            disabled={
+              submitting ||
+              !displayStateValue ||
+              citiesLoading ||
+              (!cityOptions.length && !workCity.trim())
+            }
             value={workCity}
-            onChange={(event) => onWorkCity(event.target.value)}
+            onChange={onWorkCity}
+            placeholder={
+              !displayStateValue
+                ? "Select state first"
+                : citiesLoading
+                  ? "Loading…"
+                  : "Search city"
+            }
+            searchPlaceholder="Type to search cities"
+            options={effectiveCityOptions}
+            emptyMessage="No cities found. Try another search."
           />
-          <label className="block text-sm font-medium text-[#0F172A]" htmlFor="worker-work-state">
-            Work state
-          </label>
-          <select
-            id="worker-work-state"
-            className={FILTER_INPUT_CLASS}
-            value={workState}
-            onChange={(event) => onWorkState(event.target.value)}
-          >
-            <option value="">Select state</option>
-            {Object.entries(US_STATE_NAME_TO_CODE).map(([name, code]) => (
-              <option key={code} value={code}>
-                {name}
-              </option>
-            ))}
-          </select>
-          <label className="block text-sm font-medium text-[#0F172A]" htmlFor="worker-work-zip">
-            ZIP (optional)
-          </label>
-          <input
-            id="worker-work-zip"
-            className={FILTER_INPUT_CLASS}
-            value={workPostal}
-            onChange={(event) => onWorkPostal(event.target.value.replace(/\D/g, "").slice(0, 5))}
-          />
+
+          <div>
+            <label className="mb-1.5 block text-[13px] font-medium text-[#0F172A]" htmlFor="worker-work-zip">
+              ZIP (optional)
+            </label>
+            <input
+              id="worker-work-zip"
+              inputMode="numeric"
+              autoComplete="postal-code"
+              className={APPLY_ZIP_INPUT_CLASS}
+              value={workPostal}
+              disabled={submitting}
+              onChange={(event) => onWorkPostal(event.target.value.replace(/\D/g, "").slice(0, 5))}
+              placeholder="Code"
+            />
+          </div>
+
           <fieldset>
             <legend className="text-sm font-medium text-[#0F172A]">
               Will you work on-site{jobLocation ? ` at ${jobLocation}` : ""}?
             </legend>
-            <label className="mt-2 flex items-center gap-2 text-sm text-[#334155]">
-              <input
-                type="radio"
-                name="worker-relocate"
-                checked={relocate === "onsite"}
-                onChange={() => onRelocate("onsite")}
-              />
-              Yes
-            </label>
-            <label className="mt-2 flex items-center gap-2 text-sm text-[#334155]">
-              <input
-                type="radio"
-                name="worker-relocate"
-                checked={relocate === "relocate"}
-                onChange={() => onRelocate("relocate")}
-              />
-              Yes, I will relocate
-            </label>
-            <label className="mt-2 flex items-center gap-2 text-sm text-[#334155]">
-              <input
-                type="radio"
-                name="worker-relocate"
-                checked={relocate === "remote"}
-                onChange={() => onRelocate("remote")}
-              />
-              No, I would work remote from the location above
-            </label>
+            {(
+              [
+                { value: "onsite", label: "Yes" },
+                { value: "relocate", label: "Yes, I will relocate" },
+                { value: "remote", label: "No, I would work remote from the location above" },
+              ] as const
+            ).map((option) => (
+              <label
+                key={option.value}
+                className="mt-2.5 flex cursor-pointer items-center gap-2.5 text-sm text-[#334155]"
+              >
+                <input
+                  type="radio"
+                  name="worker-relocate"
+                  className={APPLY_RADIO_CLASS}
+                  checked={relocate === option.value}
+                  disabled={submitting}
+                  onChange={() => onRelocate(option.value)}
+                />
+                {option.label}
+              </label>
+            ))}
           </fieldset>
           {previewMessage ? (
             <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
@@ -515,19 +568,18 @@ export function WorkerJobsTab() {
   const [workPostal, setWorkPostal] = useState("");
   const [relocate, setRelocate] = useState<RelocateChoice | "">("");
 
-  const applyLocation = useMemo(
-    () =>
-      applyJob && workCity && workState && relocate
-        ? {
-            city: workCity,
-            state: workState,
-            postalCode: workPostal,
-            locationType: relocate === "remote" ? ("remote" as const) : ("onsite" as const),
-            relocateToJobSite: relocate === "relocate" || relocate === "onsite",
-          }
-        : null,
-    [applyJob, workCity, workState, workPostal, relocate]
-  );
+  const applyLocation = useMemo(() => {
+    const stateCode = normalizeStateCode(workState);
+    return applyJob && workCity.trim() && stateCode && relocate
+      ? {
+          city: workCity.trim(),
+          state: stateCode,
+          postalCode: workPostal.trim() || undefined,
+          locationType: relocate === "remote" ? ("remote" as const) : ("onsite" as const),
+          relocateToJobSite: relocate === "relocate" || relocate === "onsite",
+        }
+      : null;
+  }, [applyJob, workCity, workState, workPostal, relocate]);
   const applyPreview = useServiceAreaPreview(applyLocation, "apply", {
     jobToken: applyJob?.token,
     tenantSlug,

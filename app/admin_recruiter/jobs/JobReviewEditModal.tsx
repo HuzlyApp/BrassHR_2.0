@@ -46,7 +46,6 @@ import {
   type CommissionFeeType,
 } from "./job-form-shared";
 import { JobFormRequiredMark } from "./JobFormRequiredMark";
-import { matchProfessionIdByName, professionInputValue } from "@/lib/jobs/profession-text";
 
 export type ReviewEditFieldId =
   | "jobId"
@@ -347,20 +346,28 @@ export function JobReviewEditModal({
                   Profession
                   <JobFormRequiredMark />
                 </label>
-                <input
+                <select
                   id="review-edit-profession"
-                  className={JOB_FORM_INPUT_CLASS}
-                  value={professionInputValue(draft.job, professions)}
+                  className={JOB_FORM_SELECT_CLASS}
+                  style={{ backgroundImage: JOB_FORM_SELECT_CHEVRON }}
+                  value={draft.job.professionId ?? ""}
                   onChange={(event) => {
-                    const next = event.target.value;
-                    const nextId = matchProfessionIdByName(professions, next);
-                    patchJob("profession", next);
+                    const nextId = event.target.value || null;
+                    const selected = professions.find((item) => item.id === nextId);
                     patchJob("professionId", nextId);
+                    patchJob("profession", selected?.name ?? null);
                     if ((draft.job.professionId || null) !== nextId) {
                       patchJob("specialtyId", null);
                     }
                   }}
-                />
+                >
+                  <option value="">Select Profession</option>
+                  {professions.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
               </div>
             ) : null}
 

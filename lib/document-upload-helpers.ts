@@ -55,6 +55,8 @@ const EXT_TO_MIME: Record<string, string> = {
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
   webp: "image/webp",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
 
 export function normalizeDocumentMime(mime: string): string {
@@ -92,15 +94,18 @@ export function isAcceptedDocumentFileType(
   )
   if (allowed.size === 0) return true
 
-  const fileMime =
-    normalizeDocumentMime(file.type || "") || mimeFromFileName(file.name || "") || ""
-  if (!fileMime) return true
-  if (allowed.has(fileMime)) return true
+  const fileMime = normalizeDocumentMime(file.type || "")
+  const nameMime = mimeFromFileName(file.name || "") || ""
+  const candidateMimes = [fileMime, nameMime].filter(Boolean)
+  if (candidateMimes.length === 0) return true
+  if (candidateMimes.some((mime) => allowed.has(mime))) return true
 
   const acceptsImages = [...allowed].some((m) => m.startsWith("image/"))
   if (
     acceptsImages &&
-    (fileMime === "image/jpeg" || fileMime === "image/png" || fileMime === "image/webp")
+    candidateMimes.some(
+      (mime) => mime === "image/jpeg" || mime === "image/png" || mime === "image/webp"
+    )
   ) {
     return true
   }

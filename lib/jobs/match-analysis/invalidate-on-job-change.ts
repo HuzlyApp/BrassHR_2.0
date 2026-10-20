@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * - Clear structured_requirements so the next analysis rebuilds from live JD text
  * - Mark prior ANALYZED applications as READY so UI/API cannot treat the old
  *   snapshot as the current match for the updated job
+ * - Return those application ids so the caller can re-run Quick Match
  *
  * Version history rows are left intact for audit.
  */
@@ -12,7 +13,7 @@ export async function invalidateMatchCachesForJobDescriptionChange(args: {
   supabase: SupabaseClient;
   tenantId: string;
   jobRequisitionId: string;
-}): Promise<{ applicationsReset: number }> {
+}): Promise<{ applicationsReset: number; applicationIds: string[] }> {
   const { supabase, tenantId, jobRequisitionId } = args;
   const now = new Date().toISOString();
 
@@ -59,8 +60,11 @@ export async function invalidateMatchCachesForJobDescriptionChange(args: {
       "[match-analysis] failed to reset stale analyses after JD edit",
       resetError.message
     );
-    return { applicationsReset: 0 };
+    return { applicationsReset: 0, applicationIds: [] };
   }
 
-  return { applicationsReset: resetRows?.length ?? 0 };
+  const applicationIds = (resetRows ?? [])
+    .map((row) => String(row?.id ?? "").trim())
+    .filter(Boolean);
+  return { applicationsReset: applicationIds.length, applicationIds };
 }

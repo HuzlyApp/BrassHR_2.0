@@ -11,33 +11,46 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 export const runtime = "nodejs";
 
+/** Workers list reads public.workers only — no join to candidate (public.worker). */
 const SELECT_COLUMNS =
+  "id, candidate_id, tenant_id, first_name, last_name, email, phone, worker_type, employment_classification, created_at, converted_at, job_role, location, status, profile_photo, source_job_application_id, application_snapshot, documents_manifest";
+
+const SELECT_COLUMNS_LEGACY =
+  "id, candidate_id, tenant_id, first_name, last_name, email, phone, worker_type, employment_classification, created_at, converted_at, job_role, location, status, profile_photo";
+
+const SELECT_COLUMNS_MIN =
   "id, candidate_id, tenant_id, first_name, last_name, email, phone, worker_type, employment_classification, created_at, converted_at";
 
-const SELECT_COLUMNS_WITH_LIST_FIELDS = `${SELECT_COLUMNS}, job_role, location, status`;
-
-type WorkerListRow = EmploymentWorkerRecord & {
-  worker?: {
-    job_role: string | null;
-    city: string | null;
-    state: string | null;
-    status: string | null;
-  } | null;
+type WorkerListRow = {
+  id: string;
+  candidate_id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  phone: string | null;
+  job_role?: string | null;
+  location?: string | null;
+  status?: string | null;
+  worker_type: string | null;
+  employment_classification: string | null;
+  created_at: string | null;
+  converted_at: string | null;
+  profile_photo?: string | null;
+  source_job_application_id?: string | null;
+  application_snapshot?: Record<string, unknown> | null;
+  documents_manifest?: unknown[] | null;
 };
 
-function isMissingListColumnsError(err: unknown): boolean {
+function isMissingColumnError(err: unknown, columns: string[]): boolean {
   if (!err || typeof err !== "object") return false;
   const code = "code" in err ? String((err as { code?: string }).code) : "";
   const message = "message" in err ? String((err as { message?: string }).message) : "";
-  return code === "42703" && /workers\.(job_role|location|status)/i.test(message);
+  if (code !== "42703") return false;
+  return columns.some((col) => new RegExp(`workers\\.${col}`, "i").test(message));
 }
 
 function normalizeWorkerRow(row: WorkerListRow): EmploymentWorkerRecord {
-  const candidate = row.worker;
-  const locationFromCandidate = [candidate?.city?.trim(), candidate?.state?.trim()]
-    .filter(Boolean)
-    .join(", ");
-
+  const manifest = Array.isArray(row.documents_manifest) ? row.documents_manifest : [];
   return {
     id: row.id,
     candidate_id: row.candidate_id,
@@ -45,96 +58,17 @@ function normalizeWorkerRow(row: WorkerListRow): EmploymentWorkerRecord {
     last_name: row.last_name,
     email: row.email,
     phone: row.phone,
-    job_role: row.job_role ?? candidate?.job_role ?? null,
-    location: row.location?.trim() || locationFromCandidate || null,
-    status: row.status ?? candidate?.status ?? "active",
+    job_role: row.job_role ?? null,
+    location: row.location?.trim() || null,
+    status: row.status ?? "active",
     worker_type: row.worker_type,
     employment_classification: row.employment_classification,
     created_at: row.created_at,
     converted_at: row.converted_at,
+    source_job_application_id: row.source_job_application_id ?? null,
+    documents_count: manifest.length,
+    application_snapshot: row.application_snapshot ?? null,
   };
-}
-
-async function fetchEmploymentWorkers(
-  supabase: NonNullable<ReturnType<typeof createServiceRoleClient>>,
-  tab: ReturnType<typeof parseEmploymentWorkerTab>,
-  tenantId: string | null
-) {
-  const buildQuery = (select: string, applyTabFilter = true) => {
-    let query = supabase.from("workers").select(select).order("created_at", { ascending: false });
-    if (tenantId) query = query.eq("tenant_id", tenantId);
-    if (applyTabFilter) {
-      switch (tab) {
-        case "new":
-          query = query.eq("status", "new");
-          break;
-        case "w2":
-          query = query.eq("worker_type", "w2");
-          break;
-        case "1099":
-          query = query.eq("worker_type", "1099");
-          break;
-        default:
-          break;
-      }
-    }
-    return query;
-  };
-
-  const primary = await buildQuery(SELECT_COLUMNS_WITH_LIST_FIELDS);
-  if (!primary.error) {
-    return (primary.data ?? []).map((row) =>
-      normalizeWorkerRow(row as unknown as WorkerListRow)
-    );
-  }
-  if (!isMissingListColumnsError(primary.error)) throw primary.error;
-
-  const fallbackSelect =
-    `${SELECT_COLUMNS}, worker:candidate_id ( job_role, city, state, status )`;
-  const fallback = await buildQuery(fallbackSelect, tab !== "new");
-  if (fallback.error) throw fallback.error;
-
-  let rows = (fallback.data ?? []) as unknown as WorkerListRow[];
-  if (tab === "new") {
-    rows = rows.filter((row) => (row.worker?.status ?? "").trim().toLowerCase() === "new");
-  }
-
-  return rows.map(normalizeWorkerRow);
-}
-
-async function attachWorkerProfilePhotos(
-  supabase: NonNullable<ReturnType<typeof createServiceRoleClient>>,
-  workers: EmploymentWorkerRecord[]
-): Promise<EmploymentWorkerRecord[]> {
-  if (workers.length === 0) return workers;
-
-  const workerIds = workers.map((row) => row.id).filter(Boolean) as string[];
-  const candidateIds = workers.map((row) => row.candidate_id).filter(Boolean) as string[];
-  const lookupIds = [...new Set([...candidateIds, ...workerIds])] as string[];
-
-  const photoByCandidateId = new Map<string, unknown>();
-  if (lookupIds.length > 0) {
-    const { data, error } = await supabase
-      .from("worker")
-      .select("id, profile_photo")
-      .in("id", lookupIds);
-    if (!error) {
-      for (const row of data ?? []) {
-        const id = row.id != null ? String(row.id) : "";
-        if (id) photoByCandidateId.set(id, (row as { profile_photo?: unknown }).profile_photo);
-      }
-    }
-  }
-
-  return Promise.all(
-    workers.map(async (worker) => ({
-      ...worker,
-      profile_photo_url: await resolveWorkerProfilePhotoUrl(
-        supabase,
-        photoByCandidateId.get(worker.candidate_id) ?? photoByCandidateId.get(worker.id)
-      ),
-    }))
-  );
 }
 
 export async function GET(req: NextRequest) {
@@ -151,9 +85,54 @@ export async function GET(req: NextRequest) {
     const tenantScope = await resolveStaffTenantScope(auth.authUser);
     const tenantId = tenantScope.mode === "scoped" ? tenantScope.tenantId : null;
 
-    const workers = await attachWorkerProfilePhotos(
-      supabase,
-      await fetchEmploymentWorkers(supabase, tab, tenantId)
+    const buildQuery = (select: string) => {
+      let query = supabase.from("workers").select(select).order("created_at", { ascending: false });
+      if (tenantId) query = query.eq("tenant_id", tenantId);
+      switch (tab) {
+        case "new":
+          query = query.eq("status", "new");
+          break;
+        case "w2":
+          query = query.eq("worker_type", "w2");
+          break;
+        case "1099":
+          query = query.eq("worker_type", "1099");
+          break;
+        default:
+          break;
+      }
+      return query;
+    };
+
+    let raw = await buildQuery(SELECT_COLUMNS);
+    if (
+      raw.error &&
+      isMissingColumnError(raw.error, [
+        "profile_photo",
+        "application_snapshot",
+        "documents_manifest",
+        "source_job_application_id",
+      ])
+    ) {
+      raw = await buildQuery(SELECT_COLUMNS_LEGACY);
+    }
+    if (
+      raw.error &&
+      isMissingColumnError(raw.error, ["job_role", "location", "status", "profile_photo"])
+    ) {
+      raw = await buildQuery(SELECT_COLUMNS_MIN);
+    }
+    if (raw.error) throw raw.error;
+
+    const rows = (raw.data ?? []) as unknown as WorkerListRow[];
+    const workers = await Promise.all(
+      rows.map(async (row) => {
+        const normalized = normalizeWorkerRow(row);
+        return {
+          ...normalized,
+          profile_photo_url: await resolveWorkerProfilePhotoUrl(supabase, row.profile_photo ?? null),
+        };
+      })
     );
 
     return NextResponse.json({

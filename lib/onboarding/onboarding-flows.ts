@@ -12,6 +12,7 @@ import { normalizeFlowNameKey } from "@/lib/onboarding/validate-flow-name";
 import { resolveOnboardingLibraryForFlows } from "@/lib/onboarding/onboarding-libraries";
 import type { WorkflowTemplateRow } from "@/lib/onboarding/workflow-templates";
 import { createDefaultWorkflowState } from "@/lib/onboarding/default-workflow";
+import { requireProfessionForEmploymentFlow } from "@/lib/professions/service";
 
 export type OnboardingFlowStatus = "draft" | "published" | "unpublished";
 
@@ -298,6 +299,44 @@ async function loadPublishedPresetForSeed(
   return null;
 }
 
+async function loadIndustryPresetForEmployment(
+  supabase: OnboardingDbClient,
+  tenantId: string,
+  employmentType: "W2" | "1099" | "RNR"
+): Promise<WorkflowTemplateRow | null> {
+  const { data: tenant, error: tenantError } = await supabase
+    .from("tenants")
+    .select("primary_industry_key")
+    .eq("id", tenantId)
+    .maybeSingle();
+  if (tenantError) throw tenantError;
+
+  const preferred =
+    (tenant as { primary_industry_key?: string | null } | null)?.primary_industry_key ===
+    "technology"
+      ? "technology"
+      : "healthcare";
+
+  const { data, error } = await supabase
+    .from("onboarding_templates")
+    .select(
+      "id, tenant_id, name, description, type, status, employment_type, industry_key, template_type, is_system_preset, is_editable, version, builder_draft, flow_name, created_by, updated_by, created_at, updated_at"
+    )
+    .eq("type", "preset")
+    .eq("status", "published")
+    .eq("is_system_preset", true)
+    .eq("employment_type", employmentType);
+  if (error) throw error;
+
+  const rows = (data ?? []) as Array<WorkflowTemplateRow & { industry_key?: string | null }>;
+  return (
+    rows.find((row) => row.industry_key === preferred) ??
+    rows.find((row) => row.industry_key === "healthcare") ??
+    rows[0] ??
+    null
+  );
+}
+
 async function employmentTypedFlowExists(
   supabase: OnboardingDbClient,
   tenantId: string,
@@ -317,7 +356,9 @@ async function insertEmploymentTypedFlow(
   seed: EmploymentFlowSeed,
   createdBy?: string | null
 ): Promise<void> {
-  const preset = await loadPublishedPresetForSeed(supabase, seed);
+  const preset =
+    (await loadPublishedPresetForSeed(supabase, seed)) ??
+    (await loadIndustryPresetForEmployment(supabase, tenantId, seed.employmentType));
   if (!preset) {
     if (seed.optional) return;
     throw new Error(
@@ -525,10 +566,16 @@ export async function createOnboardingFlow(
     createAsBlank?: boolean;
     status?: OnboardingFlowStatus;
     createdBy: string;
+    employmentType?: string | null;
+    professionId?: string | null;
   }
 ): Promise<OnboardingFlowDetail> {
   const duplicate = await findDuplicateOnboardingFlowName(supabase, tenantId, input.name);
   if (duplicate) throw new Error(duplicate);
+  requireProfessionForEmploymentFlow({
+    employmentType: input.employmentType,
+    professionId: input.professionId,
+  });
 
   let libraryId = input.libraryId ?? null;
   if (!libraryId) {
@@ -574,6 +621,8 @@ export async function createOnboardingFlow(
       created_as_blank: createAsBlank,
       builder_draft: builderDraft,
       sort_order: sortOrder,
+      employment_type: input.employmentType?.trim() || null,
+      profession_id: input.professionId?.trim() || null,
       created_by: input.createdBy,
       updated_by: input.createdBy,
     })
@@ -656,18 +705,97 @@ export async function updateOnboardingFlow(
   return detail;
 }
 
+export class OnboardingFlowDeleteError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "OnboardingFlowDeleteError";
+    this.status = status;
+  }
+}
+
+export function workflowDeleteBlockedMessage(usage: {
+  jobs: number;
+  applications: number;
+  mappings: number;
+  applicants: number;
+}): string | null {
+  const parts = [
+    usage.jobs ? `${usage.jobs} job${usage.jobs === 1 ? "" : "s"}` : "",
+    usage.applications
+      ? `${usage.applications} application${usage.applications === 1 ? "" : "s"}`
+      : "",
+    usage.mappings ? `${usage.mappings} mapping${usage.mappings === 1 ? "" : "s"}` : "",
+    usage.applicants
+      ? `${usage.applicants} applicant workflow${usage.applicants === 1 ? "" : "s"}`
+      : "",
+  ].filter(Boolean);
+
+  if (!parts.length) return null;
+  return `This workflow is still used by ${parts.join(", ")}. Reassign those before deleting it.`;
+}
+
+async function countFlowReferences(
+  supabase: OnboardingDbClient,
+  tenantId: string,
+  flowId: string,
+  table:
+    | "workflow_mappings"
+    | "job_requisitions"
+    | "job_applications"
+    | "applicant_workflow_instances"
+): Promise<number> {
+  const { count, error } = await supabase
+    .from(table)
+    .select("id", { count: "exact", head: true })
+    .eq("tenant_id", tenantId)
+    .eq("workflow_id", flowId);
+
+  if (error) {
+    throw new Error(error.message || "Failed to check whether this workflow is in use");
+  }
+  return count ?? 0;
+}
+
 export async function deleteOnboardingFlow(
   supabase: OnboardingDbClient,
   tenantId: string,
   flowId: string
 ): Promise<void> {
+  const existing = await getOnboardingFlowById(supabase, tenantId, flowId);
+  if (!existing) {
+    throw new OnboardingFlowDeleteError("Workflow not found", 404);
+  }
+
+  const [jobs, applications, mappings, applicants] = await Promise.all([
+    countFlowReferences(supabase, tenantId, flowId, "job_requisitions"),
+    countFlowReferences(supabase, tenantId, flowId, "job_applications"),
+    countFlowReferences(supabase, tenantId, flowId, "workflow_mappings"),
+    countFlowReferences(supabase, tenantId, flowId, "applicant_workflow_instances"),
+  ]);
+
+  const blocked = workflowDeleteBlockedMessage({ jobs, applications, mappings, applicants });
+  if (blocked) {
+    throw new OnboardingFlowDeleteError(blocked, 409);
+  }
+
   const { error } = await supabase
     .from("onboarding_flows")
     .delete()
     .eq("id", flowId)
     .eq("tenant_id", tenantId);
 
-  if (error) throw error;
+  if (error) {
+    const code = (error as { code?: string }).code;
+    if (code === "23503") {
+      throw new OnboardingFlowDeleteError(
+        "This workflow is still used by a job, application, or mapping. Reassign those before deleting it.",
+        409
+      );
+    }
+    throw new Error(error.message || "Failed to delete workflow");
+  }
 }
 
 export async function saveOnboardingFlowAsTemplate(

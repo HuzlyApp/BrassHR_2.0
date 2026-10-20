@@ -44,14 +44,114 @@ export function lifecyclePhaseFromTemplatePhase(
   return phase === "post_hire" ? "post_hire" : "pre_hire";
 }
 
+export function isPreHireWorkflowStep(params: {
+  key?: string | null;
+  title?: string | null;
+  snapshotId?: string | null;
+  stepId?: string | null;
+  data?: Record<string, unknown> | null;
+}): boolean {
+  const key = String(params.key ?? "").trim().toLowerCase();
+  const title = String(params.title ?? "").trim().toLowerCase();
+  const id = String(params.snapshotId ?? params.stepId ?? "").trim().toLowerCase();
+  const data = params.data;
+
+  // Explicit Section 2 / E-Verify is employer post-hire
+  if (
+    title.includes("section 2") ||
+    title.includes("section-2") ||
+    title.includes("section_2") ||
+    title.includes("e-verify") ||
+    id.includes("section-2") ||
+    id.includes("section_2") ||
+    key.includes("section-2") ||
+    key.includes("section_2")
+  ) {
+    return false;
+  }
+
+  // Data payload confirms I-9 Section 1
+  if (
+    data?.i9_section_1_confirmed === true ||
+    data?.form_i9_section_1_completed === true
+  ) {
+    return true;
+  }
+
+  // Offer Acceptance / Pay Rate Accepted
+  if (
+    key === "offer-acceptance" ||
+    key === "pay-rate-accepted" ||
+    id === "offer-acceptance" ||
+    id === "pay-rate-accepted" ||
+    title.includes("pay rate accepted") ||
+    title.includes("offer accept")
+  ) {
+    return true;
+  }
+
+  // Authorization e-sign / Agreement eSign (Welcome Packet & eSign follows its configured phase)
+  if (
+    key === "employee-agreement" ||
+    id === "employee-agreement" ||
+    title.includes("authorization e-sign") ||
+    title.includes("authorization esign") ||
+    title.includes("agreement esign") ||
+    title.includes("agreement signed") ||
+    title.includes("employment agreement")
+  ) {
+    return true;
+  }
+
+  // Form I-9 Section 1 employee attestation (I-9 / Right to Work Verification follows its configured phase)
+  if (
+    key === "i9-section-1" ||
+    key === "i-9-section-1" ||
+    key.includes("i9-section-1") ||
+    key.includes("i-9-section-1") ||
+    id === "i9-section-1" ||
+    id === "i-9-section-1" ||
+    id.includes("i9-section-1") ||
+    id.includes("i-9-section-1") ||
+    title.includes("i-9 section 1") ||
+    title.includes("i9 section 1") ||
+    title.includes("form i-9 section 1") ||
+    title.includes("section 1") ||
+    title.includes("section-1") ||
+    (title.includes("i-9") && title.includes("section 1")) ||
+    (title.includes("i9") && title.includes("section 1"))
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 export function readStepTemplatePhase(step: TenantOnboardingStep): WorkflowTemplatePhase {
+  const key = String(step.step_key ?? "").trim().toLowerCase();
+  const title = String(step.title ?? "").trim().toLowerCase();
+  const snapshotId = String(
+    step.metadata?.workflow_step_id ??
+    step.metadata?.stepId ??
+    ""
+  ).trim().toLowerCase();
+  const stepId = String(step.metadata?.stepId ?? "").trim().toLowerCase();
+  if (isPreHireWorkflowStep({ key, title, snapshotId, stepId })) {
+    return "pre_hire";
+  }
+
   const settings =
     step.metadata?.workflow_settings &&
     typeof step.metadata.workflow_settings === "object" &&
     !Array.isArray(step.metadata.workflow_settings)
       ? (step.metadata.workflow_settings as Record<string, unknown>)
       : null;
-  return parseWorkflowTemplatePhase(settings?.phase ?? step.metadata?.phase);
+  return parseWorkflowTemplatePhase(
+    settings?.phase ??
+    step.metadata?.phase ??
+    (step as { phase?: unknown }).phase ??
+    (step as { settings?: { phase?: unknown } }).settings?.phase
+  );
 }
 
 export function readStepLifecyclePhase(
@@ -63,7 +163,15 @@ export function readStepLifecyclePhase(
 export function readPublishedStepTemplatePhase(
   step: PublishedWorkflowStep
 ): WorkflowTemplatePhase {
-  return parseWorkflowTemplatePhase(step.settings?.phase);
+  const key = String(step.type ?? step.id ?? "").trim().toLowerCase();
+  const title = String(step.title ?? (step as { label?: string }).label ?? "").trim().toLowerCase();
+  const stepId = String(step.settings?.stepId ?? (step as { stepId?: string }).stepId ?? "").trim().toLowerCase();
+  if (isPreHireWorkflowStep({ key, title, stepId })) {
+    return "pre_hire";
+  }
+  return parseWorkflowTemplatePhase(
+    step.settings?.phase ?? (step as { phase?: unknown }).phase
+  );
 }
 
 export function readPublishedStepLifecyclePhase(
@@ -82,8 +190,12 @@ export function applicantMayActOnStep(params: {
     return false;
   }
   if (params.stepPhase === "post_hire") {
-    if (params.isHired !== true || params.postHireSuspended) return false;
-    return params.activePhase === "post_hire";
+    if (params.postHireSuspended) return false;
+    if (params.isHired !== true) return false;
+    return params.activePhase === "post_hire" || params.isHired === true;
+  }
+  if (params.stepPhase === "pre_hire") {
+    return true;
   }
   return params.activePhase === params.stepPhase;
 }

@@ -10,6 +10,7 @@ import {
 import { jobMatchesDashboardSearchTags } from "@/lib/jobs/jobs-list-search";
 import { isJobRequisitionOpen } from "@/lib/jobs/public-application-routing";
 import { normalizeJobRequisitionStatus } from "@/lib/jobs/job-status";
+import { closedGroupPickerLabel, groupStatuses } from "@/lib/jobs/application-statuses/groups";
 import BrandedSvgIcon from "@/app/components/BrandedSvgIcon";
 import { JobsAdvancedSearchBar } from "./JobsAdvancedSearchBar";
 import { JobsGridView, JOBS_GRID_INFINITE_PAGE_SIZE } from "./JobsGridView";
@@ -35,10 +36,16 @@ type KpiIcon = {
 };
 
 type KpiCard = {
+  id?: string;
   label: string;
   value: number;
   icon: KpiIcon;
   href: string;
+  sortOrder?: number;
+  groupName?: string | null;
+  groupDescription?: string | null;
+  groupSortOrder?: number | null;
+  groupSystemKey?: string | null;
 };
 
 const JOBS_LISTING_HREF = "/admin_recruiter/jobs?view=all";
@@ -76,6 +83,11 @@ type StatusKpiRow = {
   name: string;
   systemKey: string | null;
   color: string | null;
+  sortOrder?: number;
+  groupName?: string | null;
+  groupDescription?: string | null;
+  groupSortOrder?: number | null;
+  groupSystemKey?: string | null;
   applicationCount?: number;
 };
 
@@ -262,10 +274,17 @@ export function JobsDashboard({
         );
         setStatusCards(
           statuses.map((status, index) => ({
+            id: status.id,
             label: status.name,
             value: Number(status.applicationCount ?? 0),
             href: statusCardHref(status),
             icon: statusCardIcon(status, index),
+            sortOrder: Number(status.sortOrder ?? index),
+            groupName: status.groupName ?? null,
+            groupDescription: status.groupDescription ?? null,
+            groupSortOrder:
+              status.groupSortOrder == null ? null : Number(status.groupSortOrder),
+            groupSystemKey: status.groupSystemKey ?? null,
           }))
         );
       } catch {
@@ -341,9 +360,35 @@ export function JobsDashboard({
               ))}
             </div>
           ) : statusCards.length > 0 ? (
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-              {statusCards.map((card) => (
-                <JobsKpiCard key={card.href} {...card} />
+            <div className="space-y-4">
+              {groupStatuses(
+                statusCards.map((card, index) => ({
+                  ...card,
+                  id: card.id ?? card.href,
+                  name: card.label,
+                  sortOrder: card.sortOrder ?? index,
+                  groupId: card.groupName ?? null,
+                  groupName: card.groupName ?? null,
+                  groupDescription: card.groupDescription ?? null,
+                  groupSortOrder: card.groupSortOrder ?? null,
+                  groupSystemKey: card.groupSystemKey ?? null,
+                }))
+              ).map((section) => (
+                <section key={section.key} className="space-y-2">
+                  {section.name !== "Ungrouped" ? (
+                    <h2
+                      className="text-xs font-semibold uppercase tracking-wide text-[#64748B]"
+                      title={section.description ?? undefined}
+                    >
+                      {section.shared ? closedGroupPickerLabel(section.name) : section.name}
+                    </h2>
+                  ) : null}
+                  <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+                    {section.statuses.map((card) => (
+                      <JobsKpiCard key={card.href} {...card} />
+                    ))}
+                  </div>
+                </section>
               ))}
             </div>
           ) : null

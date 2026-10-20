@@ -3,8 +3,8 @@ import { routeForApplicantStep } from "@/lib/onboarding/resolve-applicant-step-r
 import type { TenantOnboardingStep } from "@/lib/onboarding/types";
 
 /** Builder library steps that have no dedicated applicant screen (placeholders). */
-const WORKFLOW_STEPS_WITHOUT_APPLICANT_SCREEN = new Set([
-  "parameterized-job-application",
+const WORKFLOW_STEPS_WITHOUT_APPLICANT_SCREEN = new Set<string>([
+  // parameterized-job-application now has a dedicated screen: /application/job-screening
 ]);
 
 /** Paths that only serve resume upload + profile review (not follow-on profile steps). */

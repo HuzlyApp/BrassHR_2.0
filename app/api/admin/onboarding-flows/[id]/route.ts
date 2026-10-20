@@ -6,11 +6,13 @@ import type { OnboardingDbClient } from "@/lib/onboarding/load-tenant-config";
 import {
   deleteOnboardingFlow,
   getOnboardingFlowById,
+  OnboardingFlowDeleteError,
   saveOnboardingFlowAsTemplate,
   updateOnboardingFlow,
   type OnboardingFlowStatus,
 } from "@/lib/onboarding/onboarding-flows";
 import { publishOnboardingFromWorkflow } from "@/lib/onboarding/publish-onboarding-from-workflow";
+import { syncActiveWorkflowInstancesSafely } from "@/lib/onboarding/sync-workflow-instances";
 import {
   isSerializableWorkflowState,
   type SerializableWorkflowState,
@@ -137,6 +139,12 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
         auth.userId,
         body.name?.trim() || flow.name
       );
+      await syncActiveWorkflowInstancesSafely(supabase as OnboardingDbClient, {
+        tenantId,
+        flowId: id,
+        draft: draftToPublish,
+        flowName: body.name?.trim() || flow.name,
+      });
     }
 
     let savedTemplate: { templateId: string } | null = null;
@@ -186,7 +194,8 @@ export async function DELETE(_req: NextRequest, context: RouteContext) {
     await deleteOnboardingFlow(supabase as OnboardingDbClient, tenantId, id);
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Failed to delete flow";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    const msg = err instanceof Error ? err.message : "Failed to delete workflow";
+    const status = err instanceof OnboardingFlowDeleteError ? err.status : 500;
+    return NextResponse.json({ error: msg }, { status });
   }
 }

@@ -40,6 +40,7 @@ import { getClientOnboardingTenantIdFallback } from "@/lib/tenant/client-onboard
 import { getScopedApplicantId } from "@/lib/tenant/scoped-storage"
 import { useOnboardingStepNav } from "@/lib/onboarding/use-onboarding-step-nav"
 import { useOnboardingConfigOptional } from "@/app/components/onboarding/OnboardingConfigProvider"
+import AwaitingRecruiterReviewModal from "@/app/components/onboarding/AwaitingRecruiterReviewModal"
 import { persistStepProgress } from "@/lib/onboarding/use-mark-step-in-progress-if-pending"
 import {
   findResumeUploadStep,
@@ -55,6 +56,7 @@ import { findNavigableStepIndex } from "@/lib/onboarding/applicant-step-navigabi
 import { routeForApplicantStep } from "@/lib/onboarding/resolve-applicant-step-route"
 import { useResumeParsePoll } from "@/lib/resume/use-resume-parse-poll"
 import { RESUME_PARSE_FAILED_USER_MESSAGE } from "@/lib/resumeParseQuality"
+import { computeCandidateOnboardingFrontier } from "@/lib/onboarding/candidate-onboarding-projection"
 
 type ContactConflictKind = "email" | "phone"
 
@@ -321,6 +323,7 @@ function Step1ReviewContent() {
 
   const [loading, setLoading] = useState(false)
   const [autosaveState, setAutosaveState] = useState<"idle" | "saving" | "saved">("idle")
+  const [showReviewModal, setShowReviewModal] = useState(false)
   /** Avoid hammering save-worker when a hard email conflict is already known. */
   const autosaveEmailBlockedRef = useRef(false)
   /** Duplicate contact conflict: banner + field highlight (matches design mock). */
@@ -737,8 +740,6 @@ function Step1ReviewContent() {
         updated_at: new Date().toISOString(),
       }
 
-      let usedBrowserFallback = false
-
       const saveRes = await fetch("/api/onboarding/save-worker", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -822,27 +823,10 @@ function Step1ReviewContent() {
             )
           }
         }
-        usedBrowserFallback = true
       } else if (!saveRes.ok) {
         throw new Error(
           saveJson.hint || saveJson.error || `Save failed (${saveRes.status})`
         )
-      }
-
-      if (usedBrowserFallback) {
-        try {
-          await fetch("/api/onboarding/send-profile-status-link", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              applicantId,
-              email: form.email.trim(),
-              ...(tenantSlug ? { tenantSlug } : {}),
-            }),
-          })
-        } catch (e) {
-          console.warn("[step-1-review] profile status link email", e)
-        }
       }
 
       const resumeStoragePath =
@@ -949,6 +933,56 @@ function Step1ReviewContent() {
         beforeIndex: nextIdx ?? resumeIdx,
       })
 
+      // Compute whether the candidate will be waiting on a recruiter step after
+      // this step completes. We do this by simulating the updated progress
+      // (marking the resume/profile step as "completed") and running the same
+      // frontier projection that OnboardingConfigProvider uses. This avoids the
+      // async React state-update timing issue where onboarding.waitingOnInternal
+      // still reflects the pre-completion state at this point.
+      const configForFrontier = nav.config
+      const simulatedProgress = onboarding?.progress
+        ? {
+            ...onboarding.progress,
+            steps: (
+              onboarding.progress.steps?.some(
+                (r) =>
+                  (resumeStep && r.onboarding_step_id === resumeStep.id) ||
+                  r.step_key === resumeStep?.step_key
+              )
+                ? onboarding.progress.steps.map((r) =>
+                    (resumeStep && r.onboarding_step_id === resumeStep.id) ||
+                    r.step_key === resumeStep?.step_key
+                      ? { ...r, status: "completed" as const }
+                      : r
+                  )
+                : [
+                    ...(onboarding.progress.steps ?? []),
+                    {
+                      onboarding_step_id: resumeStep?.id ?? "",
+                      step_key: resumeStep?.step_key ?? "resume_upload",
+                      status: "completed" as const,
+                      completed_at: new Date().toISOString(),
+                      data: {},
+                    },
+                  ]
+            ),
+          }
+        : null
+
+      const willWaitOnInternal =
+        configForFrontier?.candidateEngineOrder != null
+          ? computeCandidateOnboardingFrontier({
+              engineOrder: configForFrontier.candidateEngineOrder,
+              candidateSteps: enabled,
+              progress: simulatedProgress,
+            }).waitingOnInternal
+          : false
+
+      if (willWaitOnInternal) {
+        setShowReviewModal(true)
+        return
+      }
+
       const next =
         nextIdx !== null
           ? routeForApplicantStep(enabled[nextIdx]!, nav.slug)
@@ -1011,6 +1045,11 @@ function Step1ReviewContent() {
     ) : null
 
   return (
+    <>
+    <AwaitingRecruiterReviewModal
+      open={showReviewModal}
+      onClose={() => setShowReviewModal(false)}
+    />
     <div
       className="relative flex min-h-screen items-stretch justify-center p-3 py-6 sm:items-center sm:p-4 sm:py-8"
       style={shellStyle}
@@ -1269,32 +1308,15 @@ function Step1ReviewContent() {
                   ) : null}
                 </div>
                 <div>
-                  <label className="block text-[13px] font-medium text-gray-600 mb-1.5">
-                    Select Job Title<span className="text-red-500 ml-0.5">*</span>
-                  </label>
-                  <div className="relative">
-                    <select
-                      value={form.jobRole}
-                      onChange={(e) => handleChange("jobRole", e.target.value)}
-                      className={`w-full px-4 h-[56px] border border-gray-200 rounded-md text-[#1e293b] text-sm appearance-none bg-white font-medium ${focusBorderClass}`}
-                    >
-                      <option value="" disabled>
-                        Select Job Title
-                      </option>
-                      <option value="CNA">CNA</option>
-                      <option value="RN">RN</option>
-                      <option value="LVN">LVN</option>
-                      <option value="Medical Assistant">Medical Assistant</option>
-                      <option value="Caregiver">Caregiver</option>
-                      {form.jobRole &&
-                      !["CNA", "RN", "LVN", "Medical Assistant", "Caregiver"].includes(form.jobRole) ? (
-                        <option value={form.jobRole}>{form.jobRole}</option>
-                      ) : null}
-                    </select>
-                    <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
-                    </div>
-                  </div>
+                  <EditableInput
+                    label="Job Title"
+                    required
+                    value={form.jobRole}
+                    onChange={(value) => handleChange("jobRole", value)}
+                    className={`w-full px-4 h-[56px] border border-gray-200 rounded-md text-[#1e293b] text-sm bg-white pr-10 ${focusBorderClass}`}
+                    placeholder="Enter Job Title"
+                    maxLength={100}
+                  />
                 </div>
               </div>
             </div>
@@ -1370,6 +1392,7 @@ function Step1ReviewContent() {
       </div>
 
     </div>
+    </>
   )
 }
 

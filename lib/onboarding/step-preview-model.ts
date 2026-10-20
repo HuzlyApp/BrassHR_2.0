@@ -24,7 +24,12 @@ import {
   lifecyclePhaseLabel,
   type EmploymentLifecyclePhase,
 } from "@/lib/onboarding/workflow-phase-groups";
+import { isCandidateCheckboxStep } from "@/lib/onboarding/candidate-checkbox-steps";
 import { stepUsesFirmaSigning } from "@/lib/onboarding/firma-step-settings";
+import {
+  professionDocumentKindLabel,
+  type ProfessionUploadDocument,
+} from "@/lib/professions/profession-documents";
 
 export const STEP_PREVIEW_SAMPLE = {
   firstName: "Jane",
@@ -54,6 +59,7 @@ export type StepPreviewKind =
   | "references"
   | "skills_intro"
   | "custom_question"
+  | "checkbox_confirmation"
   | "waiting_gate"
   | "screening"
   | "summary"
@@ -125,6 +131,7 @@ const CANDIDATE_KINDS = new Set<StepPreviewKind>([
   "references",
   "skills_intro",
   "custom_question",
+  "checkbox_confirmation",
   "summary",
 ]);
 
@@ -217,13 +224,25 @@ export function resolveStepPreviewKind(
     return "summary";
   }
   if (NOTIFICATION_LIBRARY_IDS.has(libraryId)) return "notification";
-  if (libraryId === "custom-step" || libraryId === "custom-form") return "custom_question";
+  if (
+    isCandidateCheckboxStep({
+      ...step,
+      metadata: { ...step.metadata, workflow_step_id: libraryId || readLibraryId(step) },
+    })
+  ) {
+    return "checkbox_confirmation";
+  }
   if (libraryId === "collect-extra-files") return "document_upload";
   if (libraryId === "collect-references") return "references";
-  if (libraryId === "internal-select") return "custom_question";
   if (step.step_type === "profile_information") return "profile_form";
-  if (step.step_type === "custom_question") {
-    return isApplicantWaitingGateStep(step) ? "waiting_gate" : "custom_question";
+  // Candidate steps with no separate screen use the same confirmation as Your Application.
+  if (
+    libraryId === "custom-step" ||
+    libraryId === "custom-form" ||
+    libraryId === "record-selection" ||
+    step.step_type === "custom_question"
+  ) {
+    return isApplicantWaitingGateStep(step) ? "waiting_gate" : "checkbox_confirmation";
   }
   if (isApplicantWaitingGateStep(step)) return "waiting_gate";
   return "unsupported";
@@ -286,6 +305,33 @@ function documentsForDraft(draft: OnboardingStepDraft | undefined): StepPreviewD
       is_required: doc.is_required !== false,
     }))
     .filter((doc) => doc.title);
+}
+
+/** Credential / license steps that use Settings → profession document catalogs at runtime. */
+export function stepPreviewUsesProfessionDocuments(
+  libraryId: string,
+  stepType: string
+): boolean {
+  return (
+    stepType === "professional_license" ||
+    libraryId === "credential-license-verification" ||
+    libraryId === "certification-upload" ||
+    libraryId === "collect-extra-files"
+  );
+}
+
+/** Map Settings profession docs the same way applicant load attaches them. */
+export function mapProfessionDocumentsToPreview(
+  documents: ProfessionUploadDocument[]
+): StepPreviewDocument[] {
+  return [...documents]
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+    .map((doc) => ({
+      title: doc.name,
+      description: professionDocumentKindLabel(doc.documentKind),
+      is_required: doc.isRequired !== false,
+    }))
+    .filter((doc) => doc.title.trim());
 }
 
 export function buildStepPreviewModel(

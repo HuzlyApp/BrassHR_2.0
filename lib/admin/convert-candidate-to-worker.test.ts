@@ -56,7 +56,16 @@ describe("convert-candidate-to-worker", () => {
   });
 
   it("builds employment worker row from candidate snapshot", () => {
-    const row = buildEmploymentWorkerRow(candidate, "w2", "2026-06-23T12:00:00.000Z");
+    const row = buildEmploymentWorkerRow(
+      { ...candidate, profile_photo: "photos/jane.jpg" },
+      "w2",
+      "2026-06-23T12:00:00.000Z",
+      {
+        sourceJobApplicationId: "app-1",
+        applicationSnapshot: { id: "app-1", status: "hired" },
+        documentsManifest: [{ source: "worker_resumes", id: "r1", path: "a.pdf" }],
+      }
+    );
     expect(row).toMatchObject({
       tenant_id: "tenant-1",
       candidate_id: "cand-1",
@@ -68,10 +77,14 @@ describe("convert-candidate-to-worker", () => {
       employment_classification: "employee",
       job_role: "Server",
       location: "Austin, TX",
+      profile_photo: "photos/jane.jpg",
       status: "active",
       conversion_status: "converted",
       converted_at: "2026-06-23T12:00:00.000Z",
+      source_job_application_id: "app-1",
+      application_snapshot: { id: "app-1", status: "hired" },
     });
+    expect(row.documents_manifest).toHaveLength(1);
     expect(workerConversionLabel("1099")).toBe("1099 Contractor");
   });
 

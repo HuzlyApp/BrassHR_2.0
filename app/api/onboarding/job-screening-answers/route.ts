@@ -170,6 +170,8 @@ export async function POST(req: NextRequest) {
         workerId: ctx.workerId,
         tenantId: tenant.id,
         workflowStepId: PARAMETERIZED_JOB_APPLICATION_WORKFLOW_STEP_ID,
+        applicationId: String(application.application.id),
+        jobToken,
         data: {
           source: "job_screening_answers",
           application_id: String(application.application.id),

@@ -130,6 +130,7 @@ export async function uploadAgreementSectionFile(
       file_size: file.size,
       status: "uploaded",
       uploaded_at: new Date().toISOString(),
+      uploaded_by_user_id: null,
       review_notes: null,
       reviewed_at: null,
       reviewed_by: null,

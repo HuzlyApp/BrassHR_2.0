@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseUrl } from "@/lib/supabase-env";
 import {
   readOnboardingTenantSlugFromRequest,
@@ -12,6 +12,7 @@ import { enforceRateLimit, getClientIp } from "@/lib/security/rate-limit";
 import { hireGateFromApplications } from "@/lib/onboarding/lock-post-hire";
 import {
   applicantMayActOnStep,
+  isPreHireWorkflowStep,
   readStepLifecyclePhase,
 } from "@/lib/onboarding/workflow-phase";
 import type { TenantOnboardingStep } from "@/lib/onboarding/types";
@@ -20,6 +21,160 @@ export const runtime = "nodejs";
 
 function sanitizeFileName(name: string): string {
   return name.replace(/[/\\?%*:|"<>]/g, "_").slice(0, 200);
+}
+
+async function saveWorkflowCredentialUpload(input: {
+  supabase: SupabaseClient;
+  tenantId: string;
+  workerId: string;
+  requiredDocumentId: string;
+  file: File;
+  issuedDate: string;
+  expiryDate: string;
+  issuingOrganization: string;
+  scope: string;
+  validity: string;
+}): Promise<NextResponse | null> {
+  const { data: workflowDoc, error } = await input.supabase
+    .from("workflow_required_documents")
+    .select("id")
+    .eq("id", input.requiredDocumentId)
+    .eq("tenant_id", input.tenantId)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (error || !workflowDoc) return null;
+
+  const buffer = Buffer.from(await input.file.arrayBuffer());
+  const objectPath = `${input.tenantId}/${input.workerId}/${input.requiredDocumentId}/${randomUUID()}-${sanitizeFileName(input.file.name)}`;
+  const { error: uploadError } = await input.supabase.storage
+    .from(WORKER_REQUIRED_FILES_BUCKET)
+    .upload(objectPath, buffer, {
+      contentType: input.file.type || "application/octet-stream",
+      upsert: true,
+    });
+  if (uploadError) {
+    return NextResponse.json({ error: uploadError.message }, { status: 500 });
+  }
+
+  try {
+    const { saveWorkerCredential } = await import("@/lib/professions/service");
+    await saveWorkerCredential(input.supabase, {
+      tenantId: input.tenantId,
+      workerId: input.workerId,
+      requiredDocumentId: input.requiredDocumentId,
+      issuedDate: input.issuedDate,
+      expiryDate: input.expiryDate,
+      issuingOrganization: input.issuingOrganization,
+      scope: input.scope,
+      validity: input.validity,
+      documentUrl: objectPath,
+      storagePath: objectPath,
+      originalFileName: input.file.name,
+      fileType: input.file.type || null,
+      fileSize: input.file.size,
+      status: "uploaded",
+      allowReviewStatus: false,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Could not save credential";
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
+
+  return NextResponse.json({ ok: true, path: objectPath, bucket: WORKER_REQUIRED_FILES_BUCKET });
+}
+
+async function saveProfessionDocumentUpload(input: {
+  supabase: SupabaseClient;
+  tenantId: string;
+  workerId: string;
+  professionDocumentId: string;
+  file: File;
+  issuedDate: string;
+  expiryDate: string;
+}): Promise<NextResponse | null> {
+  const { data, error } = await input.supabase
+    .from("tenant_profession_documents")
+    .select("id, has_expiration")
+    .eq("id", input.professionDocumentId)
+    .eq("tenant_id", input.tenantId)
+    .eq("is_active", true)
+    .maybeSingle();
+  const professionDoc = data as { id: string; has_expiration?: boolean | null } | null;
+  if (error || !professionDoc) return null;
+
+  if (!isAcceptedDocumentFileType(input.file, ["pdf", "png", "jpg", "jpeg", "webp"])) {
+    return NextResponse.json(
+      { error: "File type not allowed. Upload a PNG, JPG, WebP, or PDF." },
+      { status: 400 }
+    );
+  }
+  if (input.file.size > 10 * 1024 * 1024) {
+    return NextResponse.json({ error: "File exceeds 10MB limit" }, { status: 400 });
+  }
+
+  const { validateCredentialDates } = await import("@/lib/professions/catalog");
+  const {
+    countWorkerProfessionDocumentFiles,
+    MAX_PROFESSION_DOCUMENT_FILES,
+  } = await import("@/lib/professions/profession-documents");
+
+  const hasExpiration = professionDoc.has_expiration === true;
+  const dateError = validateCredentialDates({
+    hasExpiration,
+    issuedDate: input.issuedDate || null,
+    expiryDate: input.expiryDate || null,
+  });
+  if (dateError) {
+    return NextResponse.json({ error: dateError }, { status: 400 });
+  }
+
+  const existingCount = await countWorkerProfessionDocumentFiles(
+    input.supabase,
+    input.tenantId,
+    input.workerId,
+    input.professionDocumentId
+  );
+  if (existingCount >= MAX_PROFESSION_DOCUMENT_FILES) {
+    return NextResponse.json(
+      { error: `You can upload at most ${MAX_PROFESSION_DOCUMENT_FILES} files for this document.` },
+      { status: 400 }
+    );
+  }
+
+  const buffer = Buffer.from(await input.file.arrayBuffer());
+  const objectPath = `${input.tenantId}/${input.workerId}/${input.professionDocumentId}/${randomUUID()}-${sanitizeFileName(input.file.name)}`;
+  const { error: uploadError } = await input.supabase.storage
+    .from(WORKER_REQUIRED_FILES_BUCKET)
+    .upload(objectPath, buffer, {
+      contentType: input.file.type || "application/octet-stream",
+      upsert: true,
+    });
+  if (uploadError) {
+    return NextResponse.json({ error: uploadError.message }, { status: 500 });
+  }
+
+  const row = {
+    tenant_id: input.tenantId,
+    worker_id: input.workerId,
+    profession_document_id: input.professionDocumentId,
+    file_url: objectPath,
+    original_file_name: input.file.name,
+    file_type: input.file.type || null,
+    file_size: input.file.size,
+    status: "uploaded",
+    issued_date: hasExpiration ? input.issuedDate || null : null,
+    expiry_date: hasExpiration ? input.expiryDate || null : null,
+    uploaded_at: new Date().toISOString(),
+  };
+
+  const { error: writeError } = await input.supabase
+    .from("worker_profession_document_uploads")
+    .insert(row as Record<string, unknown>);
+  if (writeError) {
+    return NextResponse.json({ error: writeError.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true, path: objectPath, bucket: WORKER_REQUIRED_FILES_BUCKET });
 }
 
 export async function POST(req: NextRequest) {
@@ -67,6 +222,31 @@ export async function POST(req: NextRequest) {
 
     if (docErr) throw docErr;
     if (!reqDoc) {
+      const workflowSaved = await saveWorkflowCredentialUpload({
+        supabase,
+        tenantId: ctx.tenantId,
+        workerId: ctx.workerId,
+        requiredDocumentId,
+        file,
+        issuedDate: String(formData.get("issuedDate") ?? ""),
+        expiryDate: String(formData.get("expiryDate") ?? ""),
+        issuingOrganization: String(formData.get("issuingOrganization") ?? ""),
+        scope: String(formData.get("scope") ?? ""),
+        validity: String(formData.get("validity") ?? ""),
+      });
+      if (workflowSaved) return workflowSaved;
+
+      const professionSaved = await saveProfessionDocumentUpload({
+        supabase,
+        tenantId: ctx.tenantId,
+        workerId: ctx.workerId,
+        professionDocumentId: requiredDocumentId,
+        file,
+        issuedDate: String(formData.get("issuedDate") ?? ""),
+        expiryDate: String(formData.get("expiryDate") ?? ""),
+      });
+      if (professionSaved) return professionSaved;
+
       console.warn("[onboarding/documents/upload] requirement missing", {
         requiredDocumentId,
         tenantId: ctx.tenantId,
@@ -96,10 +276,21 @@ export async function POST(req: NextRequest) {
         .eq("worker_id", ctx.workerId)
         .order("created_at", { ascending: false });
       const gate = hireGateFromApplications(applications ?? []);
+      const effectiveStepPhase =
+        stepRow &&
+        isPreHireWorkflowStep({
+          key: stepRow.step_key,
+          title: stepRow.title,
+          snapshotId: String(stepRow.metadata?.workflow_step_id ?? stepRow.metadata?.stepId ?? ""),
+          stepId: String(stepRow.metadata?.stepId ?? ""),
+        })
+          ? "pre_hire"
+          : readStepLifecyclePhase(stepRow as TenantOnboardingStep);
+
       if (
         !applicantMayActOnStep({
           activePhase: gate.activePhase,
-          stepPhase: readStepLifecyclePhase(stepRow as TenantOnboardingStep),
+          stepPhase: effectiveStepPhase,
           isHired: gate.isHired,
           postHireSuspended: gate.postHireSuspended,
         })
@@ -154,6 +345,7 @@ export async function POST(req: NextRequest) {
       file_size: file.size,
       status: "uploaded",
       uploaded_at: new Date().toISOString(),
+      uploaded_by_user_id: null,
     };
 
     const { data: existing } = await supabase
@@ -175,6 +367,64 @@ export async function POST(req: NextRequest) {
   } catch (err: unknown) {
     console.error("[onboarding/documents/upload]", err);
     const msg = err instanceof Error ? err.message : "Unexpected error";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const body = (await req.json()) as {
+      applicantId?: string;
+      uploadId?: string;
+      tenantSlug?: string;
+    };
+    const applicantId = body.applicantId?.trim() ?? "";
+    const uploadId = body.uploadId?.trim() ?? "";
+    if (!applicantId || !uploadId) {
+      return NextResponse.json({ error: "applicantId and uploadId are required" }, { status: 400 });
+    }
+
+    const url = getSupabaseUrl();
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !key) {
+      return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
+    }
+
+    const supabase = createClient(url, key);
+    const ctx = await resolveOnboardingWorker(supabase, applicantId, body.tenantSlug?.trim() || null);
+    if (!ctx) {
+      return NextResponse.json({ error: "Worker not found" }, { status: 404 });
+    }
+
+    const { data: row, error: readError } = await supabase
+      .from("worker_profession_document_uploads")
+      .select("id, file_url")
+      .eq("id", uploadId)
+      .eq("tenant_id", ctx.tenantId)
+      .eq("worker_id", ctx.workerId)
+      .maybeSingle();
+    if (readError) throw readError;
+    if (!row?.id) {
+      return NextResponse.json({ error: "Uploaded file not found" }, { status: 404 });
+    }
+
+    const fileUrl = typeof row.file_url === "string" ? row.file_url.trim() : "";
+    if (fileUrl) {
+      await supabase.storage.from(WORKER_REQUIRED_FILES_BUCKET).remove([fileUrl]);
+    }
+
+    const { error: deleteError } = await supabase
+      .from("worker_profession_document_uploads")
+      .delete()
+      .eq("id", uploadId)
+      .eq("tenant_id", ctx.tenantId)
+      .eq("worker_id", ctx.workerId);
+    if (deleteError) throw deleteError;
+
+    return NextResponse.json({ success: true });
+  } catch (err: unknown) {
+    console.error("[onboarding/documents/upload DELETE]", err);
+    const msg = err instanceof Error ? err.message : "Failed to delete uploaded file";
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

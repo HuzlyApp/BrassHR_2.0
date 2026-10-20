@@ -396,6 +396,21 @@ export function brandingToCssVars(b: TenantBranding): Record<string, string> {
   };
 }
 
+/** Foreground that stays legible on a tenant colour of unknown lightness. */
+export function readableTextOnBrand(hex: string, dark = "#0F172A", light = "#FFFFFF"): string {
+  const h = hex.replace("#", "").trim();
+  if (h.length !== 6) return light;
+  const channel = (raw: number) => {
+    const c = raw / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance =
+    0.2126 * channel(parseInt(h.slice(0, 2), 16)) +
+    0.7152 * channel(parseInt(h.slice(2, 4), 16)) +
+    0.0722 * channel(parseInt(h.slice(4, 6), 16));
+  return luminance > 0.45 ? dark : light;
+}
+
 function lightenForGradient(hex: string): string {
   const h = hex.replace("#", "").trim();
   if (h.length !== 6) return hex;

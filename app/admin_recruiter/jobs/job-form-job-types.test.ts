@@ -11,6 +11,14 @@ describe("job form employment type chips", () => {
     expect(parseJobFormJobTypes("Full-time")).toEqual(["Full-time"]);
   });
 
+  it("normalizes Travel/Local Contract aliases", () => {
+    expect(parseJobFormJobTypes("Travel contract")).toEqual(["Travel Contract"]);
+    expect(parseJobFormJobTypes("local contract, Per-Diem")).toEqual([
+      "Local Contract",
+      "Paid-time",
+    ]);
+  });
+
   it("parses comma-separated values and drops blanks", () => {
     expect(parseJobFormJobTypes("Full-time, Part-time,  ,Permanent")).toEqual([
       "Full-time",
