@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isAcceptedDocumentFileType } from "@/lib/document-upload-helpers";
+import {
+  countWorkerProfessionDocumentFiles,
+  MAX_PROFESSION_DOCUMENT_FILES,
+} from "@/lib/professions/profession-documents";
 import { WORKER_REQUIRED_FILES_BUCKET } from "@/lib/supabase-storage-buckets";
 
 const MAX_DOC_BYTES = Number(process.env.MAX_REQUIRED_FILE_UPLOAD_BYTES ?? 10 * 1024 * 1024);
@@ -34,6 +38,11 @@ export type StaffUploadResult =
 
 export function sanitizeFileName(name: string): string {
   return name.replace(/[/\\?%*:|"<>]/g, "_").slice(0, 200);
+}
+
+function normalizeDate(value: string | null | undefined): string | null {
+  const text = String(value ?? "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
 }
 
 function legacyColumnForTitle(title: string): LegacyDocColumn | null {
@@ -267,6 +276,116 @@ export async function saveStaffRequiredDocumentUpload(
     await upsertLegacyWorkerDocumentUrl(supabase, workerId, tenantId, legacyColumn, objectPath, {
       document_name: file.name,
     });
+  }
+
+  return { ok: true, path: objectPath, bucket: WORKER_REQUIRED_FILES_BUCKET };
+}
+
+/** Staff upload for a profession license or certificate configured in settings. */
+export async function saveStaffProfessionDocumentUpload(
+  supabase: SupabaseClient,
+  input: {
+    tenantId: string;
+    workerId: string;
+    actorUserId: string;
+    professionDocumentId: string;
+    file: File;
+    issuedDate?: string | null;
+    expiryDate?: string | null;
+  }
+): Promise<StaffUploadResult> {
+  const { tenantId, workerId, professionDocumentId, file } = input;
+  if (file.size > MAX_DOC_BYTES) return { ok: false, status: 400, error: "File is too large" };
+  if (!isAcceptedDocumentFileType(file, STAFF_ALLOWED_DOC_TYPES)) {
+    return { ok: false, status: 400, error: "File type not allowed. Upload a PNG, JPG, WebP, or PDF." };
+  }
+
+  const { data, error } = await supabase
+    .from("tenant_profession_documents")
+    .select("id, has_expiration")
+    .eq("id", professionDocumentId)
+    .eq("tenant_id", tenantId)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return { ok: false, status: 404, error: "Profession document not found" };
+  const requiresDates = Boolean((data as { has_expiration?: boolean }).has_expiration);
+  const issuedDate = normalizeDate(input.issuedDate);
+  const expiryDate = normalizeDate(input.expiryDate);
+  if (requiresDates && (!issuedDate || !expiryDate)) {
+    return { ok: false, status: 400, error: "Issued date and expiry date are required" };
+  }
+  if (issuedDate && expiryDate && expiryDate < issuedDate) {
+    return { ok: false, status: 400, error: "Expiry date must be on or after the issued date" };
+  }
+
+  const { data: existingRows, error: existingError } = await supabase
+    .from("worker_profession_document_uploads")
+    .select("id, file_url")
+    .eq("tenant_id", tenantId)
+    .eq("worker_id", workerId)
+    .eq("profession_document_id", professionDocumentId)
+    .order("uploaded_at", { ascending: false })
+    .limit(1);
+  if (existingError) throw existingError;
+  const existing = (existingRows?.[0] as { id?: string; file_url?: string | null } | undefined) ?? null;
+
+  if (!existing?.id) {
+    const existingCount = await countWorkerProfessionDocumentFiles(
+      supabase,
+      tenantId,
+      workerId,
+      professionDocumentId
+    );
+    if (existingCount >= MAX_PROFESSION_DOCUMENT_FILES) {
+      return {
+        ok: false,
+        status: 400,
+        error: `You can upload at most ${MAX_PROFESSION_DOCUMENT_FILES} files for this document.`,
+      };
+    }
+  }
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const objectPath = `${tenantId}/${workerId}/admin/${input.actorUserId}/${professionDocumentId}/${randomUUID()}-${sanitizeFileName(file.name)}`;
+  const { error: uploadError } = await supabase.storage
+    .from(WORKER_REQUIRED_FILES_BUCKET)
+    .upload(objectPath, buffer, {
+      contentType: file.type || "application/octet-stream",
+      upsert: true,
+    });
+  if (uploadError) {
+    return { ok: false, status: 500, error: uploadError.message || "Upload failed" };
+  }
+
+  const row = {
+    file_url: objectPath,
+    original_file_name: file.name,
+    file_type: file.type || null,
+    file_size: file.size,
+    status: "uploaded",
+    uploaded_at: new Date().toISOString(),
+    ...(issuedDate ? { issued_date: issuedDate } : {}),
+    ...(expiryDate ? { expiry_date: expiryDate } : {}),
+  };
+  if (existing?.id) {
+    const { error: writeError } = await supabase
+      .from("worker_profession_document_uploads")
+      .update(row)
+      .eq("id", existing.id);
+    if (writeError) return { ok: false, status: 500, error: writeError.message || "Could not save the document" };
+    const previousPath = typeof existing.file_url === "string" ? existing.file_url.trim() : "";
+    if (previousPath && previousPath !== objectPath) {
+      await supabase.storage.from(WORKER_REQUIRED_FILES_BUCKET).remove([previousPath]);
+    }
+  } else {
+    const { error: writeError } = await supabase.from("worker_profession_document_uploads").insert({
+      tenant_id: tenantId,
+      worker_id: workerId,
+      profession_document_id: professionDocumentId,
+      ...row,
+    });
+    if (writeError) return { ok: false, status: 500, error: writeError.message || "Could not save the document" };
   }
 
   return { ok: true, path: objectPath, bucket: WORKER_REQUIRED_FILES_BUCKET };

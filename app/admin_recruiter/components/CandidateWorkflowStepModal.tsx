@@ -58,7 +58,7 @@ import OfferAcceptanceSection from "./OfferAcceptanceSection";
 import RecruiterScreeningAiSection from "./RecruiterScreeningAiSection";
 import SkillAssessmentResults from "./SkillAssessmentResults";
 import WorkflowStepStaffActionModal from "./WorkflowStepStaffActionModal";
-import StepDocumentUploadsSection from "./StepDocumentUploadsSection";
+import StepDocumentUploadsSection, { ExtraFilesSection } from "./StepDocumentUploadsSection";
 import type { StepUploadSlot } from "@/lib/onboarding/staff-step-documents";
 import { StageContextNotesSection } from "./StageContextNotesSection";
 import { hireStageLabelForStep } from "@/lib/onboarding/hire-stage-groups";
@@ -597,7 +597,11 @@ export default function CandidateWorkflowStepModal({
       canCompleteForCandidate ||
       canVerifyCandidate);
 
-  async function uploadStepDocument(slot: StepUploadSlot, file: File) {
+  async function uploadStepDocument(
+    slot: StepUploadSlot,
+    file: File,
+    dates?: { issuedDate: string; expiryDate: string }
+  ) {
     if (!workerId || !stepId || uploadingKey) return;
     setUploadingKey(slot.key);
     setUploadError(null);
@@ -606,6 +610,8 @@ export default function CandidateWorkflowStepModal({
       const body = new FormData();
       body.append("file", file);
       body.append("slotKey", slot.key);
+      if (dates?.issuedDate) body.append("issuedDate", dates.issuedDate);
+      if (dates?.expiryDate) body.append("expiryDate", dates.expiryDate);
       const res = await fetch(
         `/api/admin/candidates/${encodeURIComponent(workerId)}/workflow-steps/${encodeURIComponent(stepId)}/documents`,
         { method: "POST", credentials: "include", body }
@@ -866,9 +872,11 @@ export default function CandidateWorkflowStepModal({
                     canEdit={Boolean(workerId)}
                     uploadingKey={uploadingKey}
                     error={uploadError}
-                    onUpload={(slot, file) => void uploadStepDocument(slot, file)}
+                    onUpload={(slot, file, dates) => void uploadStepDocument(slot, file, dates)}
                   />
                 ) : null}
+
+                {inspection.extraFiles ? <ExtraFilesSection files={inspection.extraFiles} /> : null}
 
                 {interviews ? (
                   <Section title="Interviews" count={activeInterviewCount}>

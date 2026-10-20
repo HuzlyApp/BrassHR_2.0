@@ -6,6 +6,7 @@ import {
 import {
   resolveDocumentField,
   saveStaffLegacyDocumentUpload,
+  saveStaffProfessionDocumentUpload,
   saveStaffRequiredDocumentUpload,
 } from "@/lib/admin/staff-document-upload";
 import { writeActivityLog } from "@/lib/audit/activity-log";
@@ -64,9 +65,15 @@ export async function POST(req: Request, context: CandidateStepRouteContext) {
       workerId,
       tenantStepId: ctx.mapped.tenantStepId,
       stepType: ctx.mapped.stepType,
+      stepKey: ctx.mapped.stepKey,
+      workflowStepId:
+        typeof ctx.tenantStep?.metadata?.workflow_step_id === "string"
+          ? ctx.tenantStep.metadata.workflow_step_id
+          : null,
       config: ctx.config,
       candidateOwned: false,
       stepStatus,
+      uploadsClosed: ctx.mapped.displayStatus === "completed" || Boolean(ctx.mapped.verifiedAt),
     });
     const slot = uploads.slots.find((candidate) => candidate.key === slotKey);
     if (!slot) {
@@ -80,7 +87,17 @@ export async function POST(req: Request, context: CandidateStepRouteContext) {
     }
 
     let result;
-    if (slot.requiredDocumentId) {
+    if (slot.professionDocumentId) {
+      result = await saveStaffProfessionDocumentUpload(supabase, {
+        tenantId,
+        workerId,
+        actorUserId: auth.userId,
+        professionDocumentId: slot.professionDocumentId,
+        file,
+        issuedDate: String(formData.get("issuedDate") ?? "").trim() || null,
+        expiryDate: String(formData.get("expiryDate") ?? "").trim() || null,
+      });
+    } else if (slot.requiredDocumentId) {
       result = await saveStaffRequiredDocumentUpload(supabase, {
         tenantId,
         workerId,
