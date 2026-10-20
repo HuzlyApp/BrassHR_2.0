@@ -196,8 +196,9 @@ export default function OnboardingStepper({
   const completedCount = displaySteps.filter((step) => {
     const rawStatus = statusByStepId.get(step.id) ?? "pending"
     const kind = candidatePostHireScreenKind(step)
+    const savedRow = findProgressRowForStep(onboarding?.progress?.steps, step)
     const status = kind
-      ? effectivePostHireProgressStatus(kind, rawStatus, progressDataByStepId.get(step.id))
+      ? effectivePostHireProgressStatus(kind, rawStatus, savedRow?.data)
       : rawStatus
     return status === "completed" || status === "skipped"
   }).length
