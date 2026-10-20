@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { PostHireSubmissionField } from "@/lib/onboarding/post-hire-step-screens";
 import {
   ActionRow,
@@ -39,6 +39,15 @@ export default function AcknowledgmentForm({
   const [completed, setCompleted] = useState(initialAgreed);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!initialAgreed) return;
+    setCompleted(true);
+    setSignature((current) => ({
+      agreed: true,
+      name: current.name.trim() || initialSignatureName,
+    }));
+  }, [initialAgreed, initialSignatureName]);
 
   async function persistCheckboxDraft(checked: boolean) {
     if (!persistDraft) return;

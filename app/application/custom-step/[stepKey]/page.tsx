@@ -242,7 +242,7 @@ export default function CustomOnboardingStepPage() {
 
   useMarkStepInProgressIfPending({
     step,
-    disabled: nav.configLoading || !step,
+    disabled: nav.configLoading || !step || Boolean(postHireKind),
     updateStepStatus: nav.updateStepStatus,
     completingRef,
   });
@@ -283,7 +283,7 @@ export default function CustomOnboardingStepPage() {
       const isDirectDeposit = isDirectDepositCheckboxStep(step);
       const isPayrollSetup = isPayrollSetupCheckboxStep(step) && !isDirectDeposit;
 
-      await persistStepProgress(
+      const saved = await persistStepProgress(
         nav.updateStepStatus,
         step.step_key,
         "completed",
@@ -364,6 +364,7 @@ export default function CustomOnboardingStepPage() {
         },
         step.id
       );
+      if (!saved) throw new Error("Could not save progress");
       nav.goNext();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save progress");

@@ -316,9 +316,16 @@ export function inspectionKindForStep(params: {
   ) {
     return "upload";
   }
-  if (onboardingType === "skill_assessment" || stepType === "skill-qualification-assessment") {
-    return "assessment";
-  }
+  // Training Modules Quiz is persisted as onboarding type skill_assessment, but its
+  // answers are the post-hire confirmation — not the pre-hire skill ratings.
+  const isSkillAssessmentStep =
+    stepType === "skill-qualification-assessment" ||
+    stepType === "skill_assessment" ||
+    (onboardingType === "skill_assessment" &&
+      (stepType === "" ||
+        stepType === "skill_assessment" ||
+        stepType === "skill-qualification-assessment"));
+  if (isSkillAssessmentStep) return "assessment";
   if (onboardingType === "references" || stepType.includes("reference")) return "references";
   if (
     onboardingType === "authorizations" ||

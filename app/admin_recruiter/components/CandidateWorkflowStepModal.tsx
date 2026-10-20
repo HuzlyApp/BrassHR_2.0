@@ -211,6 +211,17 @@ function formatAnswer(value: unknown): string {
   }
 }
 
+function responseFileUrl(value: unknown): string | null {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!/^https?:\/\//i.test(text)) return null;
+  try {
+    const url = new URL(text);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 function titleCase(value: string): string {
   return value
     .replaceAll("-", " ")
@@ -1127,6 +1138,7 @@ export default function CandidateWorkflowStepModal({
                           /authoriz|consent|agreement|confirm/i.test(question.label);
                         const isAuthorized =
                           isCheckbox && /authoriz|yes|true|confirmed/i.test(String(question.answer ?? ""));
+                        const fileUrl = isCheckbox ? null : responseFileUrl(question.answer);
                         return (
                           <li
                             key={`${question.label}-${index}`}
@@ -1146,13 +1158,44 @@ export default function CandidateWorkflowStepModal({
                                   {formatAnswer(question.answer)}
                                 </span>
                               </div>
+                            ) : fileUrl ? (
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <a
+                                  href={fileUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1.5 rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold transition hover:brightness-95"
+                                  style={{
+                                    borderColor: "var(--brand-primary)",
+                                    color: "var(--brand-primary)",
+                                    backgroundColor: "color-mix(in srgb, var(--brand-primary) 6%, white)",
+                                  }}
+                                >
+                                  <Eye className="h-3.5 w-3.5" aria-hidden />
+                                  Preview
+                                </a>
+                                <a
+                                  href={fileUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  download
+                                  className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition hover:brightness-[0.97]"
+                                  style={{
+                                    background: "var(--step-modal-cta)",
+                                    color: "var(--step-modal-on-primary)",
+                                  }}
+                                >
+                                  <Download className="h-3.5 w-3.5" aria-hidden />
+                                  Download
+                                </a>
+                              </div>
                             ) : (
                               <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-700">
                                 {formatAnswer(question.answer)}
                               </p>
                             )}
                             <p className="mt-2 text-[11px] text-slate-500">
-                              {isCheckbox ? "Confirmation checkbox" : question.fieldType}
+                              {fileUrl ? "Document" : isCheckbox ? "Confirmation checkbox" : question.fieldType}
                               {question.submittedAt ? ` · ${formatDateTime(question.submittedAt)}` : ""}
                             </p>
                           </li>

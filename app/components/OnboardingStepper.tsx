@@ -12,7 +12,7 @@ import {
   isStepIndicatorAccessible,
   type StepIndicatorState,
 } from "@/lib/onboarding/step-indicator-status"
-import { buildProgressStatusMaps } from "@/lib/onboarding/compute-max-allowed-from-progress"
+import { buildProgressStatusMaps, findProgressRowForStep } from "@/lib/onboarding/compute-max-allowed-from-progress"
 import {
   resolveApplicantEnabledSteps,
   stepIndexFromPathname,
@@ -146,21 +146,14 @@ export default function OnboardingStepper({
     [enabledSteps, onboarding?.progress]
   )
 
-  const progressDataByStepId = useMemo(() => {
-    const map = new Map<string, unknown>()
-    for (const row of onboarding?.progress?.steps ?? []) {
-      map.set(row.onboarding_step_id, row.data)
-    }
-    return map
-  }, [onboarding?.progress?.steps])
-
   const stepStates = useMemo(() => {
     if (!enabledSteps?.length) return [] as StepIndicatorState[]
     return enabledSteps.map((configStep, index) => {
       const rawStatus = statusByStepId.get(configStep.id) ?? "pending"
       const kind = candidatePostHireScreenKind(configStep)
+      const savedRow = findProgressRowForStep(onboarding?.progress?.steps, configStep)
       const dbStatus = kind
-        ? effectivePostHireProgressStatus(kind, rawStatus, progressDataByStepId.get(configStep.id))
+        ? effectivePostHireProgressStatus(kind, rawStatus, savedRow?.data)
         : rawStatus
       return deriveStepIndicatorState({
         dbStatus,
@@ -169,7 +162,7 @@ export default function OnboardingStepper({
         isRequired: configStep.is_required !== false,
       })
     })
-  }, [enabledSteps, statusByStepId, progressDataByStepId, currentStep])
+  }, [enabledSteps, statusByStepId, onboarding?.progress?.steps, currentStep])
 
   const livePhase: EmploymentLifecyclePhase =
     onboarding?.workflowPhase === "post_hire" || onboarding?.workflowPhase === "completed"
