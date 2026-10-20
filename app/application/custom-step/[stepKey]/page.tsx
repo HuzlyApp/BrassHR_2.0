@@ -191,6 +191,9 @@ export default function CustomOnboardingStepPage() {
     );
   }, [step, isGenericCustom, showCustomForm]);
 
+  // Candidate workflow steps with no separate screen still belong in Your Application.
+  const confirmsWorkflowStep = !waitingGate && !isGenericCustom && !showCustomForm && !isCheckboxStep;
+
   const progressRow = useMemo(() => {
     if (!step) return null;
     const rows = onboarding?.progress?.steps ?? [];
@@ -216,12 +219,12 @@ export default function CustomOnboardingStepPage() {
       data.authorized === true ||
       data.enrollment_decision === "agreed";
 
-    if (isCheckboxStep && (hasCheckboxConfirmed || isCompleted)) {
+    if ((isCheckboxStep || confirmsWorkflowStep) && (hasCheckboxConfirmed || isCompleted)) {
       setAnswer(dynamicCheckboxLabel);
     } else if (typeof data.response === "string" && data.response.trim()) {
       setAnswer(data.response.trim());
     }
-  }, [progressRow, isCheckboxStep, dynamicCheckboxLabel, answer]);
+  }, [progressRow, isCheckboxStep, confirmsWorkflowStep, dynamicCheckboxLabel, answer]);
 
   const shouldRedirectToDedicatedScreen = useMemo(() => {
     if (
@@ -254,7 +257,7 @@ export default function CustomOnboardingStepPage() {
       nav.goNext();
       return;
     }
-    const formVisible = isGenericCustom || showCustomForm || isCheckboxStep;
+    const formVisible = isGenericCustom || showCustomForm || isCheckboxStep || confirmsWorkflowStep;
     const decision = resolveCustomStepContinue({
       formVisible,
       required: settings?.required === true,
@@ -262,7 +265,7 @@ export default function CustomOnboardingStepPage() {
     });
     if (decision.action === "require-answer") {
       setError(
-        isCheckboxStep
+        isCheckboxStep || confirmsWorkflowStep
           ? "Please check the confirmation box to continue."
           : "This step is required. Enter a response before continuing."
       );
@@ -291,7 +294,7 @@ export default function CustomOnboardingStepPage() {
         {
           response: decision.response,
           step_type: step.step_type,
-          ...(isCheckboxStep
+          ...(isCheckboxStep || confirmsWorkflowStep
             ? {
                 checkbox_confirmed: true,
                 checkbox_label: dynamicCheckboxLabel,
@@ -472,8 +475,8 @@ export default function CustomOnboardingStepPage() {
                 </p>
               ) : null}
 
-              {isGenericCustom || showCustomForm || isCheckboxStep ? (
-                isCheckboxStep ? (
+              {isGenericCustom || showCustomForm || isCheckboxStep || confirmsWorkflowStep ? (
+                isCheckboxStep || confirmsWorkflowStep ? (
                   <div className="mt-6">
                     <OnboardingCheckbox
                       alignFirstLine
@@ -520,11 +523,7 @@ export default function CustomOnboardingStepPage() {
                     />
                   </div>
                 )
-              ) : (
-                <p className="mt-6 text-sm text-slate-600">
-                  This step uses a dedicated application screen in your onboarding workflow.
-                </p>
-              )}
+              ) : null}
 
               {error ? <p className="mt-3 text-sm text-red-700">{error}</p> : null}
 
@@ -548,7 +547,7 @@ export default function CustomOnboardingStepPage() {
                     ? "Saving…"
                     : waitingGate
                       ? "View application status"
-                      : isGenericCustom || showCustomForm || isCheckboxStep
+                      : isGenericCustom || showCustomForm || isCheckboxStep || confirmsWorkflowStep
                         ? "Save & continue"
                         : "Continue"}
                 </button>

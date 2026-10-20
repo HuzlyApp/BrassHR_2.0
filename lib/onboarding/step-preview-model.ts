@@ -232,13 +232,17 @@ export function resolveStepPreviewKind(
   ) {
     return "checkbox_confirmation";
   }
-  if (libraryId === "custom-step" || libraryId === "custom-form") return "custom_question";
   if (libraryId === "collect-extra-files") return "document_upload";
   if (libraryId === "collect-references") return "references";
-  if (libraryId === "internal-select") return "custom_question";
   if (step.step_type === "profile_information") return "profile_form";
-  if (step.step_type === "custom_question") {
-    return isApplicantWaitingGateStep(step) ? "waiting_gate" : "custom_question";
+  // Candidate steps with no separate screen use the same confirmation as Your Application.
+  if (
+    libraryId === "custom-step" ||
+    libraryId === "custom-form" ||
+    libraryId === "record-selection" ||
+    step.step_type === "custom_question"
+  ) {
+    return isApplicantWaitingGateStep(step) ? "waiting_gate" : "checkbox_confirmation";
   }
   if (isApplicantWaitingGateStep(step)) return "waiting_gate";
   return "unsupported";

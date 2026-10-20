@@ -2,7 +2,7 @@
 
 import Image from "next/image"
 import { AlertCircle, Check, Lock, Minus } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useSearchParams } from "next/navigation"
 import { useOnboardingConfigOptional } from "@/app/components/onboarding/OnboardingConfigProvider"
 import { routeForApplicantStep } from "@/lib/onboarding/resolve-applicant-step-route"
@@ -117,6 +117,7 @@ export default function OnboardingStepper({
   titleIconAlt,
 }: Props) {
   const branding = useTenantBranding()
+  const stepperScrollRef = useRef<HTMLDivElement>(null)
   const { slug, push } = useOnboardingTenant()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -169,6 +170,13 @@ export default function OnboardingStepper({
       ? "post_hire"
       : "pre_hire"
   const [previewPhase, setPreviewPhase] = useState<EmploymentLifecyclePhase>("pre_hire")
+
+  useEffect(() => {
+    const root = stepperScrollRef.current
+    if (!root) return
+    const current = root.querySelector<HTMLElement>("[data-step-state='current']")
+    current?.scrollIntoView({ inline: "center", block: "nearest" })
+  }, [currentStep, enabledSteps])
 
   if (!enabledSteps?.length) {
     return onboarding?.loading ? (
@@ -278,6 +286,7 @@ export default function OnboardingStepper({
         ) : null}
         <div className="relative mx-auto mt-2 min-w-0 w-full">
           <div
+            ref={stepperScrollRef}
             className="min-w-0 overflow-x-auto overscroll-x-contain pb-1 [scrollbar-width:thin] sm:[&::-webkit-scrollbar]:block [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent max-sm:scrollbar-hide"
             role="region"
             aria-label={phaseCopy.progressLabel}
@@ -293,7 +302,12 @@ export default function OnboardingStepper({
               const step = formatApplicantStepperLabel(configStep.title)
 
               return (
-                <div key={`${configStep.id}-${step}`} className="relative flex flex-[1_0_6.5rem] flex-col items-center max-[399px]:flex-[1_0_5.5rem]">
+                <div
+                  key={`${configStep.id}-${step}`}
+                  data-step-state={state}
+                  data-step-key={configStep.step_key}
+                  className="relative flex flex-[1_0_6.5rem] flex-col items-center max-[399px]:flex-[1_0_5.5rem]"
+                >
                   {index < displaySteps.length - 1 ? (
                     <ConnectorSegment filled={connectorFilled} />
                   ) : null}

@@ -203,6 +203,31 @@ describe("resolve-applicant-step-route", () => {
     )).toBe("/application/add-references");
   });
 
+  it("keeps Your Application on the custom step in the path when stepKey points at an earlier candidate step", () => {
+    const steps = [
+      step({
+        step_key: "professional_license",
+        step_type: "professional_license",
+        title: "License and credential verification",
+        sort_order: 50,
+        metadata: { workflow_step_id: "credential-license-verification" },
+      }),
+      step({
+        step_key: "custom_question_8",
+        step_type: "custom_question",
+        title: "Record selection",
+        sort_order: 80,
+        metadata: { workflow_step_id: "record-selection" },
+      }),
+    ];
+    const current = resolveApplicantStepFromPath(
+      "/application/custom-step/custom_question_8",
+      "?stepKey=professional_license&tenant=zipstaff",
+      steps
+    );
+    expect(current?.title).toBe("Record selection");
+  });
+
   it("resolves current step from stepKey query param", () => {
     const steps = [
       step({ step_key: "resume_upload", step_type: "resume_upload", sort_order: 10 }),
