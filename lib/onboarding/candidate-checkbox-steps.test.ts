@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   candidateCheckboxMessage,
+  I9_SECTION_1_CHECKBOX_LABEL,
   isCandidateCheckboxStep,
   isDirectDepositCheckboxStep,
+  isI9CheckboxStep,
   isPayrollSetupCheckboxStep,
   storedCheckboxQuestions,
 } from "@/lib/onboarding/candidate-checkbox-steps";
@@ -14,6 +16,8 @@ describe("candidate checkbox steps", () => {
     expect(isPayrollSetupCheckboxStep({ metadata: { workflow_step_id: "payroll-profile-creation" } })).toBe(true);
     expect(isPayrollSetupCheckboxStep({ title: "HCM & Payroll Setup" })).toBe(true);
     expect(isCandidateCheckboxStep({ title: "Benefits Enrollment" })).toBe(false);
+    expect(isI9CheckboxStep({ stepType: "i9-right-to-work-verification", title: "I-9 Section 1" })).toBe(true);
+    expect(isI9CheckboxStep({ title: "Collect documents" })).toBe(false);
   });
 
   it("builds the checkbox message from the step title or a saved override", () => {
@@ -47,5 +51,19 @@ describe("candidate checkbox steps", () => {
       },
     ]);
     expect(storedCheckboxQuestions({ response: "typed answer" }, null)).toBeNull();
+    expect(
+      storedCheckboxQuestions(
+        {
+          checkbox_confirmed: true,
+          checkbox_label: I9_SECTION_1_CHECKBOX_LABEL,
+          i9_section_1_confirmed: true,
+        },
+        "2026-10-20T12:49:00.000Z"
+      )?.[0]
+    ).toMatchObject({
+      label: I9_SECTION_1_CHECKBOX_LABEL,
+      answer: "Confirmed",
+      fieldType: "checkbox",
+    });
   });
 });

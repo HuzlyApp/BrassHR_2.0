@@ -10,7 +10,7 @@ import {
   type EnrollmentDecision,
 } from "@/lib/onboarding/enrollment-decision-step";
 import { workflowStepIdToOnboardingType } from "@/lib/onboarding/workflow-step-mapping";
-import { storedCheckboxQuestions } from "@/lib/onboarding/candidate-checkbox-steps";
+import { storedCheckboxQuestions, isI9CheckboxStep, I9_SECTION_1_CHECKBOX_LABEL } from "@/lib/onboarding/candidate-checkbox-steps";
 import {
   postHireScreenKindForStepId,
   readPostHireSubmission,
@@ -890,6 +890,14 @@ export async function loadCandidateWorkflowStepInspection(
   }
   mapped.displayStatus = candidateReviewDisplayStatus(mapped);
 
+  const i9CheckboxStep = isI9CheckboxStep({
+    stepKey: mapped.stepKey,
+    stepType: mapped.stepType,
+    snapshotStepId: mapped.snapshotStepId,
+    title: mapped.title,
+    metadata: tenantStep?.metadata ?? { workflow_step_id: mapped.stepType },
+  });
+
   const documentUploadsBase = buildStepDocumentUploads({
     workerId,
     stepType: mapped.stepType,
@@ -915,7 +923,9 @@ export async function loadCandidateWorkflowStepInspection(
     candidateOwned: !staffAction.allowed && Boolean(mappedTenantStepId),
     uploads: documentUploadsBase,
   });
-  const documentUploads = professionUploads.uploads;
+  const documentUploads = i9CheckboxStep
+    ? { ...professionUploads.uploads, slots: [], missingRequired: [], canUpload: false, canCompleteForCandidate: false }
+    : professionUploads.uploads;
   if (professionUploads.files.length) {
     const extraStaff = await loadStaffMembers(
       supabase,
@@ -971,6 +981,7 @@ export async function loadCandidateWorkflowStepInspection(
 
   let extraFiles: InspectableExtraFile[] | null = null;
   if (
+    !i9CheckboxStep &&
     stepShowsProfessionDocuments({
       stepType: mapped.stepType,
       stepKey: mapped.stepKey,
@@ -1040,6 +1051,18 @@ export async function loadCandidateWorkflowStepInspection(
     };
   } else if (checkboxQuestions) {
     form = { questions: checkboxQuestions };
+  } else if (i9CheckboxStep && (mapped.status === "completed" || progress?.completed_at != null)) {
+    form = {
+      questions: [
+        {
+          label: asText(progressData.checkbox_label) || I9_SECTION_1_CHECKBOX_LABEL,
+          fieldType: "checkbox",
+          answer: "Confirmed",
+          submittedAt: responseSubmittedAt,
+          reviewResult: null,
+        },
+      ],
+    };
   } else if (!form && phase === "post_hire" && progressData && Object.keys(progressData).length > 0) {
     const IGNORED_KEYS = new Set([
       "step_type",
@@ -1195,7 +1218,7 @@ export async function loadCandidateWorkflowStepInspection(
     (id): id is string => Boolean(id)
   );
 
-  if (isAgreementStep || (kind === "background_check" && sessionStepIds.length)) {
+  if (!i9CheckboxStep && (isAgreementStep || (kind === "background_check" && sessionStepIds.length))) {
     let query = supabase
       .from("worker_firma_signing_sessions")
       .select(

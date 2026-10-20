@@ -29,6 +29,7 @@ import { isOfferAcceptanceStepType } from "@/lib/onboarding/offer-acceptance";
 import { isEnrollmentDecisionStep } from "@/lib/onboarding/enrollment-decision-step";
 import {
   candidateCheckboxMessage,
+  I9_SECTION_1_CHECKBOX_LABEL,
   isCandidateCheckboxStep,
   isDirectDepositCheckboxStep,
   isPayrollSetupCheckboxStep,
@@ -123,7 +124,7 @@ export default function CustomOnboardingStepPage() {
     const lowerTitle = title.toLowerCase();
 
     if (isI9Section1Step(step)) {
-      return "I confirm that I have completed Section 1 of Form I-9 and that the information provided is true and accurate to the best of my knowledge.";
+      return I9_SECTION_1_CHECKBOX_LABEL;
     }
     if (key.includes("benefit") || id.includes("benefit") || lowerTitle.includes("benefit")) {
       return "I confirm that I have completed Benefits Enrollment / Selection.";
