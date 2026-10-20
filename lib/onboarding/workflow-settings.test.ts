@@ -36,6 +36,13 @@ describe("resolveCompletionOwner", () => {
     expect(resolveCompletionOwner("applicant", "recruiter-screening")).toBe("recruiter_or_hr");
     expect(resolveCompletionOwner("applicant", "reference-verification")).toBe("recruiter_or_hr");
     expect(resolveCompletionOwner("applicant", "manual-task-hr-action")).toBe("recruiter_or_hr");
+    expect(resolveCompletionOwner("applicant", "interview-qualification")).toBe("recruiter_or_hr");
+    expect(resolveCompletionOwner("applicant", "follow-up-interview")).toBe("recruiter_or_hr");
+    expect(resolveCompletionOwner("applicant", "internal-select")).toBe("recruiter_or_hr");
+    expect(resolveCompletionOwner("applicant", "submit-to-msp")).toBe("recruiter_or_hr");
+    expect(resolveCompletionOwner("applicant", "submit-to-client")).toBe("recruiter_or_hr");
+    expect(resolveCompletionOwner("applicant", "manager-facility-approval")).toBe("recruiter_or_hr");
+    expect(resolveCompletionOwner("applicant", "release-to-client")).toBe("recruiter_or_hr");
   });
 
   it("leaves the applicant's review step on Candidate", () => {
