@@ -201,6 +201,52 @@ describe("buildStepPreviewModel", () => {
     expect(model?.settings.completionOwner).toBe("hr_admin");
   });
 
+  it("lists the same candidate steps as Your Application and highlights the previewed step", () => {
+    const resume = stepNode("n-resume", "resume-basic-profile", {
+      label: "Resume and profile",
+      settings: { ...DEFAULT_STEP_SETTINGS, phase: "pre_hire", completionOwner: "applicant" },
+    });
+    const internal = stepNode("n-internal", "internal-select", {
+      label: "Internal selection",
+      settings: { ...DEFAULT_STEP_SETTINGS, phase: "pre_hire", completionOwner: "recruiter_or_hr" },
+    });
+    const license = stepNode("n-license", "credential-license-verification", {
+      label: "License and credential verification",
+      settings: { ...DEFAULT_STEP_SETTINGS, phase: "pre_hire", completionOwner: "applicant" },
+    });
+    const record = stepNode("n-record", "record-selection", {
+      label: "Record selection",
+      description: "Record the hire selection.",
+      settings: { ...DEFAULT_STEP_SETTINGS, phase: "pre_hire", completionOwner: "applicant" },
+    });
+    const model = buildStepPreviewModel(stateFor([resume, internal, license, record]), record);
+    expect(model?.kind).toBe("checkbox_confirmation");
+    expect(model?.isApplicantFacing).toBe(true);
+    expect(model?.preHireSteps.map((step) => step.title)).toEqual([
+      "Resume and profile",
+      "License and credential verification",
+      "Record selection",
+    ]);
+    expect(model?.preHireSteps.find((step) => step.current)?.title).toBe("Record selection");
+    expect(resolveStepPreviewKind(
+      {
+        id: "internal",
+        step_key: "custom_question",
+        title: "Internal selection",
+        description: null,
+        step_type: "custom_question",
+        sort_order: 10,
+        is_required: true,
+        is_enabled: true,
+        metadata: {
+          workflow_step_id: "internal-select",
+          workflow_settings: { phase: "pre_hire", completionOwner: "recruiter_or_hr" },
+        },
+      },
+      "internal-select"
+    )).toBe("waiting_gate");
+  });
+
   it("splits Pre-Hire and Post-Hire steps into independent preview counts", () => {
     const pre = stepNode("n-pre", "resume-basic-profile", {
       label: "Resume",
