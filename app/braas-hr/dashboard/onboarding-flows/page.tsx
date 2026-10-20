@@ -807,11 +807,15 @@ function TrashIcon() {
 type FlowCardProps = {
   flow: OnboardingFlow;
   builderHref: string;
+  viewHref: string;
   deleting?: boolean;
   onDelete: (flow: OnboardingFlow) => void;
 };
 
-function FlowCard({ flow, builderHref, deleting = false, onDelete }: FlowCardProps) {
+const flowActionClass =
+  "inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-[color:var(--brand-primary)] transition hover:bg-[color-mix(in_srgb,var(--brand-primary)_10%,white)]";
+
+function FlowCard({ flow, builderHref, viewHref, deleting = false, onDelete }: FlowCardProps) {
   const published = flow.status === "published";
 
   return (
@@ -824,8 +828,8 @@ function FlowCard({ flow, builderHref, deleting = false, onDelete }: FlowCardPro
     >
       <Link
         href={builderHref}
-        className="flex min-w-0 flex-1 items-center gap-3 pr-24 sm:gap-4"
-        aria-label={`Open ${flow.name} in builder`}
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 pr-24 sm:gap-4"
+        aria-label={`Edit ${flow.name}`}
       >
         <div
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg sm:h-11 sm:w-11"
@@ -847,13 +851,14 @@ function FlowCard({ flow, builderHref, deleting = false, onDelete }: FlowCardPro
         </div>
       </Link>
 
-      <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-2 sm:right-4">
-        <div
-          className="pointer-events-none flex h-[14px] w-[36px] items-center gap-2 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100"
-          aria-hidden
-        >
-          <EyeIcon />
-          <EditIcon />
+      <div className="pointer-events-none absolute right-3 top-1/2 z-10 flex -translate-y-1/2 items-center gap-1 sm:right-4">
+        <div className="pointer-events-auto flex items-center opacity-100 transition-opacity md:pointer-events-none md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:opacity-100 md:group-focus-within:pointer-events-auto md:group-focus-within:opacity-100">
+          <Link href={viewHref} className={flowActionClass} aria-label={`View ${flow.name}`} title="View workflow">
+            <EyeIcon />
+          </Link>
+          <Link href={builderHref} className={flowActionClass} aria-label={`Edit ${flow.name}`} title="Edit workflow">
+            <EditIcon />
+          </Link>
         </div>
         <button
           type="button"
@@ -861,7 +866,7 @@ function FlowCard({ flow, builderHref, deleting = false, onDelete }: FlowCardPro
           title="Delete workflow"
           disabled={deleting}
           onClick={() => onDelete(flow)}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[#B42318] transition hover:bg-[#FEF3F2] disabled:cursor-not-allowed disabled:opacity-50"
+          className="pointer-events-auto inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-[#B42318] transition hover:bg-[#FEF3F2] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <TrashIcon />
         </button>
@@ -1163,6 +1168,7 @@ function OnboardingFlowsPageContent({
                 key={flow.id}
                 flow={flow}
                 builderHref={`${builderBase}?flow=${flow.id}`}
+                viewHref={`${builderBase}?flow=${flow.id}&view=1`}
                 deleting={deletingFlowId === flow.id}
                 onDelete={(target) => void handleDeleteFlow(target)}
               />
