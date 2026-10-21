@@ -28,6 +28,7 @@ export function HireStageStepper({ stages }: { stages: HireStageGroup[] }) {
                     src={PRE_HIRE_UI_ICONS.stageCheckFilled}
                     width={ICON_PX}
                     height={ICON_PX}
+                    tint="var(--hj-stepper, var(--brand-primary))"
                     className="relative z-10 block"
                   />
                 ) : current ? (
@@ -35,6 +36,7 @@ export function HireStageStepper({ stages }: { stages: HireStageGroup[] }) {
                     src={PRE_HIRE_UI_ICONS.stepperCurrent}
                     width={ICON_PX}
                     height={ICON_PX}
+                    tint="var(--hj-stepper, var(--brand-primary))"
                     className="relative z-10 block"
                   />
                 ) : (
@@ -46,7 +48,7 @@ export function HireStageStepper({ stages }: { stages: HireStageGroup[] }) {
                 )}
                 <span
                   className="absolute left-1/2 top-full mt-2 -translate-x-1/2 whitespace-nowrap text-center text-[11px] font-medium leading-tight sm:text-xs"
-                  style={{ color: upcoming ? "#9CA3AF" : "var(--brand-primary)" }}
+                  style={{ color: upcoming ? "#9CA3AF" : "var(--hj-stepper, var(--brand-primary))" }}
                 >
                   {stage.name}
                 </span>
@@ -59,7 +61,9 @@ export function HireStageStepper({ stages }: { stages: HireStageGroup[] }) {
                     width: LINE_W,
                     height: LINE_H,
                     marginTop: (ICON_PX - LINE_H) / 2,
-                    backgroundColor: connectorFilled ? "var(--brand-primary)" : "#E5E7EB",
+                    backgroundColor: connectorFilled
+                      ? "var(--hj-stepper, var(--brand-primary))"
+                      : "#E5E7EB",
                   }}
                   aria-hidden
                 />

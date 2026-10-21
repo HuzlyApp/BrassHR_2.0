@@ -32,7 +32,7 @@ function SidebarIconTile({
   return (
     <span
       className="relative inline-flex h-[50px] w-[50px] shrink-0 items-center justify-center overflow-hidden rounded-xl"
-      style={{ backgroundColor: "var(--brand-secondary)" }}
+      style={{ backgroundColor: "var(--hj-icon, var(--brand-secondary))" }}
     >
       <HireFigmaIcon src={src} alt={alt} width={iconWidth} height={iconHeight} />
     </span>
