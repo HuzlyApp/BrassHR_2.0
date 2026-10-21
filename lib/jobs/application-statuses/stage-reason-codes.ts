@@ -1,3 +1,31 @@
+import { selectWorkflowScopedLaneRows } from "./stage-status-lanes";
+
+/** Alternate and closing each keep their own reason codes. */
+export const REASON_CODE_LANES = ["alternate", "closed"] as const;
+
+export type ReasonCodeLane = (typeof REASON_CODE_LANES)[number];
+
+export function normalizeReasonCodeLane(value: string | null | undefined): ReasonCodeLane | null {
+  if (value === "alternate" || value === "closed") return value;
+  return null;
+}
+
+/** Missing lane is the closing list. That is where the original shared codes belong. */
+export function reasonCodeLaneOf(value: string | null | undefined): ReasonCodeLane {
+  return value === "alternate" ? "alternate" : "closed";
+}
+
+/**
+ * Reason codes for one action. A workflow list wins for that action only,
+ * so closing codes do not replace the alternate list.
+ */
+export function reasonCodesForLane<
+  T extends { code: string; workflowId?: string | null; lane?: string | null },
+>(rows: readonly T[], workflowId: string | null | undefined, lane: ReasonCodeLane): string[] {
+  const laneRows = rows.filter((row) => reasonCodeLaneOf(row.lane) === lane);
+  return selectWorkflowScopedLaneRows(laneRows, workflowId).rows.map((row) => row.code);
+}
+
 /** Closing reason codes from the pre-hire status sheet. Tenant default until a workflow overrides them. */
 
 export const DEFAULT_STAGE_REASON_CODES: Record<string, readonly string[]> = {

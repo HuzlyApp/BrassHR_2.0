@@ -108,8 +108,8 @@ export async function GET() {
  * - { action: "unassign", stageName, groupId }
  * - { action: "setLanes", stageName, workflowId?, lanes: { happy_path, alternate, closed } }
  * - { action: "setButtonLabels", alternateLabel, closedLabel }
- * - { action: "setReasonCodes", stageName, workflowId?, codes: string[] }
- * - { action: "addReasonCode", stageName, workflowId?, code }
+ * - { action: "setReasonCodes", stageName, workflowId?, lane: "alternate" | "closed", codes: string[] }
+ * - { action: "addReasonCode", stageName, workflowId?, lane: "alternate" | "closed", code }
  * - { action: "findOrCreateNote", stageName, workflowId?, note }
  */
 export async function PUT(req: NextRequest) {
@@ -133,6 +133,7 @@ export async function PUT(req: NextRequest) {
       workflowId?: unknown;
       codes?: unknown;
       code?: unknown;
+      lane?: unknown;
       note?: unknown;
       alternateLabel?: unknown;
       closedLabel?: unknown;
@@ -142,6 +143,7 @@ export async function PUT(req: NextRequest) {
     const stageName = typeof body?.stageName === "string" ? body.stageName : "";
     const groupId = typeof body?.groupId === "string" ? body.groupId : "";
     const workflowId = typeof body?.workflowId === "string" ? body.workflowId.trim() : "";
+    const lane = typeof body?.lane === "string" ? body.lane : "";
 
     if (action === "setReasonCodes") {
       if (!stageName) {
@@ -155,6 +157,7 @@ export async function PUT(req: NextRequest) {
         stageName,
         codes,
         workflowId: workflowId || null,
+        lane,
       });
       await writeActivityLog({
         actorUserId: auth.userId,
@@ -162,7 +165,7 @@ export async function PUT(req: NextRequest) {
         entityType: "application_status_stage",
         entityId: stageName,
         tenantId,
-        metadata: { stageName, workflowId: workflowId || null, codes },
+        metadata: { stageName, workflowId: workflowId || null, lane, codes },
         request: req,
       });
       return NextResponse.json({ reasonCodes: saved });
@@ -178,6 +181,7 @@ export async function PUT(req: NextRequest) {
         stageName,
         code,
         workflowId: workflowId || null,
+        lane,
       });
       await writeActivityLog({
         actorUserId: auth.userId,
@@ -185,7 +189,7 @@ export async function PUT(req: NextRequest) {
         entityType: "application_status_stage",
         entityId: stageName,
         tenantId,
-        metadata: { stageName, workflowId: workflowId || null, code, created: saved.created },
+        metadata: { stageName, workflowId: workflowId || null, lane, code, created: saved.created },
         request: req,
       });
       return NextResponse.json({ reasonCodes: saved.reasonCodes, created: saved.created });
