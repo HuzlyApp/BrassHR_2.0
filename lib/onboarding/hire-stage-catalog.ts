@@ -241,6 +241,23 @@ function normalizeStepKey(stepKey: string | null | undefined): string[] {
   return bare === key ? [key] : [key, bare];
 }
 
+/** Canvas chip: "Pre-Hire - Offer & Agreement". Phase only when the stage is unknown. */
+export function canvasStepPhaseStageLabel(input: {
+  phase: unknown;
+  stepKey: string | null | undefined;
+  stageName?: string | null;
+}): string {
+  const lifecycle = hireLifecycleForPhase(input.phase);
+  const phaseLabel = lifecycle === "post_hire" ? "Post-Hire" : "Pre-Hire";
+  const explicit = String(input.stageName ?? "").trim();
+  const stage =
+    explicit && (!lifecycle || hireStageFitsLifecycle(explicit, lifecycle))
+      ? explicit
+      : hireStageForStepKey(input.stepKey, lifecycle);
+  if (!stage) return phaseLabel;
+  return `${phaseLabel} - ${stage}`;
+}
+
 /**
  * Library stage for a step key. With a lifecycle, only returns a stage on that phase's board,
  * so a Pre-Hire library step placed in Post-Hire never resolves to a Pre-Hire stage.

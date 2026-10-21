@@ -14,6 +14,7 @@ import {
   stepStatusPill,
 } from "@/lib/onboarding/assigned-workflow-steps";
 import { STEP_PILL_TONE_CLASSES } from "@/lib/onboarding/interview-step";
+import { hireStageSummaryPartColor } from "@/lib/tenant/hire-journey-theme";
 import type { HireStageGroup } from "@/lib/onboarding/hire-stage-groups";
 import {
   HireFigmaIcon,
@@ -70,15 +71,7 @@ function SummaryText({ summary }: { summary: string }) {
   return (
     <>
       {summary.split(/(•)/).map((part, i) => (
-        <span
-          key={`${i}-${part}`}
-          style={{
-            color:
-              /\bIn Progress\b/i.test(part) && !/\bCurrent Step\b/i.test(part)
-                ? "var(--hj-icon, var(--brand-secondary))"
-                : "var(--hj-progress-bg, var(--brand-primary))",
-          }}
-        >
+        <span key={`${i}-${part}`} style={{ color: hireStageSummaryPartColor(part) }}>
           {part}
         </span>
       ))}

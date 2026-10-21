@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   hireJourneyOverrideForSave,
+  hireStageSummaryPartColor,
   parseHireJourneyTheme,
   resolveHireJourneyTheme,
 } from "./hire-journey-theme";
@@ -27,6 +28,15 @@ describe("hire journey theme", () => {
     expect(theme.progressBackgroundColor).toBe("#BE3B14");
     expect(theme.stepperIconColor).toBe("#104B83");
     expect(theme.stepIconColor).toBe("#0F766E");
+  });
+
+  it("colors stage summary words from branding and journey settings", () => {
+    expect(hireStageSummaryPartColor("4 Submitted")).toBe("var(--brand-primary)");
+    expect(hireStageSummaryPartColor("2 Completed")).toBe("var(--hj-complete, #12AA00)");
+    expect(hireStageSummaryPartColor(" Current Step")).toBe("var(--brand-primary)");
+    expect(hireStageSummaryPartColor("1 In Progress ")).toBe(
+      "var(--hj-progress-bg, var(--brand-primary))"
+    );
   });
 
   it("stores nothing when the chosen color is still the default", () => {
