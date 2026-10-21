@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   collectUsedLibrarySteps,
+  countLibraryMatches,
   excludeUsedLibrarySteps,
   filterStepLibrary,
   flattenStepLibrary,
@@ -127,6 +128,35 @@ describe("excludeUsedLibrarySteps", () => {
     ];
     const filtered = excludeUsedLibrarySteps(offerLibrary, ["pay-and-start-date"]);
     expect(flattenStepLibrary(filtered).map((s) => s.id)).toEqual(["offer-prep"]);
+  });
+
+  it("keeps a stage visible and empty when every step in it is already used", () => {
+    const filtered = excludeUsedLibrarySteps(
+      library,
+      ["document-upload", "tax-forms", "policy-acknowledgment"],
+      { retainEmptyCategories: true }
+    );
+    const documentStage = filtered.find((category) => category.id === "document-esign");
+    expect(documentStage?.steps).toEqual([]);
+    expect(documentStage?.takenSteps?.map((step) => step.id)).toEqual([
+      "document-upload",
+      "tax-forms",
+      "policy-acknowledgment",
+    ]);
+    expect(filtered.some((category) => category.id === "application-profile")).toBe(true);
+    expect(flattenStepLibrary(filtered).map((step) => step.id)).not.toContain("tax-forms");
+  });
+
+  it("keeps an emptied stage in search results for a step that was already used", () => {
+    const available = excludeUsedLibrarySteps(
+      library,
+      ["document-upload", "tax-forms", "policy-acknowledgment"],
+      { retainEmptyCategories: true }
+    );
+    const filtered = filterStepLibrary(available, "tax");
+    expect(filtered.map((category) => category.id)).toEqual(["document-esign"]);
+    expect(filtered[0]?.steps).toEqual([]);
+    expect(countLibraryMatches(filtered)).toBe(1);
   });
 
   it("hides library rows by matching canvas labels when ids diverge", () => {
