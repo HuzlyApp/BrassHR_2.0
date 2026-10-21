@@ -1,13 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
 import DetailedCandidateHeader from "../../../components/DetailedCandidateHeader";
 import DetailedTabs from "../../../components/DetailedTabs";
-import CandidateWorkflowPhasePanel from "../../../components/CandidateWorkflowPhasePanel";
+import HireJourneyClient from "@/app/admin_recruiter/candidates/[workerId]/hire-journey/HireJourneyClient";
 import type { CandidateWorkflowPhaseView } from "@/lib/onboarding/candidate-workflow-phase-view";
-import { POST_HIRE_UNASSIGNED_MESSAGE } from "@/lib/onboarding/assigned-workflow-steps";
-import { countsForPhase } from "@/lib/onboarding/workflow-phase-groups";
 
 type ProfilePayload = {
   worker?: {
@@ -77,11 +76,23 @@ export default function CandidatePostHirePage() {
 
   const worker = profile?.worker;
   const name = `${worker?.first_name ?? ""} ${worker?.last_name ?? ""}`.trim();
-  const postHire = view?.postHire ?? null;
 
   return (
     <div className="admin-recruiter-page-pad">
       <div className="admin-recruiter-content-width">
+        <DetailedTabs
+          applicantId={applicantId}
+          activeTab="Post-Hire"
+          workerStatus={worker?.status}
+          workflowView={view}
+        />
+
+        {error ? (
+          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            {error}
+          </div>
+        ) : null}
+
         <DetailedCandidateHeader
           name={name}
           role={worker?.job_role ?? ""}
@@ -91,26 +102,26 @@ export default function CandidatePostHirePage() {
           workerId={applicantId}
           candidateEmail={worker?.email}
         />
-        <DetailedTabs
-          applicantId={applicantId}
-          activeTab="Post-Hire"
-          workerStatus={worker?.status}
-          workflowView={view}
-        />
-        <CandidateWorkflowPhasePanel
-          workerId={applicantId}
-          phase="post_hire"
-          assigned={postHire?.assigned ?? false}
-          loading={loading && !view}
-          error={error}
-          progress={postHire?.progress ?? countsForPhase(0, 0, "post_hire")}
-          steps={postHire?.steps ?? []}
-          documents={postHire?.documents ?? []}
-          assignment={postHire?.assignment}
-          emptyAssignedMessage={POST_HIRE_UNASSIGNED_MESSAGE}
-          activationFailed={Boolean(view?.postHireVisible && view.postHireActivationFailed)}
-          onWorkflowChanged={() => void load()}
-        />
+
+        {loading && !view && !error ? (
+          <div className="mt-4 flex items-center gap-2 rounded-xl border border-[#E5E7EB] bg-white px-4 py-6 text-sm text-[#667085]">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading hiring journey…
+          </div>
+        ) : null}
+
+        {applicantId && view?.postHireVisible ? (
+          <Suspense
+            fallback={
+              <div className="mt-4 flex items-center gap-2 rounded-xl border border-[#E5E7EB] bg-white px-4 py-6 text-sm text-[#667085]">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading hiring journey…
+              </div>
+            }
+          >
+            <HireJourneyClient workerId={applicantId} embeddedPhase="post_hire" />
+          </Suspense>
+        ) : null}
       </div>
     </div>
   );

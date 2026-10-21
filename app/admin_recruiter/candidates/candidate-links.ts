@@ -31,6 +31,11 @@ export function candidateFinalApprovalHref(workerId: string) {
   return `/admin_recruiter/new/final-approval/${encodeURIComponent(workerId)}`;
 }
 
+/** Pre-Hire tab on the recruiter candidate detail screen. Shows the hiring journey. */
+export function candidateDetailPreHireHref(workerId: string) {
+  return `/admin_recruiter/new/pre-hire/${encodeURIComponent(workerId)}`;
+}
+
 /** AI Analysis tab on the recruiter candidate detail screen (new/profile flow). */
 export function candidateDetailAiAnalysisHref(
   workerId: string,
