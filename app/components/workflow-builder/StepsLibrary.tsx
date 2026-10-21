@@ -240,20 +240,29 @@ export default function StepsLibrary({
                 </header>
 
                 {!isCollapsed ? (
-                  <ul
-                    className={`flex flex-col gap-1.5 p-2 ${customStepsCategory ? "bg-white" : ""}`}
-                  >
-                    {cat.steps.map((step) => (
-                      <li key={step.id}>
-                        <StepLibraryItem
-                          step={step}
-                          categoryId={cat.id}
-                          categoryLabel={cat.label}
-                          readOnly={readOnly}
-                        />
-                      </li>
-                    ))}
-                  </ul>
+                  cat.steps.length === 0 ? (
+                    <p
+                      className="px-2.5 py-2 font-[Inter,sans-serif] text-[12px] leading-4"
+                      style={{ color: TEXT_SECONDARY }}
+                    >
+                      No steps left
+                    </p>
+                  ) : (
+                    <ul
+                      className={`flex flex-col gap-1.5 p-2 ${customStepsCategory ? "bg-white" : ""}`}
+                    >
+                      {cat.steps.map((step) => (
+                        <li key={step.id}>
+                          <StepLibraryItem
+                            step={step}
+                            categoryId={cat.id}
+                            categoryLabel={cat.label}
+                            readOnly={readOnly}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  )
                 ) : null}
               </section>
             );

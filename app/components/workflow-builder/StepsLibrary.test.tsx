@@ -108,4 +108,23 @@ describe("StepsLibrary search", () => {
     await user.clear(screen.getByRole("searchbox", { name: "Search steps" }));
     expect(screen.getByText("Tax Forms (W-4 / State)")).toBeTruthy();
   });
+
+  it("shows a stage heading after every step from that stage is already used", () => {
+    render(
+      <StepsLibrary
+        categories={[
+          ...categories,
+          {
+            id: "offer-agreement",
+            label: "Offer and agreement",
+            steps: [],
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByText("Offer and agreement")).toBeTruthy();
+    expect(screen.getByText("No steps left")).toBeTruthy();
+    expect(screen.getByText("Resume & Basic Profile")).toBeTruthy();
+  });
 });

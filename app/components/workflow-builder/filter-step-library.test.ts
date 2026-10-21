@@ -149,6 +149,27 @@ describe("excludeUsedLibrarySteps", () => {
       usedLabels: ["Offer prep", "Manager approval"],
     });
     expect(flattenStepLibrary(filtered).map((s) => s.id)).toEqual([]);
+    expect(filtered.some((category) => category.id === "offer-agreement")).toBe(false);
+  });
+
+  it("keeps an empty stage when the library should still show the heading", () => {
+    const offerLibrary: StepCategory[] = [
+      {
+        id: "offer-agreement",
+        label: "Offer and agreement",
+        steps: [
+          { id: "offer-prep", label: "Offer prep", icon: null },
+          { id: "manager-approval", label: "Manager approval", icon: null },
+        ],
+      },
+    ];
+    const filtered = excludeUsedLibrarySteps(
+      offerLibrary,
+      ["offer-prep", "manager-approval"],
+      { keepEmptyCategories: true }
+    );
+    expect(filtered.map((category) => category.id)).toEqual(["offer-agreement"]);
+    expect(filtered[0]?.steps).toEqual([]);
   });
 });
 
