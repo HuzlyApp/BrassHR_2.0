@@ -16,9 +16,12 @@ import {
 } from "./stage-assignments";
 import {
   DEFAULT_STAGE_REASON_CODES,
+  REASON_CODE_LANES,
   codesForScopedAppend,
+  isReasonCodeLane,
   normalizeReasonCode,
   parseReasonCodeList,
+  type ReasonCodeLane,
 } from "./stage-reason-codes";
 import {
   STAGE_STATUS_LANES,
@@ -1496,6 +1499,7 @@ export type ApplicationStatusStageReasonCodeRecord = {
   sortOrder: number;
   workflowId: string | null;
   note: string | null;
+  lane: ReasonCodeLane;
 };
 
 type ReasonCodeRow = {
@@ -1506,12 +1510,13 @@ type ReasonCodeRow = {
   sort_order: number;
   workflow_id?: string | null;
   note?: string | null;
+  lane?: string | null;
 };
 
 function mapReasonCode(row: ReasonCodeRow): ApplicationStatusStageReasonCodeRecord | null {
   if (!isAssignableStatusStageName(row.stage_name)) return null;
   const code = row.code.trim();
-  if (!code) return null;
+  if (!code || !isReasonCodeLane(row.lane)) return null;
   return {
     id: row.id,
     tenantId: row.tenant_id,
@@ -1520,6 +1525,7 @@ function mapReasonCode(row: ReasonCodeRow): ApplicationStatusStageReasonCodeReco
     sortOrder: row.sort_order,
     workflowId: row.workflow_id ?? null,
     note: row.note?.trim() || null,
+    lane: row.lane,
   };
 }
 
@@ -1539,14 +1545,17 @@ export async function listApplicationStatusStageReasonCodes(
     throw existing.error;
   }
   if ((existing.data ?? []).length === 0) {
-    const seed = Object.entries(DEFAULT_STAGE_REASON_CODES).flatMap(([stageName, codes]) =>
-      codes.map((code, sortOrder) => ({
-        tenant_id: tenantId,
-        stage_name: stageName,
-        code,
-        sort_order: sortOrder,
-        workflow_id: null,
-      }))
+    const seed = REASON_CODE_LANES.flatMap((lane) =>
+      Object.entries(DEFAULT_STAGE_REASON_CODES).flatMap(([stageName, codes]) =>
+        codes.map((code, sortOrder) => ({
+          tenant_id: tenantId,
+          stage_name: stageName,
+          code,
+          sort_order: sortOrder,
+          workflow_id: null,
+          lane,
+        }))
+      )
     );
     if (seed.length > 0) {
       const { error: seedError } = await supabase
@@ -1558,7 +1567,7 @@ export async function listApplicationStatusStageReasonCodes(
 
   const { data, error } = await supabase
     .from("application_status_stage_reason_codes")
-    .select("id, tenant_id, stage_name, code, sort_order, workflow_id, note")
+    .select("id, tenant_id, stage_name, code, sort_order, workflow_id, note, lane")
     .eq("tenant_id", tenantId)
     .order("stage_name", { ascending: true })
     .order("sort_order", { ascending: true });
@@ -1575,12 +1584,17 @@ export async function replaceApplicationStatusStageReasonCodes(
     stageName: string;
     codes: string[];
     workflowId?: string | null;
+    lane: ReasonCodeLane;
   }
 ): Promise<ApplicationStatusStageReasonCodeRecord[]> {
   if (!isAssignableStatusStageName(input.stageName)) {
     throw new ApplicationStatusError(`Unknown stage: ${input.stageName}`, "VALIDATION");
   }
+  if (!isReasonCodeLane(input.lane)) {
+    throw new ApplicationStatusError("Choose Alternate or Closing for these reason codes.", "VALIDATION");
+  }
   const workflowId = input.workflowId?.trim() || null;
+  const lane = input.lane;
   await assertWorkflowInTenant(supabase, input.tenantId, workflowId);
   const codes = parseReasonCodeList(input.codes);
   if (codes.length > 30) {
@@ -1595,7 +1609,12 @@ export async function replaceApplicationStatusStageReasonCodes(
   const prior = await listApplicationStatusStageReasonCodes(supabase, input.tenantId);
   const noteByCode = new Map(
     prior
-      .filter((row) => row.stageName === input.stageName && (row.workflowId ?? null) === workflowId)
+      .filter(
+        (row) =>
+          row.stageName === input.stageName &&
+          row.lane === lane &&
+          (row.workflowId ?? null) === workflowId
+      )
       .map((row) => [row.code.trim().toLowerCase(), row.note])
   );
 
@@ -1603,7 +1622,8 @@ export async function replaceApplicationStatusStageReasonCodes(
     .from("application_status_stage_reason_codes")
     .delete()
     .eq("tenant_id", input.tenantId)
-    .eq("stage_name", input.stageName);
+    .eq("stage_name", input.stageName)
+    .eq("lane", lane);
   deleteQuery = workflowId ? deleteQuery.eq("workflow_id", workflowId) : deleteQuery.is("workflow_id", null);
   const { error: deleteError } = await deleteQuery;
   if (deleteError) throw deleteError;
@@ -1616,6 +1636,7 @@ export async function replaceApplicationStatusStageReasonCodes(
         sort_order: sortOrder,
         workflow_id: workflowId,
         note: noteByCode.get(code.trim().toLowerCase()) ?? null,
+        lane,
       }))
     );
     if (insertError) throw insertError;
@@ -1630,15 +1651,20 @@ export async function appendApplicationStatusStageReasonCode(
     stageName: string;
     code: string;
     workflowId?: string | null;
+    lane: ReasonCodeLane;
   }
 ): Promise<{ reasonCodes: ApplicationStatusStageReasonCodeRecord[]; created: boolean }> {
+  if (!isReasonCodeLane(input.lane)) {
+    throw new ApplicationStatusError("Choose Alternate or Closing for these reason codes.", "VALIDATION");
+  }
   const workflowId = input.workflowId?.trim() || null;
+  const lane = input.lane;
   const code = normalizeReasonCode(input.code);
   if (!code) {
     throw new ApplicationStatusError("Enter a reason code.", "VALIDATION");
   }
   const existing = await listApplicationStatusStageReasonCodes(supabase, input.tenantId);
-  const stageRows = existing.filter((row) => row.stageName === input.stageName);
+  const stageRows = existing.filter((row) => row.stageName === input.stageName && row.lane === lane);
   const targetRows = stageRows.filter((row) => (row.workflowId ?? null) === workflowId);
   const alreadyThere = targetRows.some((row) => row.code.toLowerCase() === code.toLowerCase());
   if (alreadyThere) {
@@ -1649,6 +1675,7 @@ export async function appendApplicationStatusStageReasonCode(
     tenantId: input.tenantId,
     stageName: input.stageName,
     workflowId,
+    lane,
     codes,
   });
   return { reasonCodes, created: true };

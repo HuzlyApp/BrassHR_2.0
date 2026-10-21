@@ -22,6 +22,7 @@ import {
   unassignGroupFromPreHireStage,
   type StageStatusLane,
 } from "@/lib/jobs/application-statuses";
+import { isReasonCodeLane } from "@/lib/jobs/application-statuses/stage-reason-codes";
 import { resolveStaffTenantId } from "@/lib/jobs/tenant";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
@@ -108,8 +109,8 @@ export async function GET() {
  * - { action: "unassign", stageName, groupId }
  * - { action: "setLanes", stageName, workflowId?, lanes: { happy_path, alternate, closed } }
  * - { action: "setButtonLabels", alternateLabel, closedLabel }
- * - { action: "setReasonCodes", stageName, workflowId?, codes: string[] }
- * - { action: "addReasonCode", stageName, workflowId?, code }
+ * - { action: "setReasonCodes", stageName, workflowId?, lane: "alternate" | "closed", codes: string[] }
+ * - { action: "addReasonCode", stageName, workflowId?, lane: "alternate" | "closed", code }
  * - { action: "findOrCreateNote", stageName, workflowId?, note }
  */
 export async function PUT(req: NextRequest) {
@@ -133,6 +134,7 @@ export async function PUT(req: NextRequest) {
       workflowId?: unknown;
       codes?: unknown;
       code?: unknown;
+      lane?: unknown;
       note?: unknown;
       alternateLabel?: unknown;
       closedLabel?: unknown;
@@ -147,6 +149,9 @@ export async function PUT(req: NextRequest) {
       if (!stageName) {
         return NextResponse.json({ error: "stageName is required" }, { status: 400 });
       }
+      if (!isReasonCodeLane(body?.lane)) {
+        return NextResponse.json({ error: "lane must be alternate or closed" }, { status: 400 });
+      }
       const codes = Array.isArray(body?.codes)
         ? body.codes.filter((code): code is string => typeof code === "string")
         : [];
@@ -155,6 +160,7 @@ export async function PUT(req: NextRequest) {
         stageName,
         codes,
         workflowId: workflowId || null,
+        lane: body.lane,
       });
       await writeActivityLog({
         actorUserId: auth.userId,
@@ -162,7 +168,7 @@ export async function PUT(req: NextRequest) {
         entityType: "application_status_stage",
         entityId: stageName,
         tenantId,
-        metadata: { stageName, workflowId: workflowId || null, codes },
+        metadata: { stageName, workflowId: workflowId || null, lane: body.lane, codes },
         request: req,
       });
       return NextResponse.json({ reasonCodes: saved });
@@ -172,12 +178,16 @@ export async function PUT(req: NextRequest) {
       if (!stageName) {
         return NextResponse.json({ error: "stageName is required" }, { status: 400 });
       }
+      if (!isReasonCodeLane(body?.lane)) {
+        return NextResponse.json({ error: "lane must be alternate or closed" }, { status: 400 });
+      }
       const code = typeof body?.code === "string" ? body.code : "";
       const saved = await appendApplicationStatusStageReasonCode(supabase, {
         tenantId,
         stageName,
         code,
         workflowId: workflowId || null,
+        lane: body.lane,
       });
       await writeActivityLog({
         actorUserId: auth.userId,
@@ -185,7 +195,13 @@ export async function PUT(req: NextRequest) {
         entityType: "application_status_stage",
         entityId: stageName,
         tenantId,
-        metadata: { stageName, workflowId: workflowId || null, code, created: saved.created },
+        metadata: {
+          stageName,
+          workflowId: workflowId || null,
+          lane: body.lane,
+          code,
+          created: saved.created,
+        },
         request: req,
       });
       return NextResponse.json({ reasonCodes: saved.reasonCodes, created: saved.created });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { catalogSavePlan, codesForScopedAppend } from "./stage-reason-codes";
+import { catalogSavePlan, codesForScopedAppend, isReasonCodeLane } from "./stage-reason-codes";
 
 describe("catalogSavePlan", () => {
   it("reuses a note that already exists for this stage", () => {
@@ -14,6 +14,15 @@ describe("catalogSavePlan", () => {
       action: "create",
       value: "Left voicemail",
     });
+  });
+});
+
+describe("isReasonCodeLane", () => {
+  it("accepts alternate and closing only", () => {
+    expect(isReasonCodeLane("alternate")).toBe(true);
+    expect(isReasonCodeLane("closed")).toBe(true);
+    expect(isReasonCodeLane("happy_path")).toBe(false);
+    expect(isReasonCodeLane(null)).toBe(false);
   });
 });
 

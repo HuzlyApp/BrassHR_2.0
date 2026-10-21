@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { catalogSavePlan } from "@/lib/jobs/application-statuses/stage-reason-codes";
+import { catalogSavePlan, isReasonCodeLane } from "@/lib/jobs/application-statuses/stage-reason-codes";
 import {
   composeStatusChangeNote,
   normalizeStageStatusLane,
@@ -35,7 +35,7 @@ type StageStatusSequenceButtonsProps = {
 };
 
 type LaneRow = SavedStageStatusLane & { workflowId: string | null };
-type ReasonRow = { code: string; workflowId: string | null };
+type ReasonRow = { code: string; workflowId: string | null; lane: "alternate" | "closed" };
 type NoteRow = { body: string; workflowId: string | null };
 type ButtonPref = {
   workflowId: string | null;
@@ -145,14 +145,20 @@ export function StageStatusSequenceButtons({
         })
       );
       setReasonRows(
-        codes.flatMap((row: { stageName?: unknown; code?: unknown; workflowId?: unknown }) => {
-          if (row.stageName !== stageFilter || typeof row.code !== "string" || !row.code.trim()) {
+        codes.flatMap((row: { stageName?: unknown; code?: unknown; workflowId?: unknown; lane?: unknown }) => {
+          if (
+            row.stageName !== stageFilter ||
+            typeof row.code !== "string" ||
+            !row.code.trim() ||
+            !isReasonCodeLane(row.lane)
+          ) {
             return [];
           }
           return [
             {
               code: row.code.trim(),
               workflowId: typeof row.workflowId === "string" && row.workflowId ? row.workflowId : null,
+              lane: row.lane,
             },
           ];
         })
@@ -224,8 +230,12 @@ export function StageStatusSequenceButtons({
         : resolveConfiguredStageStatusLanes(options, picked.rows);
     return applyStageButtonVisibility(resolved, buttonPref);
   }, [assignedGroupIds, buttonPref, options, savedLanes, workflowId]);
-  const reasonCodes = useMemo(
-    () => selectWorkflowScopedLaneRows(reasonRows, workflowId).rows.map((row) => row.code),
+  const reasonCodesForLane = useCallback(
+    (lane: "alternate" | "closed") =>
+      selectWorkflowScopedLaneRows(
+        reasonRows.filter((row) => row.lane === lane),
+        workflowId
+      ).rows.map((row) => row.code),
     [reasonRows, workflowId]
   );
   const stageNotes = useMemo(
@@ -289,7 +299,9 @@ export function StageStatusSequenceButtons({
   async function saveAlternate(option: StatusOption, reasonCode: string, note: string) {
     setBusyId(option.id);
     try {
-      const known = reasonCodes.some((code) => code.toLowerCase() === reasonCode.toLowerCase());
+      const known = reasonCodesForLane("alternate").some(
+        (code) => code.toLowerCase() === reasonCode.toLowerCase()
+      );
       if (!known) {
         const response = await fetch("/api/admin/application-status-stage-assignments", {
           method: "PUT",
@@ -298,6 +310,7 @@ export function StageStatusSequenceButtons({
             action: "addReasonCode",
             stageName: stageFilter,
             workflowId,
+            lane: "alternate",
             code: reasonCode,
           }),
         });
@@ -305,15 +318,25 @@ export function StageStatusSequenceButtons({
         if (!response.ok) throw new Error(payload.error || "Failed to save the reason code");
         const saved = Array.isArray(payload.reasonCodes) ? payload.reasonCodes : [];
         setReasonRows(
-          saved.flatMap((row: { stageName?: unknown; code?: unknown; workflowId?: unknown }) => {
-            if (row.stageName !== stageFilter || typeof row.code !== "string" || !row.code.trim()) return [];
-            return [
-              {
-                code: row.code.trim(),
-                workflowId: typeof row.workflowId === "string" && row.workflowId ? row.workflowId : null,
-              },
-            ];
-          })
+          saved.flatMap(
+            (row: { stageName?: unknown; code?: unknown; workflowId?: unknown; lane?: unknown }) => {
+              if (
+                row.stageName !== stageFilter ||
+                typeof row.code !== "string" ||
+                !row.code.trim() ||
+                !isReasonCodeLane(row.lane)
+              ) {
+                return [];
+              }
+              return [
+                {
+                  code: row.code.trim(),
+                  workflowId: typeof row.workflowId === "string" && row.workflowId ? row.workflowId : null,
+                  lane: row.lane,
+                },
+              ];
+            }
+          )
         );
       }
       const noteResponse = await fetch("/api/admin/application-status-stage-assignments", {
@@ -434,7 +457,11 @@ export function StageStatusSequenceButtons({
           alternateLabel={alternateLabel}
           closedLabel={closedLabel}
           options={pending.options ?? []}
-          reasonCodes={reasonCodes ?? []}
+          reasonCodes={
+            pending.lane === "alternate" || pending.lane === "closed"
+              ? reasonCodesForLane(pending.lane)
+              : []
+          }
           notes={stageNotes}
           busy={Boolean(busyId)}
           onCancel={() => {

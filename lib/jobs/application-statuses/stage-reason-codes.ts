@@ -1,4 +1,13 @@
-/** Closing reason codes from the pre-hire status sheet. Tenant default until a workflow overrides them. */
+/** Reason codes are stored separately for Alternate and Closing. */
+
+export const REASON_CODE_LANES = ["alternate", "closed"] as const;
+export type ReasonCodeLane = (typeof REASON_CODE_LANES)[number];
+
+export function isReasonCodeLane(value: unknown): value is ReasonCodeLane {
+  return value === "alternate" || value === "closed";
+}
+
+/** Default reason codes from the pre-hire status sheet. Tenant default until a workflow overrides them. */
 
 export const DEFAULT_STAGE_REASON_CODES: Record<string, readonly string[]> = {
   Intake: ["Not a Fit"],

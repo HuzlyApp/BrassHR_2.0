@@ -28,6 +28,10 @@ import {
   type SavedStageStatusLane,
   type StageStatusLane,
 } from "@/lib/jobs/application-statuses/stage-status-lanes";
+import {
+  isReasonCodeLane,
+  type ReasonCodeLane,
+} from "@/lib/jobs/application-statuses/stage-reason-codes";
 import { StageStatusLaneEditor, type LanePlacement, type LaneStatus } from "./StageStatusLaneEditor";
 import { HIRE_STAGE_BY_STEP_KEY } from "@/lib/onboarding/hire-stage-catalog";
 import { PRE_HIRE_FIGMA_STAGES } from "@/lib/onboarding/hire-stage-groups";
@@ -77,12 +81,13 @@ type ReasonCodeRow = {
   sortOrder: number;
   workflowId: string | null;
   note: string | null;
+  lane: ReasonCodeLane;
 };
 
 function mapReasonCodePayload(row: Record<string, unknown>): ReasonCodeRow | null {
   const stageName = typeof row.stageName === "string" ? row.stageName : "";
   const code = typeof row.code === "string" ? row.code.trim() : "";
-  if (!stageName || !code) return null;
+  if (!stageName || !code || !isReasonCodeLane(row.lane)) return null;
   const note = typeof row.note === "string" ? row.note.trim() : "";
   return {
     stageName,
@@ -90,6 +95,7 @@ function mapReasonCodePayload(row: Record<string, unknown>): ReasonCodeRow | nul
     sortOrder: Number(row.sortOrder ?? 0),
     workflowId: typeof row.workflowId === "string" && row.workflowId ? row.workflowId : null,
     note: note || null,
+    lane: row.lane,
   };
 }
 
@@ -1086,7 +1092,12 @@ export default function CandidateStatusesPanel() {
     flash("success", `${name || "Status"} added to ${stageName}.`);
   }
 
-  async function saveReasonCodes(stageName: string, codes: string[], workflowId: string | null) {
+  async function saveReasonCodes(
+    stageName: string,
+    codes: string[],
+    workflowId: string | null,
+    lane: ReasonCodeLane
+  ) {
     setSaving(true);
     try {
       const response = await fetch("/api/admin/application-status-stage-assignments", {
@@ -1096,6 +1107,7 @@ export default function CandidateStatusesPanel() {
           action: "setReasonCodes",
           stageName,
           workflowId,
+          lane,
           codes,
         }),
       });
@@ -1107,7 +1119,10 @@ export default function CandidateStatusesPanel() {
           return mapped ? [mapped] : [];
         })
       );
-      flash("success", `Reason codes saved for ${stageName}`);
+      flash(
+        "success",
+        `${lane === "alternate" ? "Alternate" : "Closing"} reason codes saved for ${stageName}`
+      );
     } catch (error) {
       flash("error", error instanceof Error ? error.message : "Failed to save reason codes");
     } finally {
@@ -1402,10 +1417,6 @@ export default function CandidateStatusesPanel() {
       })),
     };
     const stageReasonRows = reasonCodes.filter((row) => row.stageName === stage);
-    const pickedReasons = selectWorkflowScopedLaneRows(stageReasonRows, workflowId);
-    const scopedReasonCodes = stageReasonRows.filter(
-      (row) => (row.workflowId ?? null) === (workflowId ?? null)
-    );
     const categorySummary = `Primary ${lanes.happy_path.length} · Alternate ${lanes.alternate.length} · Closing ${lanes.closed.length}`;
     return (
       <StageAssignmentCard
@@ -1457,16 +1468,28 @@ export default function CandidateStatusesPanel() {
                 onAddStatus={(lane, input) =>
                   void addLaneStatus(stage, workflowId, lane, input, placements)
                 }
-                laneFooter={(lane) => (
-                  <ReasonCodeEditor
-                    codes={pickedReasons.rows.map((row) => row.code)}
-                    presets={scopedReasonCodes.map((row) => row.code)}
-                    canManage={canManage}
-                    saving={saving}
-                    detail="Reason codes for Alternate and Closing on this stage. A matching code is reused. A new code stays on this stage."
-                    onSave={(codes) => void saveReasonCodes(stage, codes, workflowId)}
-                  />
-                )}
+                laneFooter={(lane) => {
+                  if (lane !== "alternate" && lane !== "closed") return null;
+                  const laneRows = stageReasonRows.filter((row) => row.lane === lane);
+                  const pickedReasons = selectWorkflowScopedLaneRows(laneRows, workflowId);
+                  const scopedReasonCodes = laneRows.filter(
+                    (row) => (row.workflowId ?? null) === (workflowId ?? null)
+                  );
+                  return (
+                    <ReasonCodeEditor
+                      codes={pickedReasons.rows.map((row) => row.code)}
+                      presets={scopedReasonCodes.map((row) => row.code)}
+                      canManage={canManage}
+                      saving={saving}
+                      detail={
+                        lane === "alternate"
+                          ? "Reason codes for Alternate on this stage."
+                          : "Reason codes for Closing on this stage."
+                      }
+                      onSave={(codes) => void saveReasonCodes(stage, codes, workflowId, lane)}
+                    />
+                  );
+                }}
               />
             </div>
           ) : undefined
