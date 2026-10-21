@@ -58,11 +58,18 @@ export const DEFAULT_APPLICATION_COLUMNS: ApplicationColumnId[] = [
   "dateApplied",
   "evaluation",
   "assignee",
-  "status",
   "actions",
 ];
 
-const STORAGE_KEY = "nexus-job-applications-list-columns-v6";
+const STORAGE_KEY = "nexus-job-applications-list-columns-v7";
+const PREVIOUS_STORAGE_KEY = "nexus-job-applications-list-columns-v6";
+
+/** Progress Status left the default All candidates table; older saved layouts still listed it. */
+export function withoutRetiredProgressStatusColumn(
+  order: ApplicationColumnId[]
+): ApplicationColumnId[] {
+  return order.filter((id) => id !== "status");
+}
 
 function insertAfter(
   order: ApplicationColumnId[],
@@ -98,11 +105,6 @@ function ensureDefaultListingColumns(order: ApplicationColumnId[]): ApplicationC
   next = insertAfter(next, "dateApplied", "currentStage");
   next = insertAfter(next, "evaluation", "dateApplied");
   next = insertAfter(next, "assignee", "evaluation");
-  if (!next.includes("status")) {
-    const actionsIndex = next.indexOf("actions");
-    if (actionsIndex >= 0) next.splice(actionsIndex, 0, "status");
-    else next.push("status");
-  }
   return next;
 }
 
@@ -111,21 +113,30 @@ export function ensureActionsLast(order: ApplicationColumnId[]): ApplicationColu
   return [...order.filter((id) => id !== "actions"), "actions"];
 }
 
+function parseStoredColumnOrder(parsed: unknown): ApplicationColumnId[] | null {
+  if (!Array.isArray(parsed) || parsed.length === 0) return null;
+  const allowed = new Set(APPLICATION_COLUMN_OPTIONS.map((c) => c.id));
+  const cleaned = parsed.filter(
+    (id): id is ApplicationColumnId =>
+      typeof id === "string" && allowed.has(id as ApplicationColumnId)
+  );
+  return cleaned.length ? cleaned : null;
+}
+
+function readStoredColumnOrder(key: string): ApplicationColumnId[] | null {
+  const raw = localStorage.getItem(key);
+  if (!raw) return null;
+  return parseStoredColumnOrder(JSON.parse(raw) as unknown);
+}
+
 export function loadApplicationColumnOrder(): ApplicationColumnId[] {
   if (typeof window === "undefined") return [...DEFAULT_APPLICATION_COLUMNS];
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [...DEFAULT_APPLICATION_COLUMNS];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed) || parsed.length === 0) return [...DEFAULT_APPLICATION_COLUMNS];
-    const allowed = new Set(APPLICATION_COLUMN_OPTIONS.map((c) => c.id));
-    const cleaned = parsed.filter(
-      (id): id is ApplicationColumnId =>
-        typeof id === "string" && allowed.has(id as ApplicationColumnId)
-    );
-    return ensureActionsLast(
-      ensureDefaultListingColumns(cleaned.length ? cleaned : [...DEFAULT_APPLICATION_COLUMNS])
-    );
+    const current = readStoredColumnOrder(STORAGE_KEY);
+    const previous = current ? null : readStoredColumnOrder(PREVIOUS_STORAGE_KEY);
+    const stored = current ?? (previous ? withoutRetiredProgressStatusColumn(previous) : null);
+    if (!stored) return [...DEFAULT_APPLICATION_COLUMNS];
+    return ensureActionsLast(ensureDefaultListingColumns(stored));
   } catch {
     return [...DEFAULT_APPLICATION_COLUMNS];
   }

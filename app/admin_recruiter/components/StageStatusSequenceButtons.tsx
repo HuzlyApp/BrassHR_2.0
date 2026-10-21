@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { catalogSavePlan } from "@/lib/jobs/application-statuses/stage-reason-codes";
+import { catalogSavePlan, reasonCodesExcludingStatusNames } from "@/lib/jobs/application-statuses/stage-reason-codes";
 import {
   composeStatusChangeNote,
   normalizeStageStatusLane,
@@ -225,8 +225,12 @@ export function StageStatusSequenceButtons({
     return applyStageButtonVisibility(resolved, buttonPref);
   }, [assignedGroupIds, buttonPref, options, savedLanes, workflowId]);
   const reasonCodes = useMemo(
-    () => selectWorkflowScopedLaneRows(reasonRows, workflowId).rows.map((row) => row.code),
-    [reasonRows, workflowId]
+    () =>
+      reasonCodesExcludingStatusNames(
+        selectWorkflowScopedLaneRows(reasonRows, workflowId).rows.map((row) => row.code),
+        options.map((status) => status.name)
+      ),
+    [options, reasonRows, workflowId]
   );
   const stageNotes = useMemo(
     () =>
@@ -463,20 +467,6 @@ export function StageStatusSequenceButtons({
   );
 }
 
-function noteChoices(options: StatusOption[] | undefined, reasonCodes: string[] | undefined): string[] {
-  const choices: string[] = [];
-  const seen = new Set<string>();
-  const names = (options ?? []).map((status) => status.name);
-  for (const value of [...names, ...(reasonCodes ?? [])]) {
-    const label = String(value ?? "").trim();
-    const key = label.toLowerCase();
-    if (!label || seen.has(key)) continue;
-    seen.add(key);
-    choices.push(label);
-  }
-  return choices;
-}
-
 function StatusChangeDialog({
   lane,
   stageName,
@@ -504,9 +494,11 @@ function StatusChangeDialog({
 }) {
   const statuses = options ?? [];
   const codes = reasonCodes ?? [];
-  const choices = noteChoices(statuses, codes);
+  const closeReasonCodes = reasonCodesExcludingStatusNames(
+    codes,
+    statuses.map((status) => status.name)
+  );
   const [selectedReason, setSelectedReason] = useState("");
-  const [selectedNote, setSelectedNote] = useState("");
   const [note, setNote] = useState("");
   const [selectedStatusId, setSelectedStatusId] = useState(statuses[0]?.id ?? "");
   const isAlternate = lane === "alternate";
@@ -518,9 +510,9 @@ function StatusChangeDialog({
     if (!note.trim()) return false;
     return item.toLowerCase().includes(note.trim().toLowerCase());
   });
-  const matched = statuses.find((status) => status.name.toLowerCase() === selectedNote.toLowerCase());
-  const statusId = isAlternate ? selectedStatusId || statuses[0]?.id || "" : matched?.id ?? statuses[0]?.id ?? "";
+  const statusId = selectedStatusId || statuses[0]?.id || "";
   const alternateReady = reasonPlan.action !== "empty" && notePlan.action !== "empty" && Boolean(statusId);
+  const closeReady = Boolean(statusId) && Boolean(selectedReason.trim());
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0F172A]/40 p-4">
@@ -611,21 +603,41 @@ function StatusChangeDialog({
             ) : null}
           </div>
         ) : picksFromList ? (
-          <label className="mt-4 block text-sm font-medium text-[#344054]">
-            Reason code
-            <select
-              value={selectedNote}
-              onChange={(event) => setSelectedNote(event.target.value)}
-              className="mt-1 h-10 w-full rounded-lg border border-[#D0D5DD] bg-white px-3 text-sm"
-            >
-              <option value="">Select a reason code</option>
-              {choices.map((choice) => (
-                <option key={choice} value={choice}>
-                  {choice}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="mt-4 space-y-4">
+            {statuses.length > 1 ? (
+              <label className="block text-sm font-medium text-[#344054]">
+                Status
+                <select
+                  value={statusId}
+                  onChange={(event) => setSelectedStatusId(event.target.value)}
+                  className="mt-1 h-10 w-full rounded-lg border border-[#D0D5DD] bg-white px-3 text-sm"
+                >
+                  {statuses.map((status) => (
+                    <option key={status.id} value={status.id}>
+                      {status.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <p className="text-sm text-[#475467]">{statuses[0]?.name}</p>
+            )}
+            <label className="block text-sm font-medium text-[#344054]">
+              Reason code
+              <select
+                value={selectedReason}
+                onChange={(event) => setSelectedReason(event.target.value)}
+                className="mt-1 h-10 w-full rounded-lg border border-[#D0D5DD] bg-white px-3 text-sm"
+              >
+                <option value="">Select a reason code</option>
+                {closeReasonCodes.map((choice) => (
+                  <option key={choice} value={choice}>
+                    {choice}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         ) : (
           <p className="mt-1 text-sm text-[#475467]">{statuses[0]?.name}</p>
         )}
@@ -654,9 +666,7 @@ function StatusChangeDialog({
             type="button"
             disabled={
               busy ||
-              (isAlternate
-                ? !alternateReady
-                : !statusId || (picksFromList && !selectedNote))
+              (isAlternate ? !alternateReady : picksFromList ? !closeReady : !statusId)
             }
             onClick={() =>
               onConfirm({
@@ -666,7 +676,7 @@ function StatusChangeDialog({
                     ? ""
                     : reasonPlan.value
                   : picksFromList
-                    ? selectedNote
+                    ? selectedReason.trim()
                     : "",
                 note: isAlternate ? (notePlan.action === "empty" ? "" : notePlan.value) : note.trim(),
               })

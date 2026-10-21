@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 import { requireStaffApiSession } from "@/lib/auth/api-session";
-import { requireWorkflowAdmin } from "@/lib/auth/workflow-admin";
+import { isStaffStageCatalogAction, requireWorkflowAdmin } from "@/lib/auth/workflow-admin";
 import { writeActivityLog } from "@/lib/audit/activity-log";
 import {
   ApplicationStatusError,
@@ -108,15 +108,31 @@ export async function GET() {
  * - { action: "unassign", stageName, groupId }
  * - { action: "setLanes", stageName, workflowId?, lanes: { happy_path, alternate, closed } }
  * - { action: "setButtonLabels", alternateLabel, closedLabel }
- * - { action: "setReasonCodes", stageName, workflowId?, codes: string[] }
- * - { action: "addReasonCode", stageName, workflowId?, code }
- * - { action: "findOrCreateNote", stageName, workflowId?, note }
+ * - { action: "setReasonCodes", stageName, workflowId?, codes: string[] } — admin
+ * - { action: "addReasonCode", stageName, workflowId?, code } — any staff
+ * - { action: "findOrCreateNote", stageName, workflowId?, note } — any staff
  */
 export async function PUT(req: NextRequest) {
   const auth = await requireStaffApiSession();
   if (auth instanceof NextResponse) return auth;
-  const forbidden = requireWorkflowAdmin(auth);
-  if (forbidden) return forbidden;
+
+  const body = (await req.json().catch(() => null)) as {
+    action?: unknown;
+    stageName?: unknown;
+    groupId?: unknown;
+    lanes?: unknown;
+    workflowId?: unknown;
+    codes?: unknown;
+    code?: unknown;
+    note?: unknown;
+    alternateLabel?: unknown;
+    closedLabel?: unknown;
+  } | null;
+  const action = typeof body?.action === "string" ? body.action : "";
+  if (!isStaffStageCatalogAction(action)) {
+    const forbidden = requireWorkflowAdmin(auth);
+    if (forbidden) return forbidden;
+  }
 
   const supabase = createServiceRoleClient();
   if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
@@ -124,21 +140,6 @@ export async function PUT(req: NextRequest) {
   try {
     const tenantId = await resolveStaffTenantId(supabase, auth);
     if (!tenantId) return NextResponse.json({ error: "No tenant selected" }, { status: 400 });
-
-    const body = (await req.json().catch(() => null)) as {
-      action?: unknown;
-      stageName?: unknown;
-      groupId?: unknown;
-      lanes?: unknown;
-      workflowId?: unknown;
-      codes?: unknown;
-      code?: unknown;
-      note?: unknown;
-      alternateLabel?: unknown;
-      closedLabel?: unknown;
-    } | null;
-
-    const action = typeof body?.action === "string" ? body.action : "";
     const stageName = typeof body?.stageName === "string" ? body.stageName : "";
     const groupId = typeof body?.groupId === "string" ? body.groupId : "";
     const workflowId = typeof body?.workflowId === "string" ? body.workflowId.trim() : "";
