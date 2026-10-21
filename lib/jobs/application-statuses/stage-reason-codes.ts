@@ -1,9 +1,13 @@
 import { selectWorkflowScopedLaneRows } from "./stage-status-lanes";
 
-/** Alternate and closing each keep their own reason codes. */
-export const REASON_CODE_LANES = ["alternate", "closed"] as const;
+/** Reason codes are stored separately for Alternate and Closing. */
 
+export const REASON_CODE_LANES = ["alternate", "closed"] as const;
 export type ReasonCodeLane = (typeof REASON_CODE_LANES)[number];
+
+export function isReasonCodeLane(value: unknown): value is ReasonCodeLane {
+  return value === "alternate" || value === "closed";
+}
 
 export function normalizeReasonCodeLane(value: string | null | undefined): ReasonCodeLane | null {
   if (value === "alternate" || value === "closed") return value;
@@ -26,33 +30,57 @@ export function reasonCodesForLane<
   return selectWorkflowScopedLaneRows(laneRows, workflowId).rows.map((row) => row.code);
 }
 
-/** Closing reason codes from the pre-hire status sheet. Tenant default until a workflow overrides them. */
+/**
+ * Follow-up reasons belong on Alternate.
+ * The pre-hire sheet's other reasons are Closing outcomes.
+ * AI Analysis steps are not a status catalog and are not seeded here.
+ */
+const ALTERNATE_REASON_KEYS = new Set([
+  "unreachable",
+  "call back later",
+  "call back",
+  "callback",
+  "left voicemail",
+  "left a voicemail",
+]);
 
-export const DEFAULT_STAGE_REASON_CODES: Record<string, readonly string[]> = {
+const CLOSING_REASON_KEYS = new Set([
+  "not a fit",
+  "c2c only",
+  "candidate withdrew",
+  "requires sponsorship",
+  "rejected by msp",
+  "rejected by client",
+  "verification failed",
+  "offer declined",
+]);
+
+/** Default Alternate reason codes. Tenant default until a workflow overrides them. */
+export const DEFAULT_ALTERNATE_REASON_CODES: Record<string, readonly string[]> = {
+  Screening: ["Unreachable"],
+};
+
+/** Default Closing reason codes from the pre-hire status sheet. */
+export const DEFAULT_CLOSING_REASON_CODES: Record<string, readonly string[]> = {
   Intake: ["Not a Fit"],
-  Screening: [
-    "C2C Only",
-    "Unreachable",
-    "Candidate Withdrew",
-    "Not a Fit",
-    "Requires Sponsorship",
-  ],
+  Screening: ["C2C Only", "Candidate Withdrew", "Not a Fit", "Requires Sponsorship"],
   Interview: ["Candidate Withdrew", "Not a Fit"],
   Submission: ["Rejected by MSP", "Rejected by Client", "Candidate Withdrew"],
   Compliance: ["Verification Failed", "Candidate Withdrew"],
   "Offer & Agreement": ["Offer Declined"],
-  "Step 1 · Quick Match": ["Not a Fit"],
-  "Step 2 · Verifications": [
-    "C2C Only",
-    "Unreachable",
-    "Candidate Withdrew",
-    "Not a Fit",
-    "Requires Sponsorship",
-  ],
-  "Step 3 · Follow-Up": ["Unreachable", "Candidate Withdrew", "Not a Fit"],
-  "Step 4 · Deep Match": ["Not a Fit"],
-  "Step 5 · Submission": ["Rejected by MSP", "Rejected by Client", "Candidate Withdrew"],
 };
+
+/** Closing sheet codes. Kept for callers that read the original stage list. */
+export const DEFAULT_STAGE_REASON_CODES = DEFAULT_CLOSING_REASON_CODES;
+
+/** Lane a known reason code belongs on. Unknown codes are left where they were saved. */
+export function preferredReasonCodeLane(code: string): ReasonCodeLane | null {
+  const key = normalizeReasonCode(code).toLowerCase();
+  if (!key) return null;
+  if (ALTERNATE_REASON_KEYS.has(key)) return "alternate";
+  if (CLOSING_REASON_KEYS.has(key)) return "closed";
+  return null;
+}
 
 export function normalizeReasonCode(value: string): string {
   return value.trim().replace(/\s+/g, " ");

@@ -15,7 +15,9 @@ import {
   type StatusStageName,
 } from "./stage-assignments";
 import {
-  DEFAULT_STAGE_REASON_CODES,
+  DEFAULT_ALTERNATE_REASON_CODES,
+  DEFAULT_CLOSING_REASON_CODES,
+  REASON_CODE_LANES,
   codesForScopedAppend,
   normalizeReasonCode,
   normalizeReasonCodeLane,
@@ -1564,15 +1566,22 @@ export async function listApplicationStatusStageReasonCodes(
     throw existing.error;
   }
   if ((existing.data ?? []).length === 0) {
-    const seed = Object.entries(DEFAULT_STAGE_REASON_CODES).flatMap(([stageName, codes]) =>
-      codes.map((code, sortOrder) => ({
-        tenant_id: tenantId,
-        stage_name: stageName,
-        code,
-        sort_order: sortOrder,
-        workflow_id: null,
-        lane: "closed" as const,
-      }))
+    const defaultsByLane = {
+      alternate: DEFAULT_ALTERNATE_REASON_CODES,
+      closed: DEFAULT_CLOSING_REASON_CODES,
+    } as const;
+    const seed = REASON_CODE_LANES.flatMap((lane) =>
+      Object.entries(defaultsByLane[lane]).flatMap(([stageName, codes]) => {
+        if (!isAssignableStatusStageName(stageName)) return [];
+        return codes.map((code, sortOrder) => ({
+          tenant_id: tenantId,
+          stage_name: stageName,
+          code,
+          sort_order: sortOrder,
+          workflow_id: null,
+          lane,
+        }));
+      })
     );
     if (seed.length > 0) {
       const seeded = await supabase.from("application_status_stage_reason_codes").insert(seed);
