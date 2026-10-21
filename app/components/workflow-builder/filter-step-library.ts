@@ -112,7 +112,7 @@ export function excludeUsedLibrarySteps(
   );
   if (used.size === 0 && usedLabels.size === 0) return categories;
 
-  return categories.flatMap((category) => {
+  return categories.flatMap((category): StepCategory[] => {
     const steps = category.steps.filter((step) =>
       isLibraryStepAvailable(step, used, usedLabels)
     );
