@@ -1601,7 +1601,7 @@ export async function listApplicationStatusStageReasonCodes(
       .order("stage_name", { ascending: true })
       .order("sort_order", { ascending: true });
     if (retry.error) throw retry.error;
-    data = retry.data;
+    data = (retry.data ?? []).map((row) => ({ ...row, lane: "closed" }));
   } else if (listed.error) {
     throw listed.error;
   }

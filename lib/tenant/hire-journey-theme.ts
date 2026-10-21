@@ -98,6 +98,20 @@ export function hireJourneyThemeCssVars(
   };
 }
 
+/**
+ * Stage summary colors on the hire journey.
+ * Submitted and Current Step follow branding primary.
+ * Completed follows the completion icon. In Progress follows the progress background.
+ */
+export function hireStageSummaryPartColor(part: string): string {
+  if (/\bCurrent Step\b/i.test(part)) return "var(--brand-primary)";
+  if (/\bIn Progress\b/i.test(part)) return "var(--hj-progress-bg, var(--brand-primary))";
+  if (/\bSubmitted\b/i.test(part)) return "var(--brand-primary)";
+  if (/\bCompleted\b/i.test(part)) return "var(--hj-complete, #12AA00)";
+  if (part.trim() === "•") return "#D0D5DD";
+  return "var(--hj-progress-bg, var(--brand-primary))";
+}
+
 /** Drop a value that still matches the default so later branding edits keep flowing through. */
 export function hireJourneyOverrideForSave(
   value: string,

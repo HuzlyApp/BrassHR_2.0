@@ -11,6 +11,7 @@ import {
   stepStatusPill,
 } from "@/lib/onboarding/assigned-workflow-steps";
 import { interviewStepStatus, STEP_PILL_TONE_CLASSES } from "@/lib/onboarding/interview-step";
+import { hireStageSummaryPartColor } from "@/lib/tenant/hire-journey-theme";
 import { formatInterviewDate, formatInterviewTimeRange } from "@/lib/interviews/format";
 import {
   type HireStageGroup,
@@ -65,21 +66,11 @@ function StageSummaryText({ summary, locked }: { summary: string; locked: boolea
   const parts = summary.split(/(•)/);
   return (
     <>
-      {parts.map((part, i) => {
-        const isInProgress = /\bIn Progress\b/i.test(part) && !/\bCurrent Step\b/i.test(part);
-        return (
-          <span
-            key={`${i}-${part}`}
-            style={{
-              color: isInProgress
-                ? "var(--hj-icon, var(--brand-secondary))"
-                : "var(--hj-progress-bg, var(--brand-primary))",
-            }}
-          >
-            {part}
-          </span>
-        );
-      })}
+      {parts.map((part, i) => (
+        <span key={`${i}-${part}`} style={{ color: hireStageSummaryPartColor(part) }}>
+          {part}
+        </span>
+      ))}
     </>
   );
 }
