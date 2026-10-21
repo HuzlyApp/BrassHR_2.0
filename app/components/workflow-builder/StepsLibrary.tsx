@@ -3,7 +3,11 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, FileText, PanelLeftClose, Plus, Search, X } from "lucide-react";
 import { CARD_BORDER, GOLD, TEXT_PRIMARY, TEXT_SECONDARY } from "./constants";
-import { filterStepLibrary } from "./filter-step-library";
+import {
+  countLibraryMatches,
+  excludeUsedLibrarySteps,
+  filterStepLibrary,
+} from "./filter-step-library";
 import { resolveHireLibraryIconPath } from "./hire-library-icons";
 import {
   filterStepLibraryByPhase,
@@ -21,6 +25,10 @@ import { writeWorkflowStepDragData } from "./workflow-step-drag";
 
 type StepsLibraryProps = {
   categories: StepCategory[];
+  /** Catalog step ids already placed on the canvas. */
+  usedStepIds?: Iterable<string>;
+  /** Canvas labels used when a placed step's id does not match the library. */
+  usedLabels?: Iterable<string>;
   title?: string;
   searchTerm?: string;
   onSearchTermChange?: (value: string) => void;
@@ -36,8 +44,12 @@ const LIBRARY_TABS: Array<{ id: LibraryHirePhase; label: string }> = [
   { id: "post_hire", label: "Post-hire" },
 ];
 
+const EMPTY_USED_IDS: string[] = [];
+
 export default function StepsLibrary({
   categories,
+  usedStepIds = EMPTY_USED_IDS,
+  usedLabels,
   title = "Steps Library",
   searchTerm = "",
   onSearchTermChange,
@@ -59,19 +71,24 @@ export default function StepsLibrary({
 
   const filtered = useMemo(() => {
     const byPhase = filterStepLibraryByPhase(categories, activePhase);
-    const searched = filterStepLibrary(byPhase, query);
+    const available = excludeUsedLibrarySteps(byPhase, usedStepIds, {
+      usedLabels,
+      retainEmptyCategories: true,
+    });
+    const searched = filterStepLibrary(available, query);
     return sortLibraryCategoriesForDisplay(searched, activePhase);
-  }, [activePhase, categories, query]);
+  }, [activePhase, categories, query, usedLabels, usedStepIds]);
 
   const otherPhase: LibraryHirePhase = activePhase === "pre_hire" ? "post_hire" : "pre_hire";
   const otherMatchCount = useMemo(() => {
     if (!query.trim()) return 0;
     const byPhase = filterStepLibraryByPhase(categories, otherPhase);
-    return filterStepLibrary(byPhase, query).reduce(
-      (count, category) => count + category.steps.length,
-      0
-    );
-  }, [categories, otherPhase, query]);
+    const available = excludeUsedLibrarySteps(byPhase, usedStepIds, {
+      usedLabels,
+      retainEmptyCategories: true,
+    });
+    return countLibraryMatches(filterStepLibrary(available, query));
+  }, [categories, otherPhase, query, usedLabels, usedStepIds]);
 
   const phaseName = activePhase === "pre_hire" ? "pre-hire" : "post-hire";
   const otherPhaseName = otherPhase === "pre_hire" ? "pre-hire" : "post-hire";
@@ -242,10 +259,10 @@ export default function StepsLibrary({
                 {!isCollapsed ? (
                   cat.steps.length === 0 ? (
                     <p
-                      className="px-2.5 py-2 font-[Inter,sans-serif] text-[12px] leading-4"
+                      className="px-3 py-3 font-[Inter,sans-serif] text-[12px] font-medium leading-4"
                       style={{ color: TEXT_SECONDARY }}
                     >
-                      No steps left
+                      All steps in this stage have already been added.
                     </p>
                   ) : (
                     <ul

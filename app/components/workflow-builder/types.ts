@@ -48,6 +48,8 @@ export type StepCategory = {
   id: string;
   label: string;
   steps: StepDefinition[];
+  /** Catalog steps from this stage that are already on the canvas. */
+  takenSteps?: StepDefinition[];
 };
 
 export type StepSettings = {

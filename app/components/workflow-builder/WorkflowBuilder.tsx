@@ -290,18 +290,13 @@ function WorkflowBuilderInner({
     return null;
   }, [nodes, selectedNodeId]);
 
-  const libraryWithStages = useMemo(() => {
-    const { stepIds, labels } = collectUsedLibrarySteps(nodes);
-    return excludeUsedLibrarySteps(stepLibrary, stepIds, {
-      usedLabels: labels,
-      keepEmptyCategories: true,
-    });
-  }, [nodes, stepLibrary]);
+  const usedLibrarySteps = useMemo(() => collectUsedLibrarySteps(nodes), [nodes]);
 
-  const availableLibrary = useMemo(
-    () => libraryWithStages.filter((category) => category.steps.length > 0),
-    [libraryWithStages]
-  );
+  const availableLibrary = useMemo(() => {
+    return excludeUsedLibrarySteps(stepLibrary, usedLibrarySteps.stepIds, {
+      usedLabels: usedLibrarySteps.labels,
+    });
+  }, [stepLibrary, usedLibrarySteps]);
 
   const currentState: WorkflowState = useMemo(
     () => ({ nodes, edges }),
@@ -584,7 +579,9 @@ function WorkflowBuilderInner({
         ) : null}
 
         <StepsLibrary
-          categories={libraryWithStages}
+          categories={stepLibrary}
+          usedStepIds={usedLibrarySteps.stepIds}
+          usedLabels={usedLibrarySteps.labels}
           searchTerm={searchTerm}
           onSearchTermChange={setSearchTerm}
           readOnly={readOnly}

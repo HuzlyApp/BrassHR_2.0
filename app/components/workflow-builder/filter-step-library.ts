@@ -79,7 +79,23 @@ export type ExcludeUsedLibraryStepsOptions = {
   usedLabels?: Iterable<string>;
   /** Keep a stage heading after every catalog step from that stage is on the canvas. */
   keepEmptyCategories?: boolean;
+  /**
+   * Keep a stage after every catalog step in it is already on the canvas.
+   * The stage is returned with an empty `steps` list and the used steps on `takenSteps`.
+   */
+  retainEmptyCategories?: boolean;
 };
+
+function isLibraryStepAvailable(
+  step: StepDefinition,
+  used: Set<string>,
+  usedLabels: Set<string>
+): boolean {
+  if (step.id === CUSTOM_STEP_ID) return true;
+  if (used.has(step.id)) return false;
+  if (usedLabels.has(normalizeLibraryLabel(step.label))) return false;
+  return true;
+}
 
 /**
  * Hide catalog steps that are already on the canvas. Custom Step stays available
@@ -98,17 +114,21 @@ export function excludeUsedLibrarySteps(
   );
   if (used.size === 0 && usedLabels.size === 0) return categories;
 
-  const next = categories.map((category) => ({
-    ...category,
-    steps: category.steps.filter((step) => {
-      if (step.id === CUSTOM_STEP_ID) return true;
-      if (used.has(step.id)) return false;
-      if (usedLabels.has(normalizeLibraryLabel(step.label))) return false;
-      return true;
-    }),
-  }));
-  if (options?.keepEmptyCategories) return next;
-  return next.filter((category) => category.steps.length > 0);
+  return categories.flatMap((category) => {
+    const steps = category.steps.filter((step) =>
+      isLibraryStepAvailable(step, used, usedLabels)
+    );
+    if (steps.length > 0) {
+      return [{ ...category, steps, takenSteps: undefined }];
+    }
+    if (
+      (!options?.retainEmptyCategories && !options?.keepEmptyCategories) ||
+      category.steps.length === 0
+    ) {
+      return [];
+    }
+    return [{ ...category, steps: [], takenSteps: category.steps }];
+  });
 }
 
 /** Keep steps that belong to the stage on both sides of an insertion gap. */
@@ -154,6 +174,13 @@ export function stepMatchesSearch(
   return false;
 }
 
+function exhaustedStageMatchesSearch(category: StepCategory, query: string): boolean {
+  const taken = category.takenSteps ?? [];
+  if (taken.length === 0) return false;
+  if (matchesQuery(category.label, query)) return true;
+  return taken.some((step) => stepMatchesSearch(step, query, category.label));
+}
+
 export function filterStepLibrary(
   categories: StepCategory[],
   query: string
@@ -169,8 +196,20 @@ export function filterStepLibrary(
       ),
     }))
     .filter(
-      (category) => category.steps.length > 0 || matchesQuery(category.label, q)
+      (category) =>
+        category.steps.length > 0 ||
+        exhaustedStageMatchesSearch(category, q) ||
+        matchesQuery(category.label, q)
     );
+}
+
+/** Steps still available to add, plus one match for a stage whose steps are all already used. */
+export function countLibraryMatches(categories: StepCategory[]): number {
+  return categories.reduce((count, category) => {
+    if (category.steps.length > 0) return count + category.steps.length;
+    if ((category.takenSteps?.length ?? 0) > 0) return count + 1;
+    return count;
+  }, 0);
 }
 
 export function findCustomStepDefinition(
