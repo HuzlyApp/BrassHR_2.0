@@ -6,6 +6,7 @@ import {
   codesForScopedAppend,
   isReasonCodeLane,
   preferredReasonCodeLane,
+  reasonCodesExcludingStatusNames,
   reasonCodesForLane,
 } from "./stage-reason-codes";
 
@@ -22,6 +23,17 @@ describe("catalogSavePlan", () => {
       action: "create",
       value: "Left voicemail",
     });
+  });
+});
+
+describe("reasonCodesExcludingStatusNames", () => {
+  it("keeps a closing status out of the reason list", () => {
+    expect(
+      reasonCodesExcludingStatusNames(
+        ["Application Closed", "C2C Only", "Not a Fit", "Call Back Later"],
+        ["Application Closed"]
+      )
+    ).toEqual(["C2C Only", "Not a Fit", "Call Back Later"]);
   });
 });
 

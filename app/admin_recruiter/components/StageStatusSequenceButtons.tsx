@@ -5,6 +5,7 @@ import toast from "react-hot-toast";
 import {
   catalogSavePlan,
   reasonCodeLaneOf,
+  reasonCodesExcludingStatusNames,
   reasonCodesForLane,
   type ReasonCodeLane,
 } from "@/lib/jobs/application-statuses/stage-reason-codes";
@@ -236,13 +237,22 @@ export function StageStatusSequenceButtons({
         : resolveConfiguredStageStatusLanes(options, picked.rows);
     return applyStageButtonVisibility(resolved, buttonPref);
   }, [assignedGroupIds, buttonPref, options, savedLanes, workflowId]);
+  const statusNames = useMemo(() => options.map((status) => status.name), [options]);
   const alternateReasonCodes = useMemo(
-    () => reasonCodesForLane(reasonRows, workflowId, "alternate"),
-    [reasonRows, workflowId]
+    () =>
+      reasonCodesExcludingStatusNames(
+        reasonCodesForLane(reasonRows, workflowId, "alternate"),
+        statusNames
+      ),
+    [reasonRows, statusNames, workflowId]
   );
   const closedReasonCodes = useMemo(
-    () => reasonCodesForLane(reasonRows, workflowId, "closed"),
-    [reasonRows, workflowId]
+    () =>
+      reasonCodesExcludingStatusNames(
+        reasonCodesForLane(reasonRows, workflowId, "closed"),
+        statusNames
+      ),
+    [reasonRows, statusNames, workflowId]
   );
   const alternateLabel =
     resolveStageActionButtonLabel(

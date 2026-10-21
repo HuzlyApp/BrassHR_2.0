@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { requireWorkflowAdmin } from "@/lib/auth/workflow-admin";
+import { isStaffStageCatalogAction, requireWorkflowAdmin } from "@/lib/auth/workflow-admin";
 import type { ApiAuthContext } from "@/lib/auth/api-session";
 
 function auth(role: ApiAuthContext["role"], godAdmin = false): ApiAuthContext {
@@ -21,5 +21,13 @@ describe("workflow configuration authorization", () => {
   it("allows tenant admins and platform admins", () => {
     expect(requireWorkflowAdmin(auth("admin"))).toBeNull();
     expect(requireWorkflowAdmin(auth("recruiter", true))).toBeNull();
+  });
+
+  it("lets staff save follow-up notes and reason codes without opening workflow settings", () => {
+    expect(isStaffStageCatalogAction("findOrCreateNote")).toBe(true);
+    expect(isStaffStageCatalogAction("addReasonCode")).toBe(true);
+    expect(isStaffStageCatalogAction("setLanes")).toBe(false);
+    expect(isStaffStageCatalogAction("setReasonCodes")).toBe(false);
+    expect(isStaffStageCatalogAction("assign")).toBe(false);
   });
 });
