@@ -5,6 +5,7 @@ import { isTenantStepBlocking } from "@/lib/onboarding/reference-verification";
 import { isUuid } from "@/lib/validation/uuid";
 import type {
   OnboardingStepStatus,
+  StepProgressRow,
   TenantOnboardingStep,
   WorkerOnboardingProgressPayload,
 } from "@/lib/onboarding/types";
@@ -44,6 +45,20 @@ function preferStatus(
   const currentRank = PROGRESS_STATUS_RANK[(current as OnboardingStepStatus) ?? "pending"] ?? 0;
   const nextRank = PROGRESS_STATUS_RANK[next as OnboardingStepStatus] ?? 0;
   return nextRank >= currentRank ? next : (current ?? "pending");
+}
+
+/** Progress row for a configured step. Placeholder ids may match a published row by step_key. */
+export function findProgressRowForStep(
+  steps: StepProgressRow[] | null | undefined,
+  step: { id: string; step_key?: string | null }
+): StepProgressRow | null {
+  const rows = steps ?? [];
+  const byId = rows.find((row) => row.onboarding_step_id === step.id);
+  if (byId) return byId;
+  if (isUuid(step.id)) return null;
+  const key = step.step_key?.trim();
+  if (!key) return null;
+  return rows.find((row) => row.step_key === key) ?? null;
 }
 
 /**

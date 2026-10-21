@@ -890,9 +890,15 @@ export async function applyStaffWorkflowStepAction(
       workerId,
       tenantStepId: ctx.mapped.tenantStepId,
       stepType: ctx.mapped.stepType,
+      stepKey: ctx.mapped.stepKey,
+      workflowStepId:
+        typeof ctx.tenantStep?.metadata?.workflow_step_id === "string"
+          ? ctx.tenantStep.metadata.workflow_step_id
+          : null,
       config: ctx.config,
       candidateOwned: true,
       stepStatus: currentStatus,
+      uploadsClosed: ctx.mapped.displayStatus === "completed" || Boolean(ctx.mapped.verifiedAt),
     });
     onBehalfDocumentIds = uploads.slots.flatMap((slot) =>
       slot.requiredDocumentId ? [slot.requiredDocumentId] : []

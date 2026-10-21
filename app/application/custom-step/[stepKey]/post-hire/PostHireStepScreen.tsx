@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Download, Eye } from "lucide-react";
 import { useOnboardingConfigOptional } from "@/app/components/onboarding/OnboardingConfigProvider";
 import { persistStepProgress } from "@/lib/onboarding/use-mark-step-in-progress-if-pending";
+import { findProgressRowForStep } from "@/lib/onboarding/compute-max-allowed-from-progress";
 import { skipOnboardingStep } from "@/lib/onboarding/skip-onboarding-step";
 import { isOnboardingStepSkippable } from "@/lib/onboarding/is-step-skippable";
 import { stepUsesFirmaSigning } from "@/lib/onboarding/firma-step-settings";
@@ -62,8 +63,7 @@ export default function PostHireStepScreen({
   const signer = useApplicantSigningEmail({ applicantId, tenantSlug });
 
   const progressRows = onboarding?.progress?.steps ?? [];
-  // Prefer step id only — shared step_key prefixes (custom_question_N) must not cross-match.
-  const progressRow = progressRows.find((row) => row.onboarding_step_id === step.id) ?? null;
+  const progressRow = findProgressRowForStep(progressRows, step);
   const submission = progressRow ? readPostHireSubmission(progressRow.data) : null;
   const effectiveStatus = effectivePostHireProgressStatus(kind, progressRow?.status, progressRow?.data);
   const done = effectiveStatus === "completed" && hasCandidatePostHireEvidence(kind, progressRow?.data);
@@ -74,6 +74,7 @@ export default function PostHireStepScreen({
 
   // Heal false "completed" rows (no checkbox / submission) so candidate sees the form again.
   useEffect(() => {
+    if (completingRef.current) return;
     if (!progressRow || !updateStepStatus || usesFirma) return;
     if (progressRow.status !== "completed") return;
     if (hasCandidatePostHireEvidence(kind, progressRow.data)) return;
@@ -96,7 +97,7 @@ export default function PostHireStepScreen({
   }, [progressRow, updateStepStatus, usesFirma, kind, step.id, step.step_key, step.step_type]);
 
   async function submit(fields: PostHireSubmissionField[], extra?: Record<string, unknown>) {
-    await persistStepProgress(
+    const saved = await persistStepProgress(
       updateStepStatus,
       step.step_key,
       "completed",
@@ -108,6 +109,9 @@ export default function PostHireStepScreen({
       },
       step.id
     );
+    if (!saved) {
+      throw new Error("Could not save your response");
+    }
     setEditing(false);
     onContinue();
   }

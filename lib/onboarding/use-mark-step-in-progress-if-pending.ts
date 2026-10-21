@@ -69,11 +69,12 @@ export async function persistStepProgress(
   completingRef?: MutableRefObject<boolean>,
   data?: Record<string, unknown>,
   stepId?: string
-): Promise<void> {
-  if (!stepKey || !updateStepStatus) return;
+): Promise<boolean> {
+  if (!stepKey || !updateStepStatus) return false;
   if (completingRef) completingRef.current = true;
   try {
     await updateStepStatus(stepKey, status, data, stepId);
+    return true;
   } finally {
     if (completingRef) completingRef.current = false;
   }

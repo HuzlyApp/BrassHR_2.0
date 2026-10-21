@@ -10,12 +10,17 @@ import {
   type EnrollmentDecision,
 } from "@/lib/onboarding/enrollment-decision-step";
 import { workflowStepIdToOnboardingType } from "@/lib/onboarding/workflow-step-mapping";
-import { storedCheckboxQuestions } from "@/lib/onboarding/candidate-checkbox-steps";
+import { storedCheckboxQuestions, isI9CheckboxStep, I9_SECTION_1_CHECKBOX_LABEL } from "@/lib/onboarding/candidate-checkbox-steps";
 import {
   postHireScreenKindForStepId,
   readPostHireSubmission,
 } from "@/lib/onboarding/post-hire-step-screens";
 import type { OnboardingStepStatus } from "@/lib/onboarding/types";
+import { notifyExpiredProfessionDocuments } from "@/lib/onboarding/notify-expired-profession-documents";
+import {
+  stepShowsProfessionDocuments,
+  withProfessionDocumentSlots,
+} from "@/lib/onboarding/profession-step-uploads";
 import {
   ASSIGNED_STEP_RECORD_COLUMNS,
   ASSESSMENT_COMPLETED_WITHOUT_ANSWERS_MESSAGE,
@@ -137,6 +142,16 @@ export type WorkflowStepInspectionError = {
   error: string;
 };
 
+export type InspectableExtraFile = {
+  id: string;
+  fileName: string;
+  fileSize: number | null;
+  uploadedAt: string | null;
+  previewUrl: string | null;
+  downloadUrl: string | null;
+  fileUnavailable: boolean;
+};
+
 export type InspectableDocument = {
   id: string;
   /** Requirement or slot the file was uploaded for, e.g. "Nursing License". */
@@ -198,6 +213,8 @@ export type WorkflowStepInspection = {
   documents: InspectableDocument[];
   /** Upload fields on this step; staff can fill them for the candidate. Null when the step has none. */
   documentUploads: StepDocumentUploads | null;
+  /** Optional other documents from the candidate's collect-documents step. Null on other steps. */
+  extraFiles: InspectableExtraFile[] | null;
   form: {
     questions: Array<{
       label: string;
@@ -299,9 +316,16 @@ export function inspectionKindForStep(params: {
   ) {
     return "upload";
   }
-  if (onboardingType === "skill_assessment" || stepType === "skill-qualification-assessment") {
-    return "assessment";
-  }
+  // Training Modules Quiz is persisted as onboarding type skill_assessment, but its
+  // answers are the post-hire confirmation — not the pre-hire skill ratings.
+  const isSkillAssessmentStep =
+    stepType === "skill-qualification-assessment" ||
+    stepType === "skill_assessment" ||
+    (onboardingType === "skill_assessment" &&
+      (stepType === "" ||
+        stepType === "skill_assessment" ||
+        stepType === "skill-qualification-assessment"));
+  if (isSkillAssessmentStep) return "assessment";
   if (onboardingType === "references" || stepType.includes("reference")) return "references";
   if (
     onboardingType === "authorizations" ||
@@ -490,6 +514,43 @@ async function signedOrUnavailable(
   if (!raw) return { url: null, unavailable: false };
   const url = await resolveStorageAccessibleUrl(supabase, raw, { defaultBucket });
   return { url, unavailable: !url };
+}
+
+async function loadInspectableExtraFiles(
+  supabase: SupabaseClient,
+  tenantId: string,
+  workerId: string
+): Promise<InspectableExtraFile[]> {
+  const { data, error } = await supabase
+    .from("worker_extra_files")
+    .select("id, original_file_name, file_size_bytes, storage_path, created_at")
+    .eq("tenant_id", tenantId)
+    .eq("worker_id", workerId)
+    .order("created_at", { ascending: false });
+  if (error) {
+    const text = `${error.code ?? ""} ${error.message ?? ""}`;
+    const missing =
+      /42P01|PGRST205/i.test(text) ||
+      (/worker_extra_files/i.test(text) && /does not exist|schema cache|could not find/i.test(text));
+    if (missing) return [];
+    throw error;
+  }
+
+  return Promise.all(
+    ((data ?? []) as Array<Record<string, unknown>>).map(async (row) => {
+      const signed = await signedOrUnavailable(supabase, asText(row.storage_path), WORKER_REQUIRED_FILES_BUCKET);
+      const size = Number(row.file_size_bytes);
+      return {
+        id: String(row.id),
+        fileName: asText(row.original_file_name) || "Uploaded file",
+        fileSize: Number.isFinite(size) ? size : null,
+        uploadedAt: asText(row.created_at),
+        previewUrl: signed.url,
+        downloadUrl: signed.url,
+        fileUnavailable: signed.unavailable,
+      };
+    })
+  );
 }
 
 const UPLOAD_NAME_PREFIX_RE =
@@ -836,7 +897,15 @@ export async function loadCandidateWorkflowStepInspection(
   }
   mapped.displayStatus = candidateReviewDisplayStatus(mapped);
 
-  const documentUploads = buildStepDocumentUploads({
+  const i9CheckboxStep = isI9CheckboxStep({
+    stepKey: mapped.stepKey,
+    stepType: mapped.stepType,
+    snapshotStepId: mapped.snapshotStepId,
+    title: mapped.title,
+    metadata: tenantStep?.metadata ?? { workflow_step_id: mapped.stepType },
+  });
+
+  const documentUploadsBase = buildStepDocumentUploads({
     workerId,
     stepType: mapped.stepType,
     requirements: uploadRequirements,
@@ -849,6 +918,85 @@ export async function loadCandidateWorkflowStepInspection(
     candidateOwned: !staffAction.allowed && Boolean(mappedTenantStepId),
     stepStatus: mapped.status,
   });
+  const professionUploads = await withProfessionDocumentSlots(supabase, {
+    tenantId,
+    workerId,
+    stepType: mapped.stepType,
+    stepKey: mapped.stepKey,
+    workflowStepId:
+      asText(tenantStep?.metadata?.workflow_step_id) ?? asText(record.step_type),
+    stepStatus: mapped.status,
+    uploadsClosed: mapped.displayStatus === "completed" || Boolean(mapped.verifiedAt),
+    candidateOwned: !staffAction.allowed && Boolean(mappedTenantStepId),
+    uploads: documentUploadsBase,
+  });
+  const documentUploads = i9CheckboxStep
+    ? { ...professionUploads.uploads, slots: [], missingRequired: [], canUpload: false, canCompleteForCandidate: false }
+    : professionUploads.uploads;
+  if (professionUploads.files.length) {
+    const extraStaff = await loadStaffMembers(
+      supabase,
+      tenantId,
+      professionUploads.files.map((file) => staffUploaderIdFromPath(file.fileUrl) ?? "")
+    );
+    for (const [id, member] of extraStaff) uploaderById.set(id, member);
+    for (const file of professionUploads.files) {
+      if (documents.some((document) => document.id === file.id)) continue;
+      const signed = await signedOrUnavailable(supabase, file.fileUrl, WORKER_REQUIRED_FILES_BUCKET);
+      const slot = documentUploads.slots.find((candidate) => candidate.documentId === file.id);
+      documents.push({
+        id: file.id,
+        documentName: slot?.title ?? null,
+        originalFileName: file.fileName,
+        documentType: file.fileType,
+        fileSize: file.fileSize,
+        uploadedAt: file.uploadedAt,
+        uploadedBy: documentUploaderLabel(
+          staffUploaderIdFromPath(file.fileUrl),
+          candidateName,
+          uploaderById
+        ),
+        verificationStatus: file.status,
+        previewUrl: signed.url,
+        downloadUrl: signed.url,
+        fileUnavailable: signed.unavailable,
+        approvedOrRejectedAt: null,
+        reviewedBy: null,
+        reviewNotes: null,
+      });
+    }
+    const expiredNotices = documentUploads.slots.flatMap((slot) =>
+      slot.expired && slot.documentId && slot.expiryDate
+        ? [
+            {
+              uploadId: slot.documentId,
+              tenantId,
+              workerId,
+              title: slot.title,
+              expiryDate: slot.expiryDate,
+              candidateName,
+            },
+          ]
+        : []
+    );
+    if (expiredNotices.length) {
+      await notifyExpiredProfessionDocuments(supabase, expiredNotices).catch((error) => {
+        console.warn("[profession-document-expired] notify", error);
+      });
+    }
+  }
+
+  let extraFiles: InspectableExtraFile[] | null = null;
+  if (
+    !i9CheckboxStep &&
+    stepShowsProfessionDocuments({
+      stepType: mapped.stepType,
+      stepKey: mapped.stepKey,
+      workflowStepId: asText(tenantStep?.metadata?.workflow_step_id) ?? asText(record.step_type),
+    })
+  ) {
+    extraFiles = await loadInspectableExtraFiles(supabase, tenantId, workerId);
+  }
 
   let enrollment: WorkflowStepInspection["enrollment"] = null;
   if (isEnrollmentDecisionStepType(mapped.stepType)) {
@@ -910,6 +1058,18 @@ export async function loadCandidateWorkflowStepInspection(
     };
   } else if (checkboxQuestions) {
     form = { questions: checkboxQuestions };
+  } else if (i9CheckboxStep && (mapped.status === "completed" || progress?.completed_at != null)) {
+    form = {
+      questions: [
+        {
+          label: asText(progressData.checkbox_label) || I9_SECTION_1_CHECKBOX_LABEL,
+          fieldType: "checkbox",
+          answer: "Confirmed",
+          submittedAt: responseSubmittedAt,
+          reviewResult: null,
+        },
+      ],
+    };
   } else if (!form && phase === "post_hire" && progressData && Object.keys(progressData).length > 0) {
     const IGNORED_KEYS = new Set([
       "step_type",
@@ -1065,7 +1225,7 @@ export async function loadCandidateWorkflowStepInspection(
     (id): id is string => Boolean(id)
   );
 
-  if (isAgreementStep || (kind === "background_check" && sessionStepIds.length)) {
+  if (!i9CheckboxStep && (isAgreementStep || (kind === "background_check" && sessionStepIds.length))) {
     let query = supabase
       .from("worker_firma_signing_sessions")
       .select(
@@ -1461,6 +1621,7 @@ export async function loadCandidateWorkflowStepInspection(
     checkResult,
     documents,
     documentUploads: documentUploads.slots.length ? documentUploads : null,
+    extraFiles,
     form,
     assessment,
     references,

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { SSN_IDENTITY_STEP_TYPE } from "@/lib/onboarding/assigned-workflow-steps";
+import { withProfessionDocumentSlots } from "@/lib/onboarding/profession-step-uploads";
 import { isUploadLaterStep } from "@/lib/onboarding/reference-verification";
 import type { TenantOnboardingConfig, TenantRequiredDocument } from "@/lib/onboarding/types";
 
@@ -19,6 +20,16 @@ export type StepUploadSlot = {
   title: string;
   required: boolean;
   requiredDocumentId: string | null;
+  /** Profession settings document. Staff upload writes `worker_profession_document_uploads`. */
+  professionDocumentId: string | null;
+  /** License or Certificate, when this slot comes from profession settings. */
+  detail?: string | null;
+  /** Profession document requires issued and expiry dates. */
+  collectDates?: boolean;
+  issuedDate?: string | null;
+  expiryDate?: string | null;
+  /** True only when the stored expiry date is before today. */
+  expired?: boolean;
   identityField: IdentityUploadField | null;
   /** Matches `InspectableDocument.id` of the file currently filling this slot. */
   documentId: string | null;
@@ -30,7 +41,7 @@ export type StepDocumentUploads = {
   missingRequired: string[];
   /** Upload-later step: missing files are listed but never block completing the step. */
   uploadsOptional: boolean;
-  /** Staff may upload into the slots (closed once the step is completed or skipped). */
+  /** Staff may upload into the slots. Closed once the step is completed; profession slots stay open if skipped. */
   canUpload: boolean;
   /** Candidate-owned step whose uploads are all in, so staff can complete it for the candidate. */
   canCompleteForCandidate: boolean;
@@ -104,6 +115,7 @@ export function buildStepDocumentUploads(params: {
         title: slot.title,
         required: slot.required,
         requiredDocumentId: null,
+        professionDocumentId: null,
         identityField: slot.field,
         documentId: filled ? identityDocumentId(params.identityRow, params.workerId, slot.column) : null,
         documentStatus: filled ? "uploaded" : null,
@@ -117,6 +129,7 @@ export function buildStepDocumentUploads(params: {
       title: requirement.title,
       required: requirement.is_required,
       requiredDocumentId: requirement.id,
+      professionDocumentId: null,
       identityField: null,
       documentId: row ? String(row.id) : null,
       documentStatus: row ? asText(row.status) : null,
@@ -186,9 +199,13 @@ export async function loadStepDocumentUploads(
     workerId: string;
     tenantStepId: string | null;
     stepType: string | null;
+    stepKey?: string | null;
+    workflowStepId?: string | null;
     config: Pick<TenantOnboardingConfig, "requiredDocuments"> | null;
     candidateOwned: boolean;
     stepStatus: string | null;
+    /** When set, overrides the completed-status lock. False keeps uploads open while a submitted step awaits review. */
+    uploadsClosed?: boolean;
   }
 ): Promise<StepDocumentUploads> {
   const requirements = stepUploadRequirements(params.config, params.tenantStepId);
@@ -202,7 +219,7 @@ export async function loadStepDocumentUploads(
       ? loadIdentityDocumentRow(supabase, { tenantId: params.tenantId, workerId: params.workerId })
       : Promise.resolve(null),
   ]);
-  return buildStepDocumentUploads({
+  const uploads = buildStepDocumentUploads({
     workerId: params.workerId,
     stepType: params.stepType,
     requirements,
@@ -215,6 +232,18 @@ export async function loadStepDocumentUploads(
     candidateOwned: params.candidateOwned,
     stepStatus: params.stepStatus,
   });
+  const withProfession = await withProfessionDocumentSlots(supabase, {
+    tenantId: params.tenantId,
+    workerId: params.workerId,
+    stepType: params.stepType,
+    stepKey: params.stepKey,
+    workflowStepId: params.workflowStepId,
+    stepStatus: params.stepStatus,
+    uploadsClosed: params.uploadsClosed,
+    candidateOwned: params.candidateOwned,
+    uploads,
+  });
+  return withProfession.uploads;
 }
 
 /** Staff completing a candidate's upload step accepts the files that are still awaiting review. */

@@ -1,4 +1,3 @@
-import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StepProgressRow, WorkerOnboardingProgressPayload } from "@/lib/onboarding/types";
 import { loadTenantOnboardingConfig } from "@/lib/onboarding/load-tenant-config";
@@ -46,13 +45,14 @@ async function loadLatestWorkerProgress(
   return data?.[0] ?? null;
 }
 
-export const ensureWorkerOnboardingProgress = cache(ensureWorkerOnboardingProgressUncached);
-
 /**
  * `unscopedOnly`: without an applicationId, ignore progress owned by other job applications
  * (job-link sessions must not inherit another job's step statuses).
+ *
+ * Not request-cached. Callers that save a step and then reload progress in the same
+ * request must see the row they just wrote.
  */
-async function ensureWorkerOnboardingProgressUncached(
+export async function ensureWorkerOnboardingProgress(
   supabase: SupabaseClient,
   workerId: string,
   tenantId: string,

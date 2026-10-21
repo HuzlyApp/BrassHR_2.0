@@ -63,6 +63,21 @@ describe("workflow step inspection kinds", () => {
     );
   });
 
+  it("keeps skill assessment results off post-hire training steps", () => {
+    expect(
+      inspectionKindForStep({
+        stepType: "training-modules-quiz",
+        onboardingType: "skill_assessment",
+      })
+    ).not.toBe("assessment");
+    expect(
+      inspectionKindForStep({
+        stepType: "skill-qualification-assessment",
+        onboardingType: "skill_assessment",
+      })
+    ).toBe("assessment");
+  });
+
   it("explains completed steps with no document and unmatched legacy records", () => {
     expect(STEP_COMPLETED_WITHOUT_DOCUMENT_MESSAGE).toBe(
       "Completed through candidate confirmation. No document was required."
