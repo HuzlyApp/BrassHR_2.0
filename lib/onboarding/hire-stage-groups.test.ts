@@ -499,6 +499,25 @@ describe("hireStageLabelForStep", () => {
     ).toBe("Training & Policy");
   });
 
+  it("places Agreement e-sign and I-9 Section 1 in Offer & Agreement", () => {
+    expect(
+      hireStageLabelForStep({
+        stageName: null,
+        libraryId: "employee-agreement",
+        stepKey: "agreement-esign",
+        lifecycle: "pre_hire",
+      })
+    ).toBe("Offer & Agreement");
+    expect(
+      hireStageLabelForStep({
+        stageName: null,
+        libraryId: "i9-right-to-work-verification",
+        stepKey: "i9-section-1",
+        lifecycle: "pre_hire",
+      })
+    ).toBe("Offer & Agreement");
+  });
+
   it("ignores a stage name that belongs to the other phase", () => {
     expect(
       hireStageLabelForStep({
