@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { catalogSavePlan, codesForScopedAppend } from "./stage-reason-codes";
+import { catalogSavePlan, codesForScopedAppend, reasonCodesForLane } from "./stage-reason-codes";
 
 describe("catalogSavePlan", () => {
   it("reuses a note that already exists for this stage", () => {
@@ -14,6 +14,31 @@ describe("catalogSavePlan", () => {
       action: "create",
       value: "Left voicemail",
     });
+  });
+});
+
+describe("reasonCodesForLane", () => {
+  const rows = [
+    { code: "Not a Fit", workflowId: null, lane: "closed" },
+    { code: "Call back later", workflowId: null, lane: "alternate" },
+    { code: "Phone blocked", workflowId: "workflow-a", lane: "alternate" },
+  ];
+
+  it("keeps closing codes off the alternate action", () => {
+    expect(reasonCodesForLane(rows, null, "closed")).toEqual(["Not a Fit"]);
+    expect(reasonCodesForLane(rows, null, "alternate")).toEqual(["Call back later"]);
+  });
+
+  it("treats a missing lane as the closing list", () => {
+    expect(reasonCodesForLane([{ code: "Not a Fit", workflowId: null }], null, "alternate")).toEqual([]);
+    expect(reasonCodesForLane([{ code: "Not a Fit", workflowId: null }], null, "closed")).toEqual([
+      "Not a Fit",
+    ]);
+  });
+
+  it("uses a workflow override for that action only", () => {
+    expect(reasonCodesForLane(rows, "workflow-a", "alternate")).toEqual(["Phone blocked"]);
+    expect(reasonCodesForLane(rows, "workflow-a", "closed")).toEqual(["Not a Fit"]);
   });
 });
 

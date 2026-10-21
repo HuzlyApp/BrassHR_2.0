@@ -22,12 +22,10 @@ import {
   resolveStageStatusLanes,
   selectWorkflowScopedLaneRows,
   applyStageButtonVisibility,
-  DEFAULT_ALTERNATE_BUTTON_LABEL,
-  DEFAULT_CLOSED_BUTTON_LABEL,
-  resolveStageButtonLabel,
   type SavedStageStatusLane,
   type StageStatusLane,
 } from "@/lib/jobs/application-statuses/stage-status-lanes";
+import { reasonCodeLaneOf, type ReasonCodeLane } from "@/lib/jobs/application-statuses/stage-reason-codes";
 import { StageStatusLaneEditor, type LanePlacement, type LaneStatus } from "./StageStatusLaneEditor";
 import { HIRE_STAGE_BY_STEP_KEY } from "@/lib/onboarding/hire-stage-catalog";
 import { PRE_HIRE_FIGMA_STAGES } from "@/lib/onboarding/hire-stage-groups";
@@ -77,6 +75,7 @@ type ReasonCodeRow = {
   sortOrder: number;
   workflowId: string | null;
   note: string | null;
+  lane: ReasonCodeLane;
 };
 
 function mapReasonCodePayload(row: Record<string, unknown>): ReasonCodeRow | null {
@@ -90,6 +89,7 @@ function mapReasonCodePayload(row: Record<string, unknown>): ReasonCodeRow | nul
     sortOrder: Number(row.sortOrder ?? 0),
     workflowId: typeof row.workflowId === "string" && row.workflowId ? row.workflowId : null,
     note: note || null,
+    lane: reasonCodeLaneOf(typeof row.lane === "string" ? row.lane : null),
   };
 }
 
@@ -453,6 +453,7 @@ function ReasonCodeEditor({
   saving,
   onSave,
   detail,
+  listId,
 }: {
   codes: string[];
   presets: string[];
@@ -460,6 +461,7 @@ function ReasonCodeEditor({
   saving: boolean;
   onSave: (codes: string[]) => void;
   detail: string;
+  listId: string;
 }) {
   const [items, setItems] = useState(codes);
   const [query, setQuery] = useState("");
@@ -539,7 +541,7 @@ function ReasonCodeEditor({
                 addNote(typed);
               }
             }}
-            list={`reason-presets-${savedKey.length}`}
+            list={`reason-presets-${listId}`}
             placeholder="Type a reason code"
             aria-label="Add a reason code"
             className="h-9 w-full rounded-lg border border-[#CBD5E1] bg-white px-3 text-sm"
@@ -778,8 +780,8 @@ export default function CandidateStatusesPanel() {
     closed: null,
   });
   const [buttonLabelDraft, setButtonLabelDraft] = useState({
-    alternate: DEFAULT_ALTERNATE_BUTTON_LABEL,
-    closed: DEFAULT_CLOSED_BUTTON_LABEL,
+    alternate: "",
+    closed: "",
   });
   const [stageNotes, setStageNotes] = useState<StageNote[]>([]);
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
@@ -839,8 +841,8 @@ export default function CandidateStatusesPanel() {
       const loadedLabels = readSharedButtonLabels(assignPayload.buttonLabels);
       setSharedButtonLabels(loadedLabels);
       setButtonLabelDraft({
-        alternate: resolveStageButtonLabel("alternate", loadedLabels.alternate),
-        closed: resolveStageButtonLabel("closed", loadedLabels.closed),
+        alternate: loadedLabels.alternate ?? "",
+        closed: loadedLabels.closed ?? "",
       });
       setStageNotes(mapStageNotes(assignPayload.notes));
       setWorkflows(
@@ -1017,8 +1019,8 @@ export default function CandidateStatusesPanel() {
       const saved = readSharedButtonLabels(payload.buttonLabels);
       setSharedButtonLabels(saved);
       setButtonLabelDraft({
-        alternate: resolveStageButtonLabel("alternate", saved.alternate),
-        closed: resolveStageButtonLabel("closed", saved.closed),
+        alternate: saved.alternate ?? "",
+        closed: saved.closed ?? "",
       });
       flash("success", "Button names saved for every stage");
     } catch (error) {
@@ -1086,7 +1088,12 @@ export default function CandidateStatusesPanel() {
     flash("success", `${name || "Status"} added to ${stageName}.`);
   }
 
-  async function saveReasonCodes(stageName: string, codes: string[], workflowId: string | null) {
+  async function saveReasonCodes(
+    stageName: string,
+    lane: ReasonCodeLane,
+    codes: string[],
+    workflowId: string | null
+  ) {
     setSaving(true);
     try {
       const response = await fetch("/api/admin/application-status-stage-assignments", {
@@ -1096,6 +1103,7 @@ export default function CandidateStatusesPanel() {
           action: "setReasonCodes",
           stageName,
           workflowId,
+          lane,
           codes,
         }),
       });
@@ -1107,7 +1115,10 @@ export default function CandidateStatusesPanel() {
           return mapped ? [mapped] : [];
         })
       );
-      flash("success", `Reason codes saved for ${stageName}`);
+      flash(
+        "success",
+        `${lane === "closed" ? "Closing" : "Alternate"} reason codes saved for ${stageName}`
+      );
     } catch (error) {
       flash("error", error instanceof Error ? error.message : "Failed to save reason codes");
     } finally {
@@ -1402,10 +1413,6 @@ export default function CandidateStatusesPanel() {
       })),
     };
     const stageReasonRows = reasonCodes.filter((row) => row.stageName === stage);
-    const pickedReasons = selectWorkflowScopedLaneRows(stageReasonRows, workflowId);
-    const scopedReasonCodes = stageReasonRows.filter(
-      (row) => (row.workflowId ?? null) === (workflowId ?? null)
-    );
     const categorySummary = `Primary ${lanes.happy_path.length} · Alternate ${lanes.alternate.length} · Closing ${lanes.closed.length}`;
     return (
       <StageAssignmentCard
@@ -1457,16 +1464,28 @@ export default function CandidateStatusesPanel() {
                 onAddStatus={(lane, input) =>
                   void addLaneStatus(stage, workflowId, lane, input, placements)
                 }
-                laneFooter={(lane) => (
-                  <ReasonCodeEditor
-                    codes={pickedReasons.rows.map((row) => row.code)}
-                    presets={scopedReasonCodes.map((row) => row.code)}
-                    canManage={canManage}
-                    saving={saving}
-                    detail="Reason codes for Alternate and Closing on this stage. A matching code is reused. A new code stays on this stage."
-                    onSave={(codes) => void saveReasonCodes(stage, codes, workflowId)}
-                  />
-                )}
+                laneFooter={(lane) => {
+                  if (lane === "happy_path") return null;
+                  const laneRows = stageReasonRows.filter((row) => row.lane === lane);
+                  const picked = selectWorkflowScopedLaneRows(laneRows, workflowId);
+                  const codes = picked.rows.map((row) => row.code);
+                  return (
+                    <ReasonCodeEditor
+                      key={`${workflowId ?? "default"}-${stage}-${lane}`}
+                      listId={`${workflowId ?? "default"}-${stage}-${lane}`}
+                      codes={codes}
+                      presets={codes}
+                      canManage={canManage}
+                      saving={saving}
+                      detail={
+                        lane === "closed"
+                          ? "Reason codes for the closing action only. They do not appear on alternate."
+                          : "Reason codes for the alternate action only. They do not appear when closing."
+                      }
+                      onSave={(next) => void saveReasonCodes(stage, lane, next, workflowId)}
+                    />
+                  );
+                }}
               />
             </div>
           ) : undefined
@@ -1508,7 +1527,7 @@ export default function CandidateStatusesPanel() {
           <div className="rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-4 py-4">
             <h3 className="text-sm font-semibold text-[#012352]">Application buttons</h3>
             <p className="mt-1 text-xs leading-5 text-[#64748B]">
-              These names are used on every stage for this organization. Leave the original wording to keep the default.
+              Leave a name blank to use the alternate or closing status from the catalog. A saved name replaces that status name on every stage.
             </p>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <label className="block text-xs font-medium text-[#334155]" htmlFor="shared-alternate-button-label">
@@ -1518,6 +1537,7 @@ export default function CandidateStatusesPanel() {
                   value={buttonLabelDraft.alternate}
                   disabled={!canManage || saving}
                   maxLength={60}
+                  placeholder="Status name from the catalog"
                   onChange={(event) =>
                     setButtonLabelDraft((current) => ({ ...current, alternate: event.target.value }))
                   }
@@ -1531,6 +1551,7 @@ export default function CandidateStatusesPanel() {
                   value={buttonLabelDraft.closed}
                   disabled={!canManage || saving}
                   maxLength={60}
+                  placeholder="Status name from the catalog"
                   onChange={(event) =>
                     setButtonLabelDraft((current) => ({ ...current, closed: event.target.value }))
                   }
@@ -1543,10 +1564,8 @@ export default function CandidateStatusesPanel() {
                 type="button"
                 disabled={
                   saving ||
-                  (buttonLabelDraft.alternate.trim() ===
-                    resolveStageButtonLabel("alternate", sharedButtonLabels.alternate) &&
-                    buttonLabelDraft.closed.trim() ===
-                      resolveStageButtonLabel("closed", sharedButtonLabels.closed))
+                  (buttonLabelDraft.alternate.trim() === (sharedButtonLabels.alternate ?? "") &&
+                    buttonLabelDraft.closed.trim() === (sharedButtonLabels.closed ?? ""))
                 }
                 onClick={() => void saveSharedButtonLabels()}
                 className="mt-3 inline-flex h-9 items-center rounded-lg bg-[#012352] px-4 text-sm font-medium text-white disabled:opacity-50"

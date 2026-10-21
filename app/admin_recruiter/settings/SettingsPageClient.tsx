@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import AdminConsolePanel from "@/app/admin_recruiter/settings/AdminConsolePanel";
 import BrandingSettingsPanel from "@/app/admin_recruiter/settings/BrandingSettingsPanel";
+import HireJourneyThemePanel from "@/app/admin_recruiter/settings/HireJourneyThemePanel";
 import CandidateStatusesPanel from "@/app/admin_recruiter/settings/CandidateStatusesPanel";
 import AssessmentSettingsPanel from "@/app/admin_recruiter/settings/AssessmentSettingsPanel";
 import ProfessionDocumentsPanel from "@/app/admin_recruiter/settings/ProfessionDocumentsPanel";
@@ -44,6 +45,13 @@ function SettingsContent() {
           Branding
         </h2>
         <BrandingSettingsPanel />
+      </section>
+
+      <section aria-labelledby="hire-journey-theme-heading">
+        <h2 id="hire-journey-theme-heading" className="sr-only">
+          Hiring journey
+        </h2>
+        <HireJourneyThemePanel />
       </section>
 
       <section aria-labelledby="assessment-heading">

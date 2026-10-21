@@ -19,8 +19,18 @@ function scopeSvgIds(svg: string, scope: string): string {
   return next;
 }
 
-function paintSvg(raw: string, width: number, height: number, scope: string): string {
-  const tinted = scopeSvgIds(raw.replace(BRASS_GOLD, "var(--brand-primary)"), scope);
+const COMPLETION_GREEN = /#12AA00/gi;
+
+function paintSvg(
+  raw: string,
+  width: number,
+  height: number,
+  scope: string,
+  tint: string,
+  tintGreen: boolean
+): string {
+  const colored = tintGreen ? raw.replace(BRASS_GOLD, tint).replace(COMPLETION_GREEN, tint) : raw.replace(BRASS_GOLD, tint);
+  const tinted = scopeSvgIds(colored, scope);
   return tinted.replace(/<svg\b([^>]*)>/i, (_match, attrs: string) => {
     const cleaned = attrs.replace(/\swidth="[^"]*"/i, "").replace(/\sheight="[^"]*"/i, "");
     return `<svg${cleaned} width="${width}" height="${height}" style="display:block">`;
@@ -37,12 +47,16 @@ export function BrandColoredSvg({
   height,
   alt = "",
   className,
+  tint = "var(--brand-primary)",
+  tintGreen = false,
 }: {
   src: string;
   width: number;
   height: number;
   alt?: string;
   className?: string;
+  tint?: string;
+  tintGreen?: boolean;
 }) {
   const reactId = useId().replace(/[^a-zA-Z0-9]/g, "");
   const [markup, setMarkup] = useState<string | null>(null);
@@ -60,7 +74,7 @@ export function BrandColoredSvg({
           rawSvgCache.set(src, raw);
         }
         if (cancelled) return;
-        setMarkup(paintSvg(raw, width, height, reactId));
+        setMarkup(paintSvg(raw, width, height, reactId, tint, tintGreen));
       } catch {
         if (!cancelled) setMarkup(null);
       }
@@ -70,7 +84,7 @@ export function BrandColoredSvg({
     return () => {
       cancelled = true;
     };
-  }, [src, width, height, reactId]);
+  }, [src, width, height, reactId, tint, tintGreen]);
 
   return (
     <span

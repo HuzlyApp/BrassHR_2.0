@@ -88,6 +88,23 @@ const library: StepCategory[] = [
 ];
 
 describe("library-category-theme", () => {
+  it("keeps an emptied pre-hire stage on the pre-hire tab only", () => {
+    const withEmptyOffer = [
+      ...library,
+      { id: "offer-agreement", label: "Offer and agreement", steps: [] },
+    ];
+    expect(
+      filterStepLibraryByPhase(withEmptyOffer, "pre_hire").some(
+        (category) => category.id === "offer-agreement"
+      )
+    ).toBe(true);
+    expect(
+      filterStepLibraryByPhase(withEmptyOffer, "post_hire").some(
+        (category) => category.id === "offer-agreement"
+      )
+    ).toBe(false);
+  });
+
   it("uses the category label stored with the library row", () => {
     expect(resolveCategoryDisplayLabel("application-profile", "Intake")).toBe("Intake");
     expect(resolveCategoryDisplayLabel("communication-notification", "Welcome")).toBe("Welcome");

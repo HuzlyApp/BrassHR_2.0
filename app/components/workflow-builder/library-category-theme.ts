@@ -233,14 +233,26 @@ export function filterStepLibraryByPhase(
     .map((category) => {
       const categoryConfig = resolveCategoryConfig(category.id, category.label);
       return {
-        ...category,
-        steps: category.steps.filter((step) => {
-          if (categoryConfig.defaultPhase === "both") return true;
-          return resolveStepLibraryPhase(step, category.id, category.label) === phase;
-        }),
+        category: {
+          ...category,
+          steps: category.steps.filter((step) => {
+            if (categoryConfig.defaultPhase === "both") return true;
+            return resolveStepLibraryPhase(step, category.id, category.label) === phase;
+          }),
+        },
+        arrivedEmpty: category.steps.length === 0,
+        defaultPhase: categoryConfig.defaultPhase,
       };
     })
-    .filter((category) => category.steps.length > 0);
+    .filter(({ category, arrivedEmpty, defaultPhase }) => {
+      if (category.steps.length > 0) return true;
+      // A stage whose steps were removed because they belong on the other tab
+      // stays hidden. A stage emptied because its steps are already on the canvas
+      // stays on its own tab.
+      if (!arrivedEmpty) return false;
+      return defaultPhase === phase || defaultPhase === "both";
+    })
+    .map(({ category }) => category);
 
   return mergeCustomStepCategories(phased);
 }

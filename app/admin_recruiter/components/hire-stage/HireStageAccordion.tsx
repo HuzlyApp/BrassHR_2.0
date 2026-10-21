@@ -71,7 +71,9 @@ function StageSummaryText({ summary, locked }: { summary: string; locked: boolea
           <span
             key={`${i}-${part}`}
             style={{
-              color: isInProgress ? "var(--brand-secondary)" : "var(--brand-primary)",
+              color: isInProgress
+                ? "var(--hj-icon, var(--brand-secondary))"
+                : "var(--hj-progress-bg, var(--brand-primary))",
             }}
           >
             {part}
@@ -151,15 +153,18 @@ export function HireStageAccordion({
             key={stage.id}
             className={`overflow-hidden rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.04)] ${
               current
-                ? "border-[color:var(--brand-primary)] ring-1 ring-[color:var(--brand-primary)]/30"
-                : completed
-                  ? "border-transparent bg-white"
-                  : "border-[#E8ECF0] bg-white"
+                ? "border-[color:var(--hj-progress-bg,var(--brand-primary))]"
+                : "border-[#E8ECF0] bg-white"
             } ${locked ? "opacity-80" : ""}`}
             style={
               current
-                ? { backgroundColor: "color-mix(in srgb, var(--brand-primary) 10%, white)" }
-                : undefined
+                ? {
+                    backgroundColor:
+                      "color-mix(in srgb, var(--hj-progress-bg, var(--brand-primary)) 10%, white)",
+                  }
+                : completed
+                  ? { backgroundColor: "var(--hj-completed-bg, #FFFFFF)" }
+                  : { backgroundColor: "#FFFFFF" }
             }
           >
             <div className="flex w-full items-center gap-3 px-4 py-3.5 sm:gap-4 sm:px-5">
@@ -169,13 +174,13 @@ export function HireStageAccordion({
                     ? "bg-[#E5E7EB] text-[#9CA3AF]"
                     : completed || current
                       ? "text-white"
-                      : "bg-[#E8EEF7] text-[color:var(--brand-secondary)]"
+                      : "bg-[#E8EEF7] text-[color:var(--hj-icon,var(--brand-secondary))]"
                 }`}
                 style={
                   !locked && completed
-                    ? { backgroundColor: "#12AA00" }
+                    ? { backgroundColor: "var(--hj-complete, #12AA00)" }
                     : !locked && current
-                      ? { backgroundColor: "var(--brand-primary)" }
+                      ? { backgroundColor: "var(--hj-progress-bg, var(--brand-primary))" }
                       : undefined
                 }
               >
@@ -206,6 +211,7 @@ export function HireStageAccordion({
                         src={PRE_HIRE_UI_ICONS.doubleCheck}
                         width={14}
                         height={14}
+                        tint="var(--hj-complete, #12AA00)"
                         className="shrink-0"
                       />
                     ) : null}
@@ -228,6 +234,8 @@ export function HireStageAccordion({
                         src={PRE_HIRE_UI_ICONS.stageCheckOutlineGreen}
                         width={22}
                         height={22}
+                        tint="var(--hj-complete, #12AA00)"
+                        tintGreen
                         className="shrink-0"
                       />
                     ) : current ? (
@@ -254,6 +262,8 @@ export function HireStageAccordion({
                         src={PRE_HIRE_UI_ICONS.stageCheckOutlineGreen}
                         width={22}
                         height={22}
+                        tint="var(--hj-complete, #12AA00)"
+                        tintGreen
                         className="shrink-0"
                       />
                     ) : null}
@@ -284,7 +294,7 @@ export function HireStageAccordion({
                 className="pt-3"
                 style={{
                   borderTop: current
-                    ? "1px solid color-mix(in srgb, var(--brand-primary) 55%, white)"
+                    ? "1px solid color-mix(in srgb, var(--hj-progress-bg, var(--brand-primary)) 55%, white)"
                     : "1px solid #F1F5F9",
                 }}
               >
@@ -332,12 +342,12 @@ export function HireStageAccordion({
                   return (
                     <div
                       key={step.id}
-                      className={`mx-4 mb-3 flex items-center gap-3 rounded-xl border bg-white px-3 py-3 last:mb-4 sm:mx-5 sm:px-4 ${lockedByScreening ? "opacity-60" : ""}`}
+                      className={`mx-4 mb-3 flex items-center gap-3 rounded-xl border px-3 py-3 last:mb-4 sm:mx-5 sm:px-4 ${lockedByScreening ? "opacity-60" : ""}`}
                       style={{
-                        borderColor:
-                          lockedByScreening || settled
-                            ? "#E8ECF0"
-                            : "color-mix(in srgb, var(--brand-primary) 40%, #E8ECF0)",
+                        backgroundColor: settled
+                          ? "var(--hj-completed-bg, #FFFFFF)"
+                          : "#FFFFFF",
+                        borderColor: "var(--hj-step-border, #E8ECF0)",
                       }}
                     >
                       <button
@@ -411,6 +421,8 @@ export function HireStageAccordion({
                           src={PRE_HIRE_UI_ICONS.stageCheckFilledGreen}
                           width={20}
                           height={20}
+                          tint="var(--hj-complete, #12AA00)"
+                          tintGreen
                         />
                       ) : (
                         <StepRefreshButton

@@ -77,6 +77,8 @@ export function collectUsedLibrarySteps(
 
 export type ExcludeUsedLibraryStepsOptions = {
   usedLabels?: Iterable<string>;
+  /** Keep a stage heading after every catalog step from that stage is on the canvas. */
+  keepEmptyCategories?: boolean;
 };
 
 /**
@@ -96,17 +98,17 @@ export function excludeUsedLibrarySteps(
   );
   if (used.size === 0 && usedLabels.size === 0) return categories;
 
-  return categories
-    .map((category) => ({
-      ...category,
-      steps: category.steps.filter((step) => {
-        if (step.id === CUSTOM_STEP_ID) return true;
-        if (used.has(step.id)) return false;
-        if (usedLabels.has(normalizeLibraryLabel(step.label))) return false;
-        return true;
-      }),
-    }))
-    .filter((category) => category.steps.length > 0);
+  const next = categories.map((category) => ({
+    ...category,
+    steps: category.steps.filter((step) => {
+      if (step.id === CUSTOM_STEP_ID) return true;
+      if (used.has(step.id)) return false;
+      if (usedLabels.has(normalizeLibraryLabel(step.label))) return false;
+      return true;
+    }),
+  }));
+  if (options?.keepEmptyCategories) return next;
+  return next.filter((category) => category.steps.length > 0);
 }
 
 /** Keep steps that belong to the stage on both sides of an insertion gap. */
@@ -166,7 +168,9 @@ export function filterStepLibrary(
         stepMatchesSearch(step, q, category.label)
       ),
     }))
-    .filter((category) => category.steps.length > 0);
+    .filter(
+      (category) => category.steps.length > 0 || matchesQuery(category.label, q)
+    );
 }
 
 export function findCustomStepDefinition(

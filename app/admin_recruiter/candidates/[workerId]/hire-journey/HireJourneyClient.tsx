@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { HireStageBoard } from "@/app/admin_recruiter/components/hire-stage/HireStageBoard";
+import { HireJourneyThemeProvider } from "@/app/admin_recruiter/components/hire-stage/HireJourneyTheme";
 import type { HireStageSidebarProfile } from "@/app/admin_recruiter/components/hire-stage/HireStageSidebar";
 import type { CandidateProfilePayload } from "@/lib/admin/candidate-profile-view";
 import { workTypeSummaryLabel } from "@/lib/admin/candidate-profile-view";
@@ -151,6 +152,7 @@ export default function HireJourneyClient({ workerId }: { workerId: string }) {
   }
 
   return (
+    <HireJourneyThemeProvider>
     <div className="admin-recruiter-page-pad bg-[#F5F6F8]">
       <div className="admin-recruiter-content-width space-y-4">
         {workflowHasPostHire ? (
@@ -184,7 +186,13 @@ export default function HireJourneyClient({ workerId }: { workerId: string }) {
                         ? "cursor-not-allowed text-[#CBD5E1]"
                         : "text-[#64748B]"
                   }`}
-                  style={active ? { backgroundColor: "var(--brand-primary)" } : undefined}
+                  style={
+                    active
+                      ? {
+                          backgroundColor: "var(--brand-primary)",
+                        }
+                      : undefined
+                  }
                 >
                   {item.label}
                 </button>
@@ -243,5 +251,6 @@ export default function HireJourneyClient({ workerId }: { workerId: string }) {
         )}
       </div>
     </div>
+    </HireJourneyThemeProvider>
   );
 }

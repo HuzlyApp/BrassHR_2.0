@@ -52,16 +52,28 @@ export function HireFigmaIcon({
   height,
   alt = "",
   className,
+  tint,
+  tintGreen,
 }: {
   src: string;
   width: number;
   height: number;
   alt?: string;
   className?: string;
+  tint?: string;
+  tintGreen?: boolean;
 }) {
   if (src.endsWith(".svg")) {
     return (
-      <BrandColoredSvg src={src} width={width} height={height} alt={alt} className={className} />
+      <BrandColoredSvg
+        src={src}
+        width={width}
+        height={height}
+        alt={alt}
+        className={className}
+        tint={tint}
+        tintGreen={tintGreen}
+      />
     );
   }
 

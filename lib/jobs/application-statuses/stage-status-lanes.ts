@@ -161,6 +161,19 @@ export const STAGE_BUTTON_LABEL_MAX = 60;
 
 export type StageActionButtonLane = "alternate" | "closed";
 
+/**
+ * A saved name replaces the catalog status. With no saved name, the button
+ * uses the status configured for that action.
+ */
+export function resolveStageActionButtonLabel(
+  stored: string | null | undefined,
+  catalogStatusNames: readonly string[]
+): string {
+  const custom = stored?.replace(/\s+/g, " ").trim() ?? "";
+  if (custom) return custom;
+  return catalogStatusNames.map((name) => name.replace(/\s+/g, " ").trim()).find(Boolean) ?? "";
+}
+
 /** Blank text uses the built-in button name. A saved name is shown as typed. */
 export function resolveStageButtonLabel(
   lane: StageActionButtonLane,

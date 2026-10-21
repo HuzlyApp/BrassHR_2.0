@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { catalogSavePlan } from "@/lib/jobs/application-statuses/stage-reason-codes";
+import {
+  catalogSavePlan,
+  reasonCodeLaneOf,
+  reasonCodesForLane,
+  type ReasonCodeLane,
+} from "@/lib/jobs/application-statuses/stage-reason-codes";
 import {
   composeStatusChangeNote,
   normalizeStageStatusLane,
@@ -10,6 +15,7 @@ import {
   resolveStageStatusLanes,
   selectWorkflowScopedLaneRows,
   applyStageButtonVisibility,
+  resolveStageActionButtonLabel,
   resolveStageButtonLabel,
   sequenceOrderedStatuses,
   type SavedStageStatusLane,
@@ -35,7 +41,21 @@ type StageStatusSequenceButtonsProps = {
 };
 
 type LaneRow = SavedStageStatusLane & { workflowId: string | null };
-type ReasonRow = { code: string; workflowId: string | null };
+type ReasonRow = { code: string; workflowId: string | null; lane: ReasonCodeLane };
+
+function mapReasonRows(rows: unknown, stageFilter: string): ReasonRow[] {
+  if (!Array.isArray(rows)) return [];
+  return rows.flatMap((row: { stageName?: unknown; code?: unknown; workflowId?: unknown; lane?: unknown }) => {
+    if (row.stageName !== stageFilter || typeof row.code !== "string" || !row.code.trim()) return [];
+    return [
+      {
+        code: row.code.trim(),
+        workflowId: typeof row.workflowId === "string" && row.workflowId ? row.workflowId : null,
+        lane: reasonCodeLaneOf(typeof row.lane === "string" ? row.lane : null),
+      },
+    ];
+  });
+}
 type NoteRow = { body: string; workflowId: string | null };
 type ButtonPref = {
   workflowId: string | null;
@@ -144,19 +164,7 @@ export function StageStatusSequenceButtons({
           ];
         })
       );
-      setReasonRows(
-        codes.flatMap((row: { stageName?: unknown; code?: unknown; workflowId?: unknown }) => {
-          if (row.stageName !== stageFilter || typeof row.code !== "string" || !row.code.trim()) {
-            return [];
-          }
-          return [
-            {
-              code: row.code.trim(),
-              workflowId: typeof row.workflowId === "string" && row.workflowId ? row.workflowId : null,
-            },
-          ];
-        })
-      );
+      setReasonRows(mapReasonRows(codes, stageFilter));
       setNoteRows(
         notes.flatMap((row: { stageName?: unknown; body?: unknown; workflowId?: unknown }) => {
           if (row.stageName !== stageFilter || typeof row.body !== "string" || !row.body.trim()) return [];
@@ -214,8 +222,6 @@ export function StageStatusSequenceButtons({
     const picked = selectWorkflowScopedLaneRows(buttonPrefs, workflowId);
     return picked.source === "none" ? null : picked.rows[0];
   }, [buttonPrefs, workflowId]);
-  const alternateLabel = resolveStageButtonLabel("alternate", sharedButtonLabels.alternate);
-  const closedLabel = resolveStageButtonLabel("closed", sharedButtonLabels.closed);
   const lanes = useMemo(() => {
     const picked = selectWorkflowScopedLaneRows(savedLanes, workflowId);
     const resolved =
@@ -224,10 +230,24 @@ export function StageStatusSequenceButtons({
         : resolveConfiguredStageStatusLanes(options, picked.rows);
     return applyStageButtonVisibility(resolved, buttonPref);
   }, [assignedGroupIds, buttonPref, options, savedLanes, workflowId]);
-  const reasonCodes = useMemo(
-    () => selectWorkflowScopedLaneRows(reasonRows, workflowId).rows.map((row) => row.code),
+  const alternateReasonCodes = useMemo(
+    () => reasonCodesForLane(reasonRows, workflowId, "alternate"),
     [reasonRows, workflowId]
   );
+  const closedReasonCodes = useMemo(
+    () => reasonCodesForLane(reasonRows, workflowId, "closed"),
+    [reasonRows, workflowId]
+  );
+  const alternateLabel =
+    resolveStageActionButtonLabel(
+      sharedButtonLabels.alternate,
+      lanes.alternate.map((status) => status.name)
+    ) || resolveStageButtonLabel("alternate", null);
+  const closedLabel =
+    resolveStageActionButtonLabel(
+      sharedButtonLabels.closed,
+      lanes.closed.map((status) => status.name)
+    ) || resolveStageButtonLabel("closed", null);
   const stageNotes = useMemo(
     () =>
       noteRows
@@ -289,7 +309,7 @@ export function StageStatusSequenceButtons({
   async function saveAlternate(option: StatusOption, reasonCode: string, note: string) {
     setBusyId(option.id);
     try {
-      const known = reasonCodes.some((code) => code.toLowerCase() === reasonCode.toLowerCase());
+      const known = alternateReasonCodes.some((code) => code.toLowerCase() === reasonCode.toLowerCase());
       if (!known) {
         const response = await fetch("/api/admin/application-status-stage-assignments", {
           method: "PUT",
@@ -298,23 +318,13 @@ export function StageStatusSequenceButtons({
             action: "addReasonCode",
             stageName: stageFilter,
             workflowId,
+            lane: "alternate",
             code: reasonCode,
           }),
         });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error || "Failed to save the reason code");
-        const saved = Array.isArray(payload.reasonCodes) ? payload.reasonCodes : [];
-        setReasonRows(
-          saved.flatMap((row: { stageName?: unknown; code?: unknown; workflowId?: unknown }) => {
-            if (row.stageName !== stageFilter || typeof row.code !== "string" || !row.code.trim()) return [];
-            return [
-              {
-                code: row.code.trim(),
-                workflowId: typeof row.workflowId === "string" && row.workflowId ? row.workflowId : null,
-              },
-            ];
-          })
-        );
+        setReasonRows(mapReasonRows(payload.reasonCodes, stageFilter));
       }
       const noteResponse = await fetch("/api/admin/application-status-stage-assignments", {
         method: "PUT",
@@ -434,7 +444,13 @@ export function StageStatusSequenceButtons({
           alternateLabel={alternateLabel}
           closedLabel={closedLabel}
           options={pending.options ?? []}
-          reasonCodes={reasonCodes ?? []}
+          reasonCodes={
+            pending.lane === "alternate"
+              ? alternateReasonCodes
+              : pending.lane === "closed"
+                ? closedReasonCodes
+                : []
+          }
           notes={stageNotes}
           busy={Boolean(busyId)}
           onCancel={() => {
@@ -461,20 +477,6 @@ export function StageStatusSequenceButtons({
       ) : null}
     </>
   );
-}
-
-function noteChoices(options: StatusOption[] | undefined, reasonCodes: string[] | undefined): string[] {
-  const choices: string[] = [];
-  const seen = new Set<string>();
-  const names = (options ?? []).map((status) => status.name);
-  for (const value of [...names, ...(reasonCodes ?? [])]) {
-    const label = String(value ?? "").trim();
-    const key = label.toLowerCase();
-    if (!label || seen.has(key)) continue;
-    seen.add(key);
-    choices.push(label);
-  }
-  return choices;
 }
 
 function StatusChangeDialog({
@@ -504,23 +506,23 @@ function StatusChangeDialog({
 }) {
   const statuses = options ?? [];
   const codes = reasonCodes ?? [];
-  const choices = noteChoices(statuses, codes);
   const [selectedReason, setSelectedReason] = useState("");
-  const [selectedNote, setSelectedNote] = useState("");
   const [note, setNote] = useState("");
   const [selectedStatusId, setSelectedStatusId] = useState(statuses[0]?.id ?? "");
   const isAlternate = lane === "alternate";
-  const picksFromList = lane === "closed";
-  const title = lane === "closed" ? closedLabel : isAlternate ? alternateLabel : "Update status";
+  const isClosed = lane === "closed";
+  const needsReason = isAlternate || isClosed;
+  const title = isClosed ? closedLabel : isAlternate ? alternateLabel : "Update status";
+  const statusLabel = isClosed ? closedLabel : alternateLabel;
   const reasonPlan = catalogSavePlan(codes, selectedReason);
   const notePlan = catalogSavePlan(notes, note);
   const noteSuggestions = notes.filter((item) => {
     if (!note.trim()) return false;
     return item.toLowerCase().includes(note.trim().toLowerCase());
   });
-  const matched = statuses.find((status) => status.name.toLowerCase() === selectedNote.toLowerCase());
-  const statusId = isAlternate ? selectedStatusId || statuses[0]?.id || "" : matched?.id ?? statuses[0]?.id ?? "";
-  const alternateReady = reasonPlan.action !== "empty" && notePlan.action !== "empty" && Boolean(statusId);
+  const statusId = selectedStatusId || statuses[0]?.id || "";
+  const reasonReady = !needsReason || (codes.length > 0 && reasonPlan.action !== "empty");
+  const noteReady = !isAlternate || notePlan.action !== "empty";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0F172A]/40 p-4">
@@ -533,16 +535,18 @@ function StatusChangeDialog({
         <h2 id="status-change-title" className="text-base font-semibold text-[#101828]">
           {title}
         </h2>
-        {isAlternate ? (
+        {needsReason ? (
           <p className="mt-1 text-sm text-[#475467]">
             {workflowLabel} · {stageName}
           </p>
-        ) : null}
-        {isAlternate ? (
+        ) : (
+          <p className="mt-1 text-sm text-[#475467]">{statuses[0]?.name}</p>
+        )}
+        {needsReason ? (
           <div className="mt-4 space-y-4">
             {statuses.length > 1 ? (
               <label className="block text-sm font-medium text-[#344054]">
-                {alternateLabel}
+                Status
                 <select
                   value={statusId}
                   onChange={(event) => setSelectedStatusId(event.target.value)}
@@ -556,7 +560,9 @@ function StatusChangeDialog({
                 </select>
               </label>
             ) : (
-              <p className="text-sm text-[#475467]">{statuses[0]?.name}</p>
+              <p className="text-sm text-[#475467]">
+                Status: <span className="font-medium text-[#101828]">{statuses[0]?.name ?? statusLabel}</span>
+              </p>
             )}
             <label className="block text-sm font-medium text-[#344054]">
               Reason code
@@ -573,20 +579,22 @@ function StatusChangeDialog({
                 ))}
               </select>
             </label>
-            {reasonPlan.action === "reuse" ? (
-              <p className="text-xs text-[#166534]">“{reasonPlan.value}” will be reused for this stage.</p>
+            {codes.length === 0 ? (
+              <p className="text-xs text-[#92400E]">
+                No reason codes for this action yet. Add them in Settings for this stage.
+              </p>
             ) : null}
             <label className="block text-sm font-medium text-[#344054]">
-              Notes
+              {isAlternate ? "Notes" : "Notes (optional)"}
               <textarea
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
                 rows={4}
                 className="mt-1 w-full rounded-lg border border-[#D0D5DD] px-3 py-2 text-sm"
-                placeholder="Search notes for this stage"
+                placeholder={isAlternate ? "Search notes for this stage" : "Add notes"}
               />
             </label>
-            {note.trim() && noteSuggestions.length > 0 ? (
+            {isAlternate && note.trim() && noteSuggestions.length > 0 ? (
               <ul className="max-h-28 overflow-auto rounded-lg border border-[#E2E8F0]">
                 {noteSuggestions.slice(0, 8).map((item) => (
                   <li key={item}>
@@ -601,43 +609,24 @@ function StatusChangeDialog({
                 ))}
               </ul>
             ) : null}
-            {notePlan.action === "reuse" ? (
+            {isAlternate && notePlan.action === "reuse" ? (
               <p className="text-xs text-[#166534]">“{notePlan.value}” already exists for this stage and will be reused.</p>
             ) : null}
-            {notePlan.action === "create" ? (
+            {isAlternate && notePlan.action === "create" ? (
               <p className="text-xs text-[#92400E]">
                 A new note will be created for this stage. It will not be added to other stages or workflows.
               </p>
             ) : null}
           </div>
-        ) : picksFromList ? (
-          <label className="mt-4 block text-sm font-medium text-[#344054]">
-            Reason code
-            <select
-              value={selectedNote}
-              onChange={(event) => setSelectedNote(event.target.value)}
-              className="mt-1 h-10 w-full rounded-lg border border-[#D0D5DD] bg-white px-3 text-sm"
-            >
-              <option value="">Select a reason code</option>
-              {choices.map((choice) => (
-                <option key={choice} value={choice}>
-                  {choice}
-                </option>
-              ))}
-            </select>
-          </label>
         ) : (
-          <p className="mt-1 text-sm text-[#475467]">{statuses[0]?.name}</p>
-        )}
-        {isAlternate ? null : (
           <label className="mt-4 block text-sm font-medium text-[#344054]">
-            {picksFromList ? "Notes (optional)" : "Detail"}
+            Detail
             <textarea
               value={note}
               onChange={(event) => setNote(event.target.value)}
               rows={4}
               className="mt-1 w-full rounded-lg border border-[#D0D5DD] px-3 py-2 text-sm"
-              placeholder={picksFromList ? "Add notes" : "Add a detail"}
+              placeholder="Add a detail"
             />
           </label>
         )}
@@ -652,22 +641,11 @@ function StatusChangeDialog({
           </button>
           <button
             type="button"
-            disabled={
-              busy ||
-              (isAlternate
-                ? !alternateReady
-                : !statusId || (picksFromList && !selectedNote))
-            }
+            disabled={busy || !statusId || !reasonReady || !noteReady}
             onClick={() =>
               onConfirm({
                 statusId,
-                reasonCode: isAlternate
-                  ? reasonPlan.action === "empty"
-                    ? ""
-                    : reasonPlan.value
-                  : picksFromList
-                    ? selectedNote
-                    : "",
+                reasonCode: needsReason && reasonPlan.action !== "empty" ? reasonPlan.value : "",
                 note: isAlternate ? (notePlan.action === "empty" ? "" : notePlan.value) : note.trim(),
               })
             }
