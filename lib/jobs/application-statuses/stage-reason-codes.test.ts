@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { catalogSavePlan, codesForScopedAppend } from "./stage-reason-codes";
+import { catalogSavePlan, codesForScopedAppend, reasonCodesExcludingStatusNames } from "./stage-reason-codes";
 
 describe("catalogSavePlan", () => {
   it("reuses a note that already exists for this stage", () => {
@@ -14,6 +14,17 @@ describe("catalogSavePlan", () => {
       action: "create",
       value: "Left voicemail",
     });
+  });
+});
+
+describe("reasonCodesExcludingStatusNames", () => {
+  it("keeps a closing status out of the reason list", () => {
+    expect(
+      reasonCodesExcludingStatusNames(
+        ["Application Closed", "C2C Only", "Not a Fit", "Call Back Later"],
+        ["Application Closed"]
+      )
+    ).toEqual(["C2C Only", "Not a Fit", "Call Back Later"]);
   });
 });
 

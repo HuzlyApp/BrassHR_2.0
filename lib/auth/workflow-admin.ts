@@ -8,3 +8,11 @@ export function requireWorkflowAdmin(auth: ApiAuthContext): NextResponse | null 
     { status: 403 }
   );
 }
+
+/**
+ * Notes and reason codes added from the Follow Up dialog are pipeline writes.
+ * Lane layout, group assignment, and the full reason-code list stay admin-only.
+ */
+export function isStaffStageCatalogAction(action: string): boolean {
+  return action === "addReasonCode" || action === "findOrCreateNote";
+}

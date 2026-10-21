@@ -30,6 +30,15 @@ export function normalizeReasonCode(value: string): string {
   return value.trim().replace(/\s+/g, " ");
 }
 
+/** Reason codes stay out of the status list. A status name is not a close reason. */
+export function reasonCodesExcludingStatusNames(
+  reasonCodes: readonly string[],
+  statusNames: readonly string[]
+): string[] {
+  const blocked = new Set(statusNames.map((name) => name.trim().toLowerCase()).filter(Boolean));
+  return parseReasonCodeList(reasonCodes).filter((code) => !blocked.has(code.toLowerCase()));
+}
+
 export function parseReasonCodeList(values: readonly string[]): string[] {
   const seen = new Set<string>();
   const codes: string[] = [];
