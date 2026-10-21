@@ -2,6 +2,7 @@
 
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
 import { AlertTriangle, FileText, X, Lock } from "lucide-react";
+import { canvasStepPhaseStageLabel } from "@/lib/onboarding/hire-stage-catalog";
 import { GOLD } from "../constants";
 import { resolveHireLibraryIconPath } from "../hire-library-icons";
 import { resolveCanvasStepThemeColor } from "../library-category-theme";
@@ -17,15 +18,15 @@ export default function StepNode(props: NodeProps<StepNodeType>) {
     typeof data.alienStageWarning === "string" && data.alienStageWarning.trim()
       ? data.alienStageWarning.trim()
       : null;
-  const phaseLabel =
-    data.settings.phase === "post_hire"
-      ? "Post-Hire"
-      : "Pre-Hire";
-
   const stageName =
     typeof (data.settings as { stageName?: unknown }).stageName === "string"
       ? (data.settings as { stageName?: string }).stageName
       : null;
+  const phaseStageLabel = canvasStepPhaseStageLabel({
+    phase: data.settings.phase,
+    stepKey: data.stepId,
+    stageName,
+  });
   const themeColor = resolveCanvasStepThemeColor(data.stepId, stageName);
   const iconPath = resolveHireLibraryIconPath(data.stepId);
   const borderColor = alienStageWarning ? "#D97706" : selected ? GOLD : themeColor;
@@ -131,9 +132,12 @@ export default function StepNode(props: NodeProps<StepNodeType>) {
             </div>
           ) : (
             <>
-              <div className="flex items-center gap-1.5">
-                <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-slate-700">
-                  {phaseLabel}
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span
+                  className="max-w-full truncate rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-slate-700"
+                  title={phaseStageLabel}
+                >
+                  {phaseStageLabel}
                 </span>
               </div>
 
