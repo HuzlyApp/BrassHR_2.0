@@ -709,27 +709,17 @@ export default function CandidateWorkflowStepModal({
         applicationStatus?: { statusName: string } | null;
       };
       if (!res.ok) throw new Error(json.error || "Failed to update this step.");
-      const onBehalf = pendingOnBehalf;
-      const verified = pendingVerify;
       setPendingAction(null);
       setPendingOnBehalf(false);
       setPendingVerify(false);
-      const resultNotice = verified
-        ? {
-            tone: "success" as const,
-            message: "Candidate submission verified. The step is now marked Completed.",
-          }
-        : onBehalf
-        ? {
-            tone: "success" as const,
-            message: json.email?.sent
-              ? `Step completed for the candidate. The candidate was emailed a link to "${json.email.nextStepTitle ?? "their next step"}".`
-              : "Step marked as complete for the candidate.",
-          }
-        : action === "reject" && variant === "default" && inspection && !inspection.step.required
+      if (action === "complete") {
+        onOpenChange(false);
+        await onStepUpdated?.();
+        return;
+      }
+      const resultNotice =
+        action === "reject" && variant === "default" && inspection && !inspection.step.required
           ? { tone: "success" as const, message: "Step rejected. It's optional, so it doesn't block the candidate's next stage." }
-          : action === "complete" && variant === "interview" && !json.email
-            ? { tone: "success" as const, message: "Interview marked as completed." }
           : staffActionResultMessage(action, json.email ?? null, variant);
       const statusName = json.applicationStatus?.statusName;
       setNotice(
