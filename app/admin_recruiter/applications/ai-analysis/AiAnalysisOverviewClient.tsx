@@ -26,6 +26,7 @@ import {
 } from "@/app/admin_recruiter/candidates/candidates-typography";
 import {
   candidateApplicantProfileHref,
+  candidateDetailPreHireHref,
   candidateHireJourneyHref,
   candidateProfileHref,
 } from "@/app/admin_recruiter/candidates/candidate-links";
@@ -1481,7 +1482,11 @@ export function AiAnalysisOverviewClient({
                           View Profile
                         </Link>
                         <Link
-                          href={candidateHireJourneyHref(workerId)}
+                          href={
+                            embedded
+                              ? candidateDetailPreHireHref(workerId)
+                              : candidateHireJourneyHref(workerId)
+                          }
                           className="inline-flex items-center justify-center rounded-lg border border-[color:var(--brand-secondary)] bg-[color:var(--brand-secondary)] px-4 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-95"
                         >
                           Hiring Journey

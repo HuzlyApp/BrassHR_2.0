@@ -63,7 +63,7 @@ export function StageStatusLaneEditor({
     ...placements.alternate.map((row) => row.statusId),
     ...placements.closed.map((row) => row.statusId),
   ]);
-  const available = catalog.filter((status) => !placed.has(status.id));
+  const existingStatuses = [...catalog].sort((a, b) => a.name.localeCompare(b.name));
 
   function commit(next: Record<StageStatusLane, LanePlacement[]>) {
     onChange(next);
@@ -100,7 +100,6 @@ export function StageStatusLaneEditor({
     <div className="space-y-3">
       {STAGE_STATUS_LANES.map((lane) => {
         const draft = drafts[lane];
-        const canAdd = Boolean(draft.name.trim() || draft.statusId);
         return (
           <div key={lane} className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] px-3 py-2">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-[#012352]">
@@ -211,13 +210,27 @@ export function StageStatusLaneEditor({
                   aria-label={`New ${LANE_COPY[lane].title.toLowerCase()} name`}
                   className="h-9 w-full rounded-lg border border-[#CBD5E1] bg-white px-3 text-sm"
                 />
+                <button
+                  type="button"
+                  disabled={saving || !draft.name.trim()}
+                  onClick={() => {
+                    onAddStatus(lane, { name: draft.name, statusId: "" });
+                    setDrafts((current) => ({
+                      ...current,
+                      [lane]: { ...current[lane], name: "" },
+                    }));
+                  }}
+                  className="inline-flex h-9 items-center justify-center rounded-lg border border-[#CBD5E1] bg-white px-3 text-sm font-medium text-[#012352] disabled:opacity-50"
+                >
+                  Add new status
+                </button>
                 <label className="block text-xs font-medium text-[#334155]" htmlFor={`${lane}-add-status`}>
-                  Or choose an existing status
+                  All existing statuses
                 </label>
                 <select
                   id={`${lane}-add-status`}
                   value={draft.statusId}
-                  disabled={saving || available.length === 0}
+                  disabled={saving || existingStatuses.length === 0}
                   onChange={(event) =>
                     setDrafts((current) => ({
                       ...current,
@@ -227,27 +240,28 @@ export function StageStatusLaneEditor({
                   className="h-9 w-full rounded-lg border border-[#CBD5E1] bg-white px-3 text-sm"
                 >
                   <option value="">
-                    {available.length === 0 ? "Every status is already on this stage" : "Choose an existing status…"}
+                    {existingStatuses.length === 0 ? "No existing statuses" : "Choose an existing status…"}
                   </option>
-                  {available.map((status) => (
-                    <option key={status.id} value={status.id}>
+                  {existingStatuses.map((status) => (
+                    <option key={status.id} value={status.id} disabled={placed.has(status.id)}>
                       {status.name}
+                      {placed.has(status.id) ? " (already on this stage)" : ""}
                     </option>
                   ))}
                 </select>
                 <button
                   type="button"
-                  disabled={saving || !canAdd}
+                  disabled={saving || !draft.statusId || placed.has(draft.statusId)}
                   onClick={() => {
-                    onAddStatus(lane, { name: draft.name, statusId: draft.statusId });
+                    onAddStatus(lane, { name: "", statusId: draft.statusId });
                     setDrafts((current) => ({
                       ...current,
-                      [lane]: { name: "", statusId: "" },
+                      [lane]: { ...current[lane], statusId: "" },
                     }));
                   }}
                   className="inline-flex h-9 items-center justify-center rounded-lg bg-[#012352] px-3 text-sm font-medium text-white disabled:opacity-50"
                 >
-                  Add status
+                  Add existing status
                 </button>
               </div>
             ) : null}
