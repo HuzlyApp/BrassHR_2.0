@@ -38,6 +38,11 @@ type StageStatusSequenceButtonsProps = {
   onStatusChanged?: (next: { statusName: string; statusId: string }) => void;
   /** Return true when the caller handled a closed status itself. */
   onException?: (status: StatusOption, note: string) => Promise<boolean>;
+  /**
+   * When the recommended sequence is finished and the button reads
+   * “Proceed to next stage”, point the recruiter at the Hiring Journey button.
+   */
+  showHiringJourneyHint?: boolean;
 };
 
 type LaneRow = SavedStageStatusLane & { workflowId: string | null };
@@ -84,6 +89,7 @@ export function StageStatusSequenceButtons({
   showCurrentStatus = false,
   onStatusChanged,
   onException,
+  showHiringJourneyHint = false,
 }: StageStatusSequenceButtonsProps) {
   const [options, setOptions] = useState<StatusOption[]>([]);
   const [assignedGroupIds, setAssignedGroupIds] = useState<string[] | null>(null);
@@ -436,6 +442,11 @@ export function StageStatusSequenceButtons({
           </button>
         ) : null}
       </div>
+      {showHiringJourneyHint && lanes.happy_path.length > 0 && !nextHappyPath ? (
+        <p className="mt-2 text-sm leading-5 text-[#475467]">
+          Click on &quot;Hiring Journey&quot; button to complete the steps
+        </p>
+      ) : null}
       {pending ? (
         <StatusChangeDialog
           lane={pending.lane}

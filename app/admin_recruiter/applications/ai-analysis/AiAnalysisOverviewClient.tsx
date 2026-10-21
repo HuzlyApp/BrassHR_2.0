@@ -1597,6 +1597,7 @@ export function AiAnalysisOverviewClient({
                 key={`${preHireStageName}-${statusRevision}`}
                 applicationId={applicationId}
                 stageName={preHireStageName}
+                showHiringJourneyHint
                 onStatusChanged={(next) => {
                   setStatusName(next.statusName);
                   setStatusSystemKey(null);

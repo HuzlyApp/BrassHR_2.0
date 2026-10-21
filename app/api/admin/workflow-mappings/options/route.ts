@@ -27,9 +27,9 @@ export async function GET(req: Request) {
 
     const [professions, specialties, workflows] = await Promise.all([
       supabase
-        .from("professions")
-        .select("id, name, code")
-        .or(`tenant_id.is.null,tenant_id.eq.${tenantId}`)
+        .from("tenant_professions")
+        .select("id, name")
+        .eq("tenant_id", tenantId)
         .eq("is_active", true)
         .order("name"),
       supabase
