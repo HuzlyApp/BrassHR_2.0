@@ -1,6 +1,15 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import { sanitizeTextForPdfDrawing } from "@/lib/resume/resume-text-to-pdf";
-import type { SubmissionResume } from "./submission-resume";
+import {
+  normalizeResumeBulletGlyphs,
+  stripLeadingListMarker,
+} from "@/lib/resume/resume-glyphs";
+import {
+  submissionSectionHeading,
+  submissionSkillParagraphs,
+  SUBMISSION_SECTION_DEFAULTS,
+  type SubmissionResume,
+} from "./submission-resume";
 
 const PAGE_WIDTH = 612;
 const PAGE_HEIGHT = 792;
@@ -83,17 +92,28 @@ export async function renderSubmissionResumePdf(resume: SubmissionResume): Promi
   }
 
   if (resume.summary) {
-    section("Professional summary");
-    drawLines(wrap(resume.summary, regular, 10, maxWidth), regular, 10, SLATE, 13);
+    section(submissionSectionHeading(resume.summaryHeading, SUBMISSION_SECTION_DEFAULTS.summary));
+    drawLines(
+      wrap(normalizeResumeBulletGlyphs(resume.summary), regular, 10, maxWidth),
+      regular,
+      10,
+      SLATE,
+      13
+    );
   }
 
-  if (resume.skills.length) {
-    section("Core qualifications");
-    drawLines(wrap(resume.skills.join("  ·  "), regular, 10, maxWidth), regular, 10, SLATE, 13);
+  const skillLines = submissionSkillParagraphs(resume.skills);
+  if (skillLines.length) {
+    section(submissionSectionHeading(resume.skillsHeading, SUBMISSION_SECTION_DEFAULTS.skills));
+    const separate = skillLines.length > 1;
+    for (const line of skillLines) {
+      const text = separate ? `•  ${stripLeadingListMarker(line)}` : line;
+      drawLines(wrap(text, regular, 10, maxWidth), regular, 10, SLATE, 13);
+    }
   }
 
   if (resume.experience.length) {
-    section("Professional experience");
+    section(submissionSectionHeading(resume.experienceHeading, SUBMISSION_SECTION_DEFAULTS.experience));
     for (const job of resume.experience) {
       const heading = [job.title, job.company].filter(Boolean).join("  —  ");
       if (heading) {
@@ -104,7 +124,9 @@ export async function renderSubmissionResumePdf(resume: SubmissionResume): Promi
         drawLines(wrap(meta, regular, 11, maxWidth), regular, 11, MUTED, 14);
       }
       for (const bullet of job.bullets) {
-        const wrapped = wrap(`•  ${bullet}`, regular, 10, maxWidth - 10);
+        const text = stripLeadingListMarker(bullet);
+        if (!text) continue;
+        const wrapped = wrap(`•  ${text}`, regular, 10, maxWidth - 10);
         for (const line of wrapped) {
           ensure(13);
           page.drawText(line, { x: MARGIN + 8, y, size: 10, font: regular, color: SLATE });
@@ -116,7 +138,7 @@ export async function renderSubmissionResumePdf(resume: SubmissionResume): Promi
   }
 
   if (resume.education.length) {
-    section("Education");
+    section(submissionSectionHeading(resume.educationHeading, SUBMISSION_SECTION_DEFAULTS.education));
     for (const item of resume.education) {
       const line = [item.credential, item.school, item.year].filter(Boolean).join("  —  ");
       if (line) drawLines(wrap(line, regular, 10, maxWidth), regular, 10, SLATE, 13);
@@ -124,7 +146,7 @@ export async function renderSubmissionResumePdf(resume: SubmissionResume): Promi
   }
 
   if (resume.licenses.length) {
-    section("Licenses & certifications");
+    section(submissionSectionHeading(resume.licensesHeading, SUBMISSION_SECTION_DEFAULTS.licenses));
     for (const item of resume.licenses) {
       drawLines(wrap(`•  ${item}`, regular, 10, maxWidth), regular, 10, SLATE, 13);
     }
