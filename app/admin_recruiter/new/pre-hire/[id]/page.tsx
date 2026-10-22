@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { Loader2 } from "lucide-react";
 import DetailedCandidateHeader from "../../../components/DetailedCandidateHeader";
 import DetailedTabs from "../../../components/DetailedTabs";
-import CandidateWorkflowPhasePanel from "../../../components/CandidateWorkflowPhasePanel";
-import type { CandidateWorkflowPhaseView } from "@/lib/onboarding/candidate-workflow-phase-view";
-import { PRE_HIRE_UNASSIGNED_MESSAGE } from "@/lib/onboarding/assigned-workflow-steps";
+import CandidateDetailLoader from "../../../components/CandidateDetailLoader";
+import HireJourneyClient from "@/app/admin_recruiter/candidates/[workerId]/hire-journey/HireJourneyClient";
 
 type ProfilePayload = {
   worker?: {
@@ -24,77 +24,96 @@ type ProfilePayload = {
 
 export default function CandidatePreHirePage() {
   const params = useParams<{ id: string }>();
-  const applicantId = params?.id;
+  const applicantId = params?.id?.trim() ?? "";
   const [profile, setProfile] = useState<ProfilePayload | null>(null);
-  const [view, setView] = useState<CandidateWorkflowPhaseView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    if (!applicantId) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const [profileRes, phaseRes] = await Promise.all([
-        fetch(`/api/admin/worker-profile?workerId=${encodeURIComponent(applicantId)}`, {
-          cache: "no-store",
-        }),
-        fetch(`/api/admin/candidates/${encodeURIComponent(applicantId)}/workflow-phases`, {
-          cache: "no-store",
-        }),
-      ]);
-      const profileJson = (await profileRes.json()) as ProfilePayload;
-      const phaseJson = (await phaseRes.json()) as CandidateWorkflowPhaseView & { error?: string };
-      if (!profileRes.ok) throw new Error(profileJson.error || "Failed to load candidate");
-      if (!phaseRes.ok) throw new Error(phaseJson.error || "Failed to load Pre-Hire workflow");
-      setProfile(profileJson);
-      setView(phaseJson);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load Pre-Hire workflow");
-      setView(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [applicantId]);
-
   useEffect(() => {
+    if (!applicantId) {
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(
+          `/api/admin/worker-profile?workerId=${encodeURIComponent(applicantId)}`,
+          { cache: "no-store" }
+        );
+        const json = (await res.json()) as ProfilePayload;
+        if (!res.ok) throw new Error(json.error || "Failed to load candidate");
+        if (!cancelled) setProfile(json);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load candidate");
+          setProfile(null);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
     void load();
-  }, [load]);
+    return () => {
+      cancelled = true;
+    };
+  }, [applicantId]);
 
   const worker = profile?.worker;
   const name = `${worker?.first_name ?? ""} ${worker?.last_name ?? ""}`.trim();
 
+  if (!applicantId) {
+    return (
+      <div className="admin-recruiter-page-pad">
+        <div className="admin-recruiter-content-width rounded-xl border border-[#E5E7EB] bg-white px-4 py-6 text-sm text-[#667085]">
+          Missing candidate id.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="admin-recruiter-page-pad">
       <div className="admin-recruiter-content-width">
-        <DetailedCandidateHeader
-          name={name}
-          role={worker?.job_role ?? ""}
-          status={worker?.status_label ?? worker?.status ?? undefined}
-          loading={loading && !profile}
-          profilePhotoUrl={worker?.profile_photo_url}
-          workerId={applicantId}
-          candidateEmail={worker?.email}
-        />
         <DetailedTabs
           applicantId={applicantId}
           activeTab="Pre-Hire"
           workerStatus={worker?.status}
-          workflowView={view}
         />
-        <CandidateWorkflowPhasePanel
-          workerId={applicantId}
-          phase="pre_hire"
-          assigned={view?.preHire.assigned ?? false}
-          loading={loading && !view}
-          error={error}
-          progress={view?.preHire.progress ?? { complete: 0, total: 0, percent: 0, label: "0 / 0 Pre-Hire completed" }}
-          steps={view?.preHire.steps ?? []}
-          documents={view?.preHire.documents ?? []}
-          assignment={view?.preHire.assignment}
-          emptyAssignedMessage={PRE_HIRE_UNASSIGNED_MESSAGE}
-          onWorkflowChanged={() => void load()}
-        />
+
+        {error ? (
+          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            {error}
+          </div>
+        ) : null}
+
+        {loading && !profile ? (
+          <CandidateDetailLoader label="Loading candidate..." />
+        ) : (
+          <DetailedCandidateHeader
+            name={name}
+            role={worker?.job_role ?? ""}
+            status={worker?.status_label ?? worker?.status ?? undefined}
+            profilePhotoUrl={worker?.profile_photo_url}
+            workerId={applicantId}
+            candidateEmail={worker?.email}
+          />
+        )}
+
+        <Suspense
+          fallback={
+            <div className="mt-4 flex items-center gap-2 rounded-xl border border-[#E5E7EB] bg-white px-4 py-6 text-sm text-[#667085]">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading hiring journey…
+            </div>
+          }
+        >
+          <HireJourneyClient workerId={applicantId} embeddedPhase="pre_hire" />
+        </Suspense>
       </div>
     </div>
   );

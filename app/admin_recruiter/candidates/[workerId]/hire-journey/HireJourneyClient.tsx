@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { HireStageBoard } from "@/app/admin_recruiter/components/hire-stage/HireStageBoard";
+import { HireJourneyThemeProvider } from "@/app/admin_recruiter/components/hire-stage/HireJourneyTheme";
+import { dispatchCandidatePipelineRefresh } from "@/lib/admin/candidate-pipeline-events";
 import type { HireStageSidebarProfile } from "@/app/admin_recruiter/components/hire-stage/HireStageSidebar";
 import type { CandidateProfilePayload } from "@/lib/admin/candidate-profile-view";
 import { workTypeSummaryLabel } from "@/lib/admin/candidate-profile-view";
@@ -59,10 +61,19 @@ function buildSidebarProfile(
   };
 }
 
-export default function HireJourneyClient({ workerId }: { workerId: string }) {
+export default function HireJourneyClient({
+  workerId,
+  embeddedPhase,
+}: {
+  workerId: string;
+  /** Render inside a candidate detail tab. Hides the standalone page chrome and phase pills. */
+  embeddedPhase?: HireTab;
+}) {
+  const router = useRouter();
   const searchParams = useSearchParams();
-  const initialTab = searchParams.get("tab") === "post_hire" ? "post_hire" : "pre_hire";
+  const initialTab = embeddedPhase ?? (searchParams.get("tab") === "post_hire" ? "post_hire" : "pre_hire");
   const [tab, setTab] = useState<HireTab>(initialTab);
+  const embedded = embeddedPhase != null;
   const [profile, setProfile] = useState<CandidateProfilePayload | null>(null);
   const [view, setView] = useState<CandidateWorkflowPhaseView | null>(null);
   const [loading, setLoading] = useState(true);
@@ -132,16 +143,34 @@ export default function HireJourneyClient({ workerId }: { workerId: string }) {
   }, [load]);
 
   useEffect(() => {
+    if (embeddedPhase) return;
     const next = searchParams.get("tab") === "post_hire" ? "post_hire" : "pre_hire";
     setTab(next);
-  }, [searchParams]);
+  }, [embeddedPhase, searchParams]);
+
+  const openPostHireTab = useCallback(() => {
+    if (embedded) {
+      router.push(`/admin_recruiter/new/post-hire/${encodeURIComponent(workerId)}`);
+      return;
+    }
+    setTab("post_hire");
+  }, [embedded, router, workerId]);
+
+  const refreshJourney = useCallback(async () => {
+    await load({ silent: true });
+    if (embedded) dispatchCandidatePipelineRefresh(workerId);
+  }, [embedded, load, workerId]);
 
   const sidebarProfile = useMemo(() => buildSidebarProfile(profile, view), [profile, view]);
   const primaryApplication = profile?.applications?.[0] ?? null;
   const postHireVisible = Boolean(view?.postHireVisible);
   const postHireBlock = view?.postHire ?? null;
   const workflowHasPostHire = view ? view.workflowHasPostHireSteps : true;
-  const activeTab: HireTab = workflowHasPostHire ? tab : "pre_hire";
+  const activeTab: HireTab = embeddedPhase
+    ? embeddedPhase
+    : workflowHasPostHire
+      ? tab
+      : "pre_hire";
 
   function selectTab(next: HireTab) {
     if (next === "post_hire" && (!workflowHasPostHire || (!postHireVisible && !loading))) {
@@ -150,7 +179,61 @@ export default function HireJourneyClient({ workerId }: { workerId: string }) {
     setTab(next);
   }
 
+  const board =
+    activeTab === "post_hire" ? (
+      !postHireVisible ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-6 text-sm text-amber-800">
+          {POST_HIRE_LOCKED_TAB_MESSAGE}
+        </div>
+      ) : (
+        <HireStageBoard
+          workerId={workerId}
+          lifecycle="post_hire"
+          loading={loading}
+          error={error}
+          assigned={postHireBlock?.assigned ?? false}
+          emptyMessage={POST_HIRE_UNASSIGNED_MESSAGE}
+          steps={postHireBlock?.steps ?? []}
+          assignment={postHireBlock?.assignment}
+          phaseView={view}
+          profile={sidebarProfile}
+          activationFailed={Boolean(view?.postHireActivationFailed)}
+          applicationId={primaryApplication?.id}
+          jobTitle={primaryApplication?.jobTitle}
+          onScheduled={() => refreshJourney()}
+          onWorkflowChanged={() => refreshJourney()}
+        />
+      )
+    ) : (
+      <HireStageBoard
+        workerId={workerId}
+        lifecycle="pre_hire"
+        loading={loading}
+        error={error}
+        assigned={view?.preHire.assigned ?? false}
+        emptyMessage={PRE_HIRE_UNASSIGNED_MESSAGE}
+        steps={view?.preHire.steps ?? []}
+        assignment={view?.preHire.assignment}
+        phaseView={view}
+        profile={sidebarProfile}
+        applicationId={primaryApplication?.id}
+        jobTitle={primaryApplication?.jobTitle}
+        onScheduled={() => refreshJourney()}
+        onWorkflowChanged={() => refreshJourney()}
+        onRequestPostHireTab={openPostHireTab}
+        onPostHireActivated={async () => {
+          await refreshJourney();
+          openPostHireTab();
+        }}
+      />
+    );
+
+  if (embedded) {
+    return <div className="space-y-4">{board}</div>;
+  }
+
   return (
+    <HireJourneyThemeProvider>
     <div className="admin-recruiter-page-pad bg-[#F5F6F8]">
       <div className="admin-recruiter-content-width space-y-4">
         {workflowHasPostHire ? (
@@ -184,7 +267,13 @@ export default function HireJourneyClient({ workerId }: { workerId: string }) {
                         ? "cursor-not-allowed text-[#CBD5E1]"
                         : "text-[#64748B]"
                   }`}
-                  style={active ? { backgroundColor: "var(--brand-primary)" } : undefined}
+                  style={
+                    active
+                      ? {
+                          backgroundColor: "var(--brand-primary)",
+                        }
+                      : undefined
+                  }
                 >
                   {item.label}
                 </button>
@@ -194,54 +283,9 @@ export default function HireJourneyClient({ workerId }: { workerId: string }) {
         </div>
         ) : null}
 
-        {activeTab === "post_hire" ? (
-          !postHireVisible ? (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-6 text-sm text-amber-800">
-              {POST_HIRE_LOCKED_TAB_MESSAGE}
-            </div>
-          ) : (
-            <HireStageBoard
-              workerId={workerId}
-              lifecycle="post_hire"
-              loading={loading}
-              error={error}
-              assigned={postHireBlock?.assigned ?? false}
-              emptyMessage={POST_HIRE_UNASSIGNED_MESSAGE}
-              steps={postHireBlock?.steps ?? []}
-              assignment={postHireBlock?.assignment}
-              phaseView={view}
-              profile={sidebarProfile}
-              activationFailed={Boolean(view?.postHireActivationFailed)}
-              applicationId={primaryApplication?.id}
-              jobTitle={primaryApplication?.jobTitle}
-              onScheduled={() => load({ silent: true })}
-              onWorkflowChanged={() => load({ silent: true })}
-            />
-          )
-        ) : (
-          <HireStageBoard
-            workerId={workerId}
-            lifecycle="pre_hire"
-            loading={loading}
-            error={error}
-            assigned={view?.preHire.assigned ?? false}
-            emptyMessage={PRE_HIRE_UNASSIGNED_MESSAGE}
-            steps={view?.preHire.steps ?? []}
-            assignment={view?.preHire.assignment}
-            phaseView={view}
-            profile={sidebarProfile}
-            applicationId={primaryApplication?.id}
-            jobTitle={primaryApplication?.jobTitle}
-            onScheduled={() => load({ silent: true })}
-            onWorkflowChanged={() => load({ silent: true })}
-            onRequestPostHireTab={() => selectTab("post_hire")}
-            onPostHireActivated={async () => {
-              await load({ silent: true });
-              setTab("post_hire");
-            }}
-          />
-        )}
+        {board}
       </div>
     </div>
+    </HireJourneyThemeProvider>
   );
 }

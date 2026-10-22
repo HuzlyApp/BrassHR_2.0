@@ -17,11 +17,12 @@ import {
   type MappingCandidate,
 } from "@/lib/workflow-mappings/validation";
 import { isRnrEmploymentType } from "@/lib/jobs/employment-type";
+import { resolveFlowProfessionId } from "@/lib/professions/service";
 
 type DbClient = SupabaseClient;
 
 const MAPPING_SELECT =
-  "id, tenant_id, profession_id, specialty_id, employment_type, location, location_type, years_of_experience, workflow_id, is_active, priority, created_at, updated_at, professions(name), specialties(name), onboarding_flows(id, name, status, tenant_id, employment_type)";
+  "id, tenant_id, profession_id, specialty_id, employment_type, location, location_type, years_of_experience, workflow_id, is_active, priority, created_at, updated_at, tenant_professions(name), specialties(name), onboarding_flows(id, name, status, tenant_id, employment_type)";
 
 function cleanText(value: string | null | undefined): string | null {
   return value?.trim() || null;
@@ -59,7 +60,9 @@ function toCandidate(row: Record<string, unknown>): MappingCandidate | null {
 }
 
 function toListItem(row: Record<string, unknown>): WorkflowMappingListItem {
-  const profession = Array.isArray(row.professions) ? row.professions[0] : row.professions;
+  const profession = Array.isArray(row.tenant_professions)
+    ? row.tenant_professions[0]
+    : row.tenant_professions;
   const specialty = Array.isArray(row.specialties) ? row.specialties[0] : row.specialties;
   const flow = Array.isArray(row.onboarding_flows) ? row.onboarding_flows[0] : row.onboarding_flows;
   const professionId = row.profession_id ? String(row.profession_id) : null;
@@ -183,12 +186,7 @@ export async function resolveWorkflowForCriteria(
     let specialtyName: string | null = null;
 
     if (matchKey.professionId) {
-      const { data: profession } = await supabase
-        .from("professions")
-        .select("name")
-        .eq("id", matchKey.professionId)
-        .maybeSingle();
-      professionName = profession?.name ? String(profession.name) : null;
+      professionName = await tenantProfessionName(supabase, tenantId, matchKey.professionId);
     }
     if (matchKey.specialtyId) {
       const { data: specialty } = await supabase
@@ -220,12 +218,8 @@ export async function resolveWorkflowForCriteria(
 
   let professionName = String(matchKey.professionId ?? "Any profession");
   if (matchKey.professionId) {
-    const { data: profession } = await supabase
-      .from("professions")
-      .select("name")
-      .eq("id", matchKey.professionId)
-      .maybeSingle();
-    if (profession?.name) professionName = String(profession.name);
+    professionName =
+      (await tenantProfessionName(supabase, tenantId, matchKey.professionId)) ?? professionName;
   }
 
   return {
@@ -262,6 +256,37 @@ export async function listWorkflowMappings(
     .sort((a, b) => b.specificity - a.specificity || a.priority - b.priority);
 }
 
+async function tenantProfessionName(
+  supabase: DbClient,
+  tenantId: string,
+  professionId: string
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("tenant_professions")
+    .select("name")
+    .eq("id", professionId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.name ? String(data.name) : null;
+}
+
+async function resolveMappingProfessionId(
+  supabase: DbClient,
+  tenantId: string,
+  professionRef: string | null
+): Promise<string | null> {
+  if (!professionRef) return null;
+  try {
+    return await resolveFlowProfessionId(supabase, tenantId, professionRef);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Choose a profession.";
+    throw new WorkflowMappingError(message, "INVALID_PROFESSION", {
+      professionId: message,
+    });
+  }
+}
+
 async function loadPublishedWorkflow(
   supabase: DbClient,
   tenantId: string,
@@ -291,6 +316,12 @@ export async function saveWorkflowMapping(
     });
   }
 
+  const professionId = await resolveMappingProfessionId(
+    supabase,
+    tenantId,
+    input.professionId ?? null
+  );
+
   const workflow = await loadPublishedWorkflow(supabase, tenantId, input.workflowId);
   if (workflow.status !== "published") {
     throw new WorkflowMappingError("Only published workflows can be mapped.", "WORKFLOW_NOT_PUBLISHED", {
@@ -315,7 +346,7 @@ export async function saveWorkflowMapping(
 
   const row = {
     tenant_id: tenantId,
-    profession_id: input.professionId ?? null,
+    profession_id: professionId,
     specialty_id: input.specialtyId ?? null,
     employment_type: input.employmentType,
     location: cleanText(input.location),

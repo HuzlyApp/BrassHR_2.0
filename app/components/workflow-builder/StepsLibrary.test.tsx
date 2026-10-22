@@ -95,6 +95,32 @@ describe("StepsLibrary search", () => {
     expect(screen.getByText("References Collection")).toBeTruthy();
   });
 
+  it("keeps a stage and says every step was already added", () => {
+    render(
+      <StepsLibrary
+        categories={categories}
+        usedStepIds={["resume-basic-profile", "references-collection"]}
+      />
+    );
+
+    expect(screen.getByText("Application & Profile")).toBeTruthy();
+    expect(screen.getByText("All steps in this stage have already been added.")).toBeTruthy();
+    expect(screen.queryByText("Resume & Basic Profile")).toBeNull();
+    expect(screen.queryByText("References Collection")).toBeNull();
+    expect(screen.getByText("Custom Step")).toBeTruthy();
+  });
+
+  it("hides only the steps already added and leaves the rest of the stage", () => {
+    render(
+      <StepsLibrary categories={categories} usedStepIds={["resume-basic-profile"]} />
+    );
+
+    expect(screen.getByText("Application & Profile")).toBeTruthy();
+    expect(screen.queryByText("Resume & Basic Profile")).toBeNull();
+    expect(screen.getByText("References Collection")).toBeTruthy();
+    expect(screen.queryByText("All steps in this stage have already been added.")).toBeNull();
+  });
+
   it("points at the other tab instead of treating a step as deleted", async () => {
     const user = userEvent.setup();
     render(<StepsLibrary categories={categories} />);
@@ -107,5 +133,24 @@ describe("StepsLibrary search", () => {
 
     await user.clear(screen.getByRole("searchbox", { name: "Search steps" }));
     expect(screen.getByText("Tax Forms (W-4 / State)")).toBeTruthy();
+  });
+
+  it("shows a stage heading after every step from that stage is already used", () => {
+    render(
+      <StepsLibrary
+        categories={[
+          ...categories,
+          {
+            id: "offer-agreement",
+            label: "Offer and agreement",
+            steps: [],
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByText("Offer and agreement")).toBeTruthy();
+    expect(screen.getByText("All steps in this stage have already been added.")).toBeTruthy();
+    expect(screen.getByText("Resume & Basic Profile")).toBeTruthy();
   });
 });

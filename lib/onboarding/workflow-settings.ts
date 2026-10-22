@@ -60,6 +60,7 @@ const INTERNAL_LIBRARY_STEP_IDS = new Set([
   "manager-welcome-call",
   "final-onboarding-call",
   "pay-rate-hire-date",
+  "offer-prep",
   "schedule-assignment",
   "badge-equipment-issuance",
   "facility-access-setup",

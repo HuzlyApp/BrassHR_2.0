@@ -15,10 +15,15 @@ import {
   type StatusStageName,
 } from "./stage-assignments";
 import {
-  DEFAULT_STAGE_REASON_CODES,
+  DEFAULT_ALTERNATE_REASON_CODES,
+  DEFAULT_CLOSING_REASON_CODES,
+  REASON_CODE_LANES,
   codesForScopedAppend,
   normalizeReasonCode,
+  normalizeReasonCodeLane,
   parseReasonCodeList,
+  reasonCodeLaneOf,
+  type ReasonCodeLane,
 } from "./stage-reason-codes";
 import {
   STAGE_STATUS_LANES,
@@ -1173,9 +1178,9 @@ export type ApplicationStatusStageButtonRecord = {
   workflowId: string | null;
   showAlternate: boolean;
   showClosed: boolean;
-  /** Null keeps the built-in "Follow Up needed" label. */
+  /** Null shows the alternate status name from the catalog. */
   alternateLabel: string | null;
-  /** Null keeps the built-in "Close Application" label. */
+  /** Null shows the closing status name from the catalog. */
   closedLabel: string | null;
 };
 
@@ -1496,6 +1501,8 @@ export type ApplicationStatusStageReasonCodeRecord = {
   sortOrder: number;
   workflowId: string | null;
   note: string | null;
+  /** Alternate and closing keep separate lists. Older rows are closing codes. */
+  lane: ReasonCodeLane;
 };
 
 type ReasonCodeRow = {
@@ -1506,7 +1513,13 @@ type ReasonCodeRow = {
   sort_order: number;
   workflow_id?: string | null;
   note?: string | null;
+  lane?: string | null;
 };
+
+const REASON_CODE_COLUMNS =
+  "id, tenant_id, stage_name, code, sort_order, workflow_id, note, lane";
+const REASON_CODE_COLUMNS_WITHOUT_LANE =
+  "id, tenant_id, stage_name, code, sort_order, workflow_id, note";
 
 function mapReasonCode(row: ReasonCodeRow): ApplicationStatusStageReasonCodeRecord | null {
   if (!isAssignableStatusStageName(row.stage_name)) return null;
@@ -1520,7 +1533,21 @@ function mapReasonCode(row: ReasonCodeRow): ApplicationStatusStageReasonCodeReco
     sortOrder: row.sort_order,
     workflowId: row.workflow_id ?? null,
     note: row.note?.trim() || null,
+    lane: reasonCodeLaneOf(row.lane),
   };
+}
+
+function isMissingReasonLaneColumn(error: unknown): boolean {
+  const message = String((error as { message?: string }).message ?? error);
+  return /\blane\b/i.test(message) && /schema cache|Could not find|does not exist/i.test(message);
+}
+
+function requireReasonCodeLane(value: string | null | undefined): ReasonCodeLane {
+  const lane = normalizeReasonCodeLane(value);
+  if (!lane) {
+    throw new ApplicationStatusError("Choose alternate or closing for these reason codes.", "VALIDATION");
+  }
+  return lane;
 }
 
 export async function listApplicationStatusStageReasonCodes(
@@ -1539,33 +1566,94 @@ export async function listApplicationStatusStageReasonCodes(
     throw existing.error;
   }
   if ((existing.data ?? []).length === 0) {
-    const seed = Object.entries(DEFAULT_STAGE_REASON_CODES).flatMap(([stageName, codes]) =>
-      codes.map((code, sortOrder) => ({
-        tenant_id: tenantId,
-        stage_name: stageName,
-        code,
-        sort_order: sortOrder,
-        workflow_id: null,
-      }))
+    const defaultsByLane = {
+      alternate: DEFAULT_ALTERNATE_REASON_CODES,
+      closed: DEFAULT_CLOSING_REASON_CODES,
+    } as const;
+    const seed = REASON_CODE_LANES.flatMap((lane) =>
+      Object.entries(defaultsByLane[lane]).flatMap(([stageName, codes]) => {
+        if (!isAssignableStatusStageName(stageName)) return [];
+        return codes.map((code, sortOrder) => ({
+          tenant_id: tenantId,
+          stage_name: stageName,
+          code,
+          sort_order: sortOrder,
+          workflow_id: null,
+          lane,
+        }));
+      })
     );
     if (seed.length > 0) {
-      const { error: seedError } = await supabase
-        .from("application_status_stage_reason_codes")
-        .insert(seed);
-      if (seedError && seedError.code !== "23505") throw seedError;
+      const seeded = await supabase.from("application_status_stage_reason_codes").insert(seed);
+      if (seeded.error && isMissingReasonLaneColumn(seeded.error)) {
+        const withoutLane = seed.map(({ lane: _lane, ...row }) => row);
+        const retry = await supabase.from("application_status_stage_reason_codes").insert(withoutLane);
+        if (retry.error && retry.error.code !== "23505") throw retry.error;
+      } else if (seeded.error && seeded.error.code !== "23505") {
+        throw seeded.error;
+      }
     }
   }
 
-  const { data, error } = await supabase
+  const listed = await supabase
     .from("application_status_stage_reason_codes")
-    .select("id, tenant_id, stage_name, code, sort_order, workflow_id, note")
+    .select(REASON_CODE_COLUMNS)
     .eq("tenant_id", tenantId)
     .order("stage_name", { ascending: true })
     .order("sort_order", { ascending: true });
-  if (error) throw error;
+  let data = listed.data;
+  if (listed.error && isMissingReasonLaneColumn(listed.error)) {
+    const retry = await supabase
+      .from("application_status_stage_reason_codes")
+      .select(REASON_CODE_COLUMNS_WITHOUT_LANE)
+      .eq("tenant_id", tenantId)
+      .order("stage_name", { ascending: true })
+      .order("sort_order", { ascending: true });
+    if (retry.error) throw retry.error;
+    data = (retry.data ?? []).map((row) => ({ ...row, lane: "closed" }));
+  } else if (listed.error) {
+    throw listed.error;
+  }
   return ((data ?? []) as ReasonCodeRow[])
     .map(mapReasonCode)
     .filter((row): row is ApplicationStatusStageReasonCodeRecord => row != null);
+}
+
+/** Used only before the lane column exists. The shared list is the closing list. */
+async function replaceLegacySharedReasonCodes(
+  supabase: SupabaseClient,
+  input: {
+    tenantId: string;
+    stageName: string;
+    workflowId: string | null;
+    codes: string[];
+    noteByCode: Map<string, string | null>;
+  }
+): Promise<ApplicationStatusStageReasonCodeRecord[]> {
+  let deleteQuery = supabase
+    .from("application_status_stage_reason_codes")
+    .delete()
+    .eq("tenant_id", input.tenantId)
+    .eq("stage_name", input.stageName);
+  deleteQuery = input.workflowId
+    ? deleteQuery.eq("workflow_id", input.workflowId)
+    : deleteQuery.is("workflow_id", null);
+  const { error: deleteError } = await deleteQuery;
+  if (deleteError) throw deleteError;
+  if (input.codes.length > 0) {
+    const { error: insertError } = await supabase.from("application_status_stage_reason_codes").insert(
+      input.codes.map((code, sortOrder) => ({
+        tenant_id: input.tenantId,
+        stage_name: input.stageName,
+        code,
+        sort_order: sortOrder,
+        workflow_id: input.workflowId,
+        note: input.noteByCode.get(code.trim().toLowerCase()) ?? null,
+      }))
+    );
+    if (insertError) throw insertError;
+  }
+  return listApplicationStatusStageReasonCodes(supabase, input.tenantId);
 }
 
 export async function replaceApplicationStatusStageReasonCodes(
@@ -1575,11 +1663,13 @@ export async function replaceApplicationStatusStageReasonCodes(
     stageName: string;
     codes: string[];
     workflowId?: string | null;
+    lane: ReasonCodeLane | string;
   }
 ): Promise<ApplicationStatusStageReasonCodeRecord[]> {
   if (!isAssignableStatusStageName(input.stageName)) {
     throw new ApplicationStatusError(`Unknown stage: ${input.stageName}`, "VALIDATION");
   }
+  const lane = requireReasonCodeLane(input.lane);
   const workflowId = input.workflowId?.trim() || null;
   await assertWorkflowInTenant(supabase, input.tenantId, workflowId);
   const codes = parseReasonCodeList(input.codes);
@@ -1595,7 +1685,12 @@ export async function replaceApplicationStatusStageReasonCodes(
   const prior = await listApplicationStatusStageReasonCodes(supabase, input.tenantId);
   const noteByCode = new Map(
     prior
-      .filter((row) => row.stageName === input.stageName && (row.workflowId ?? null) === workflowId)
+      .filter(
+        (row) =>
+          row.stageName === input.stageName &&
+          row.lane === lane &&
+          (row.workflowId ?? null) === workflowId
+      )
       .map((row) => [row.code.trim().toLowerCase(), row.note])
   );
 
@@ -1603,9 +1698,26 @@ export async function replaceApplicationStatusStageReasonCodes(
     .from("application_status_stage_reason_codes")
     .delete()
     .eq("tenant_id", input.tenantId)
-    .eq("stage_name", input.stageName);
+    .eq("stage_name", input.stageName)
+    .eq("lane", lane);
   deleteQuery = workflowId ? deleteQuery.eq("workflow_id", workflowId) : deleteQuery.is("workflow_id", null);
   const { error: deleteError } = await deleteQuery;
+  if (deleteError && isMissingReasonLaneColumn(deleteError)) {
+    if (lane !== "closed") {
+      throw new ApplicationStatusError(
+        "Separate alternate and closing reason codes need the latest database migration.",
+        "VALIDATION",
+        503
+      );
+    }
+    return replaceLegacySharedReasonCodes(supabase, {
+      tenantId: input.tenantId,
+      stageName: input.stageName,
+      workflowId,
+      codes,
+      noteByCode,
+    });
+  }
   if (deleteError) throw deleteError;
   if (codes.length > 0) {
     const { error: insertError } = await supabase.from("application_status_stage_reason_codes").insert(
@@ -1615,9 +1727,17 @@ export async function replaceApplicationStatusStageReasonCodes(
         code,
         sort_order: sortOrder,
         workflow_id: workflowId,
+        lane,
         note: noteByCode.get(code.trim().toLowerCase()) ?? null,
       }))
     );
+    if (insertError && isMissingReasonLaneColumn(insertError)) {
+      throw new ApplicationStatusError(
+        "Separate alternate and closing reason codes need the latest database migration.",
+        "VALIDATION",
+        503
+      );
+    }
     if (insertError) throw insertError;
   }
   return listApplicationStatusStageReasonCodes(supabase, input.tenantId);
@@ -1630,15 +1750,17 @@ export async function appendApplicationStatusStageReasonCode(
     stageName: string;
     code: string;
     workflowId?: string | null;
+    lane: ReasonCodeLane | string;
   }
 ): Promise<{ reasonCodes: ApplicationStatusStageReasonCodeRecord[]; created: boolean }> {
+  const lane = requireReasonCodeLane(input.lane);
   const workflowId = input.workflowId?.trim() || null;
   const code = normalizeReasonCode(input.code);
   if (!code) {
     throw new ApplicationStatusError("Enter a reason code.", "VALIDATION");
   }
   const existing = await listApplicationStatusStageReasonCodes(supabase, input.tenantId);
-  const stageRows = existing.filter((row) => row.stageName === input.stageName);
+  const stageRows = existing.filter((row) => row.stageName === input.stageName && row.lane === lane);
   const targetRows = stageRows.filter((row) => (row.workflowId ?? null) === workflowId);
   const alreadyThere = targetRows.some((row) => row.code.toLowerCase() === code.toLowerCase());
   if (alreadyThere) {
@@ -1649,6 +1771,7 @@ export async function appendApplicationStatusStageReasonCode(
     tenantId: input.tenantId,
     stageName: input.stageName,
     workflowId,
+    lane,
     codes,
   });
   return { reasonCodes, created: true };

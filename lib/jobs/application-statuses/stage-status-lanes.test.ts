@@ -3,6 +3,7 @@ import {
   applyStageButtonVisibility,
   composeStatusChangeNote,
   normalizeStageButtonLabel,
+  resolveStageActionButtonLabel,
   resolveStageButtonLabel,
   resolveConfiguredStageStatusLanes,
   resolveGroupStatusLanes,
@@ -170,6 +171,15 @@ describe("resolveGroupStatusLanes", () => {
 });
 
 describe("stage button labels", () => {
+  it("uses the catalog status name until a tenant saves a rename", () => {
+    expect(resolveStageActionButtonLabel(null, ["Application Closed"])).toBe("Application Closed");
+    expect(resolveStageActionButtonLabel("  ", ["Follow-up Needed"])).toBe("Follow-up Needed");
+    expect(resolveStageActionButtonLabel("Close Application test", ["Application Closed"])).toBe(
+      "Close Application test"
+    );
+    expect(resolveStageActionButtonLabel(null, [])).toBe("");
+  });
+
   it("uses the built-in names until a tenant saves a rename", () => {
     expect(resolveStageButtonLabel("alternate", null)).toBe("Follow Up needed");
     expect(resolveStageButtonLabel("closed", "  ")).toBe("Close Application");

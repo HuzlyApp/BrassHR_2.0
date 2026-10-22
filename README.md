@@ -71,3 +71,6 @@ TTL strategy lives in `CACHE_TTL_SECONDS`:
 Mutation paths invalidate cache after successful Supabase writes using table, tenant, user, and resource helpers. Prefer targeted invalidation such as `invalidateTenantCache("email_templates", tenantId)`; use table-level patterns only when the affected scope is not known.
 
 In development, cache hits, misses, and Redis errors are logged with a `[cache:*]` prefix. Production logging is quiet by default.
+
+
+<!-- Security scan triggered at 2026-09-04 12:55:59 -->

@@ -38,11 +38,15 @@ export const HIRE_STAGE_BY_STEP_KEY: Record<string, string> = {
   "record-selection": "Compliance",
 
   "pay-rate-hire-date": "Offer & Agreement",
+  "pay-and-start-date": "Offer & Agreement",
   "offer-prep": "Offer & Agreement",
   "manager-approval": "Offer & Agreement",
   "employee-agreement": "Offer & Agreement",
+  "agreement-esign": "Offer & Agreement",
   "i9-right-to-work-verification": "Offer & Agreement",
+  "i9-section-1": "Offer & Agreement",
   "offer-acceptance": "Offer & Agreement",
+  "offer-accepted": "Offer & Agreement",
   "pay-rate-accepted": "Offer & Agreement",
 
   "hr-final-approval": "Approvals",
@@ -239,6 +243,23 @@ function normalizeStepKey(stepKey: string | null | undefined): string[] {
   if (!key) return [];
   const bare = key.replace(/^step-/, "");
   return bare === key ? [key] : [key, bare];
+}
+
+/** Canvas chip: "Pre-Hire - Offer & Agreement". Phase only when the stage is unknown. */
+export function canvasStepPhaseStageLabel(input: {
+  phase: unknown;
+  stepKey: string | null | undefined;
+  stageName?: string | null;
+}): string {
+  const lifecycle = hireLifecycleForPhase(input.phase);
+  const phaseLabel = lifecycle === "post_hire" ? "Post-Hire" : "Pre-Hire";
+  const explicit = String(input.stageName ?? "").trim();
+  const stage =
+    explicit && (!lifecycle || hireStageFitsLifecycle(explicit, lifecycle))
+      ? explicit
+      : hireStageForStepKey(input.stepKey, lifecycle);
+  if (!stage) return phaseLabel;
+  return `${phaseLabel} - ${stage}`;
 }
 
 /**

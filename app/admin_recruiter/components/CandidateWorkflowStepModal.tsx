@@ -23,6 +23,8 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTenantBranding } from "@/app/components/tenant/TenantBrandingContext";
+import { useHireJourneyTheme } from "@/app/admin_recruiter/components/hire-stage/HireJourneyTheme";
+import { hireJourneyThemeCssVars } from "@/lib/tenant/hire-journey-theme";
 import { brandingToCssVars, readableTextOnBrand } from "@/lib/tenant/tenant-branding";
 import type {
   WorkflowStepInspection,
@@ -390,6 +392,7 @@ export default function CandidateWorkflowStepModal({
   onScheduleInterview?: () => void;
 }) {
   const branding = useTenantBranding();
+  const hireJourneyTheme = useHireJourneyTheme();
   const [activeInspectionOverride, setActiveInspectionOverride] = useState<WorkflowStepInspection | null>(null);
   const inspection = activeInspectionOverride ?? initialInspection;
   const currentInspection = inspection;
@@ -458,17 +461,21 @@ export default function CandidateWorkflowStepModal({
   // Radix portals render outside the branding wrapper, so re-declare the vars here
   // and drive the header/button colours straight from the tenant palette. The header
   // stays a light brand wash so the secondary-coloured title keeps its contrast.
-  const brandStyle = useMemo(
-    () => ({
+  const brandStyle = useMemo(() => {
+    const modalButton = hireJourneyTheme?.modalButtonColor;
+    const buttonCustomized = Boolean(modalButton && modalButton.toUpperCase() !== branding.primaryHex.toUpperCase());
+    return {
       ...brandingToCssVars(branding),
+      ...(hireJourneyTheme ? hireJourneyThemeCssVars(hireJourneyTheme) : {}),
       "--step-modal-header": `linear-gradient(135deg, color-mix(in srgb, ${branding.primaryHex} 16%, white) 0%, color-mix(in srgb, ${branding.secondaryHex} 8%, white) 100%)`,
-      "--step-modal-cta": `linear-gradient(90deg, ${branding.primaryHex} 0%, color-mix(in srgb, ${branding.primaryHex} 74%, white) 100%)`,
+      "--step-modal-cta": buttonCustomized
+        ? modalButton
+        : `linear-gradient(90deg, ${branding.primaryHex} 0%, color-mix(in srgb, ${branding.primaryHex} 74%, white) 100%)`,
       "--step-modal-icon": `linear-gradient(135deg, ${branding.primaryHex} 0%, color-mix(in srgb, ${branding.primaryHex} 65%, white) 100%)`,
-      "--step-modal-on-primary": readableTextOnBrand(branding.primaryHex),
+      "--step-modal-on-primary": readableTextOnBrand(buttonCustomized ? modalButton! : branding.primaryHex),
       "--step-modal-on-secondary": readableTextOnBrand(branding.secondaryHex),
-    }) as React.CSSProperties,
-    [branding]
-  );
+    } as React.CSSProperties;
+  }, [branding, hireJourneyTheme]);
 
   const staffAction = currentInspection?.staffAction;
   const staffReview = currentInspection?.staffReview ?? null;
@@ -702,27 +709,17 @@ export default function CandidateWorkflowStepModal({
         applicationStatus?: { statusName: string } | null;
       };
       if (!res.ok) throw new Error(json.error || "Failed to update this step.");
-      const onBehalf = pendingOnBehalf;
-      const verified = pendingVerify;
       setPendingAction(null);
       setPendingOnBehalf(false);
       setPendingVerify(false);
-      const resultNotice = verified
-        ? {
-            tone: "success" as const,
-            message: "Candidate submission verified. The step is now marked Completed.",
-          }
-        : onBehalf
-        ? {
-            tone: "success" as const,
-            message: json.email?.sent
-              ? `Step completed for the candidate. The candidate was emailed a link to "${json.email.nextStepTitle ?? "their next step"}".`
-              : "Step marked as complete for the candidate.",
-          }
-        : action === "reject" && variant === "default" && inspection && !inspection.step.required
+      if (action === "complete") {
+        onOpenChange(false);
+        await onStepUpdated?.();
+        return;
+      }
+      const resultNotice =
+        action === "reject" && variant === "default" && inspection && !inspection.step.required
           ? { tone: "success" as const, message: "Step rejected. It's optional, so it doesn't block the candidate's next stage." }
-          : action === "complete" && variant === "interview" && !json.email
-            ? { tone: "success" as const, message: "Interview marked as completed." }
           : staffActionResultMessage(action, json.email ?? null, variant);
       const statusName = json.applicationStatus?.statusName;
       setNotice(
@@ -745,7 +742,7 @@ export default function CandidateWorkflowStepModal({
         <Dialog.Overlay className="fixed inset-0 z-[100] bg-slate-950/50 backdrop-blur-[2px]" />
         <Dialog.Content
           style={brandStyle}
-          className="fixed left-1/2 top-1/2 z-[101] flex max-h-[calc(100dvh-2rem)] w-[min(58rem,calc(100vw-1.5rem))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl bg-white shadow-2xl outline-none"
+          className="fixed left-1/2 top-1/2 z-[101] flex max-h-[calc(100dvh-2rem)] w-[min(58rem,calc(100vw-1.5rem))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl bg-white outline-none"
           aria-describedby="workflow-step-inspection-desc"
         >
           <div

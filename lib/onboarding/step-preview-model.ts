@@ -307,6 +307,15 @@ function documentsForDraft(draft: OnboardingStepDraft | undefined): StepPreviewD
     .filter((doc) => doc.title);
 }
 
+/** SSN / Identity Verification shows the same cards the candidate uploads on apply. */
+export function isSsnIdentityPreview(libraryId: string, stepType: string, stepKey: string): boolean {
+  return (
+    libraryId === "ssn-identity-verification" ||
+    stepType === "ssn-identity-verification" ||
+    stepKey === "ssn-identity-verification"
+  );
+}
+
 /** Credential / license steps that use Settings → profession document catalogs at runtime. */
 export function stepPreviewUsesProfessionDocuments(
   libraryId: string,
