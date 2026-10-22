@@ -379,7 +379,6 @@ export default function CandidateWorkflowStepModal({
   workerId,
   onStepUpdated,
   onScheduleInterview,
-  completeWithoutConfirmation = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -391,8 +390,6 @@ export default function CandidateWorkflowStepModal({
   onStepUpdated?: () => void | Promise<void>;
   /** Shown on interview steps until the interview outcome is recorded. */
   onScheduleInterview?: () => void;
-  /** Hiring journey completes the step from the first Mark as complete click. */
-  completeWithoutConfirmation?: boolean;
 }) {
   const branding = useTenantBranding();
   const hireJourneyTheme = useHireJourneyTheme();
@@ -746,18 +743,10 @@ export default function CandidateWorkflowStepModal({
 
   function markCompleteNow(flags: { onBehalf: boolean; verify: boolean }) {
     setActionError(null);
-    if (completeWithoutConfirmation) {
-      // Hiring journey skips the "Complete this step for the candidate?" dialog.
-      // Reject, review, and reopen still open WorkflowStepStaffActionModal.
-      void submitAction(
-        { note: "", notifyCandidate: false },
-        { action: "complete", onBehalf: flags.onBehalf, verify: flags.verify }
-      );
-      return;
-    }
-    setPendingOnBehalf(flags.onBehalf);
-    setPendingVerify(flags.verify);
-    setPendingAction("complete");
+    void submitAction(
+      { note: "", notifyCandidate: false },
+      { action: "complete", onBehalf: flags.onBehalf, verify: flags.verify }
+    );
   }
 
   return (
@@ -833,7 +822,7 @@ export default function CandidateWorkflowStepModal({
           </div>
 
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-[#F8FAFC] px-5 py-4">
-            {actionError && completeWithoutConfirmation ? (
+            {actionError && !pendingAction ? (
               <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
                 {actionError}
               </div>
@@ -1446,9 +1435,6 @@ export default function CandidateWorkflowStepModal({
                   <button
                     type="button"
                     onClick={() => {
-                      // Confirmation popup skipped on the hiring journey.
-                      // setPendingOnBehalf / setPendingVerify / setPendingAction("complete")
-                      // still run from markCompleteNow when confirmation is required.
                       const verify = Boolean(
                         canVerifyCandidate || inspection?.step.displayStatus === "submitted"
                       );
@@ -1477,8 +1463,6 @@ export default function CandidateWorkflowStepModal({
                   <button
                     type="button"
                     onClick={() => {
-                      // Confirmation popup skipped on the hiring journey.
-                      // setPendingOnBehalf(true); setPendingAction("complete");
                       markCompleteNow({ onBehalf: true, verify: false });
                     }}
                     disabled={submitting || uploadingKey != null}
@@ -1498,8 +1482,6 @@ export default function CandidateWorkflowStepModal({
                     onClick={() => {
                       setActionError(null);
                       if (action === "complete") {
-                        // Confirmation popup skipped on the hiring journey.
-                        // setPendingAction("complete");
                         markCompleteNow({ onBehalf: false, verify: false });
                         return;
                       }
@@ -1532,15 +1514,9 @@ export default function CandidateWorkflowStepModal({
           ) : null}
         </Dialog.Content>
       </Dialog.Portal>
-      {/*
-        Confirmation dialog ("Complete … for the candidate?").
-        On the hiring journey, Mark as complete does not open this dialog.
-        Reject, Need to Review, and Reopen still use it.
-      */}
+      {/* Reject, Need to Review, and Reopen. Mark as complete skips this dialog. */}
       <WorkflowStepStaffActionModal
-        action={
-          completeWithoutConfirmation && pendingAction === "complete" ? null : pendingAction
-        }
+        action={pendingAction === "complete" ? null : pendingAction}
         variant={variant}
         optional={inspection ? !inspection.step.required : false}
         onBehalf={pendingOnBehalf}
