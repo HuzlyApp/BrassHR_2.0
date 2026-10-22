@@ -6,8 +6,10 @@ import { buildPreHireStageDraft, type StageConfigDraft } from "./pre-hire-stage-
 import toast from "react-hot-toast";
 import {
   normalizeStageStatusLane,
+  resolveStageButtonLabel,
   STAGE_STATUS_LANES,
   type SavedStageStatusLane,
+  type StageActionButtonLane,
   type StageStatusLane,
 } from "@/lib/jobs/application-statuses/stage-status-lanes";
 import {
@@ -90,6 +92,23 @@ function readSharedButtonLabels(value: unknown): SharedButtonLabels {
   };
 }
 
+function buttonLabelDraftFromSaved(saved: SharedButtonLabels) {
+  return {
+    alternate: resolveStageButtonLabel("alternate", saved.alternate),
+    closed: resolveStageButtonLabel("closed", saved.closed),
+  };
+}
+
+function buttonLabelsChanged(
+  saved: SharedButtonLabels,
+  draft: { alternate: string; closed: string }
+) {
+  const lanes: StageActionButtonLane[] = ["alternate", "closed"];
+  return lanes.some(
+    (lane) => draft[lane].trim() !== resolveStageButtonLabel(lane, saved[lane])
+  );
+}
+
 type StageNote = {
   id: string;
   stageName: string;
@@ -169,10 +188,9 @@ export default function CandidateStatusesPanel() {
     alternate: null,
     closed: null,
   });
-  const [buttonLabelDraft, setButtonLabelDraft] = useState({
-    alternate: "",
-    closed: "",
-  });
+  const [buttonLabelDraft, setButtonLabelDraft] = useState(() =>
+    buttonLabelDraftFromSaved({ alternate: null, closed: null })
+  );
   const [stageNotes, setStageNotes] = useState<StageNote[]>([]);
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
   const [workflowScopeId, setWorkflowScopeId] = useState("");
@@ -213,10 +231,7 @@ export default function CandidateStatusesPanel() {
       );
       const loadedLabels = readSharedButtonLabels(assignPayload.buttonLabels);
       setSharedButtonLabels(loadedLabels);
-      setButtonLabelDraft({
-        alternate: loadedLabels.alternate ?? "",
-        closed: loadedLabels.closed ?? "",
-      });
+      setButtonLabelDraft(buttonLabelDraftFromSaved(loadedLabels));
       setStageNotes(mapStageNotes(assignPayload.notes));
       setWorkflows(
         ((assignPayload.workflows ?? []) as Array<Record<string, unknown>>).flatMap((row) => {
@@ -342,10 +357,7 @@ export default function CandidateStatusesPanel() {
       if (!response.ok) throw new Error(payload.error || "Failed to save button names");
       const saved = readSharedButtonLabels(payload.buttonLabels);
       setSharedButtonLabels(saved);
-      setButtonLabelDraft({
-        alternate: saved.alternate ?? "",
-        closed: saved.closed ?? "",
-      });
+      setButtonLabelDraft(buttonLabelDraftFromSaved(saved));
       flash("success", "Button names saved for every stage");
     } catch (error) {
       flash("error", error instanceof Error ? error.message : "Failed to save button names");
@@ -623,11 +635,7 @@ export default function CandidateStatusesPanel() {
             {canManage ? (
               <button
                 type="button"
-                disabled={
-                  saving ||
-                  (buttonLabelDraft.alternate.trim() === (sharedButtonLabels.alternate ?? "") &&
-                    buttonLabelDraft.closed.trim() === (sharedButtonLabels.closed ?? ""))
-                }
+                disabled={saving || !buttonLabelsChanged(sharedButtonLabels, buttonLabelDraft)}
                 onClick={() => void saveSharedButtonLabels()}
                 className="mt-3 inline-flex h-8 items-center rounded-md bg-[#012352] px-3 text-sm font-medium text-white disabled:opacity-50"
               >

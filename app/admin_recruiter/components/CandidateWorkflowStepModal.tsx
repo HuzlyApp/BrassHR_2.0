@@ -994,6 +994,7 @@ export default function CandidateWorkflowStepModal({
 
                 <Section title="Overview">
                   <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {/* Step identity fields hidden on Pre-Hire and Post-Hire step details.
                     <Meta label="Step name" value={inspection.step.title} />
                     <Meta label="Step type" value={titleCase(inspection.step.stepType)} />
                     <Meta label="Phase" value={lifecyclePhaseLabel(inspection.phase)} />
@@ -1003,24 +1004,26 @@ export default function CandidateWorkflowStepModal({
                     />
                     <Meta label="Completed by" value={inspection.completedBy} />
                     <Meta label="Step for" value={ownership.stepFor} />
+                    */}
                     <Meta label="Workflow" value={inspection.workflowName} />
                     <Meta label="Workflow version" value={inspection.workflowVersion} />
-                    {candidateReview ? (
-                      <>
-                        <Meta
-                          label="Verified by"
-                          value={
-                            candidateReview.verifiedBy ??
+                    <Meta
+                      label="Verified by"
+                      value={
+                        candidateReview
+                          ? candidateReview.verifiedBy ??
                             (candidateReview.canVerify ? "Awaiting recruiter review" : null)
-                          }
-                        />
-                        {candidateReview.verifiedAt ? (
-                          <Meta label="Verified on" value={formatDateTime(candidateReview.verifiedAt)} />
-                        ) : null}
-                      </>
-                    ) : inspection.reviewable ? (
+                          : inspection.approvedOrRejectedBy
+                      }
+                    />
+                    {/*
+                    {candidateReview?.verifiedAt ? (
+                      <Meta label="Verified on" value={formatDateTime(candidateReview.verifiedAt)} />
+                    ) : null}
+                    {inspection.reviewable ? (
                       <Meta label="Approved or rejected by" value={inspection.approvedOrRejectedBy} />
                     ) : null}
+                    */}
                   </dl>
                 </Section>
 
