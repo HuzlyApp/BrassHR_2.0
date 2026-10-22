@@ -63,7 +63,7 @@ If a job has no objective and no bullets, leave bullets empty. Do not invent a b
 Do not reduce older roles to a few bullets. Do not cut a quarter of the bullets. Recent and older roles follow the same rule.
 skills[] is one entry per source skill line or labeled group, copied from the source. Do not flatten labeled groups into one keyword string.
 Set summaryHeading, skillsHeading, and experienceHeading to the source section titles when the source has them. Leave a heading empty when it does not.
-Set headline only when the source has a headline. Do not invent one from the target job.
+Set headline to the target job title.
 When a screening response, follow-up answer, or interview note states a concrete project, tool, responsibility, metric, certification, or education detail that is not already on the résumé, add it as an extra bullet under the employer the candidate named, or as an extra skill line. Use the candidate's wording. Do not replace or rewrite an existing bullet.
 If they named no employer, put the new fact in the summary or as a short skill only when they explicitly claimed that skill or tool.
 A concrete start date, schedule, or location commitment the candidate stated may be one short summary line. Do not turn that into a skill keyword.
@@ -132,7 +132,7 @@ Rules:
 - Vague “AI tooling” on a 2023+ job may stay in the candidate’s words. Do not upgrade it to a named product.
 - “Yes I have it” is not ownership.
 - If a preferred JD item is missing, leave it missing.
-- Headline is empty unless the source has a headline. Never “[JD title] (ProductName)”.
+- Set headline to the target job title. Never “[JD title] (ProductName)”.
 - Official title = what they were called.
 - Section headings copy the source titles. Leave a heading empty to use the standard title.
 - improvementSummary.removed stays empty unless a date was normalized. Do not list kept bullets as removed.$s5_sys$;

@@ -4,6 +4,7 @@ import {
   isSubmissionResumeFileName,
   mergeSubmissionResume,
   parseSubmissionResume,
+  presentSubmissionResume,
   submissionResumeFileName,
   submissionResumeToPlainText,
   submissionSectionHeading,
@@ -275,6 +276,50 @@ describe("submission résumé pack", () => {
     ]);
     expect(submissionResumeToPlainText(parsed!)).toContain("SUMMARY");
     expect(submissionResumeToPlainText(parsed!)).toContain("TECHNICAL SKILLS AND CERTIFICATES");
+  });
+
+  it("keeps the target job title as the headline and cleans symbol-font bullets", () => {
+    const presented = presentSubmissionResume(
+      {
+        fullName: "Faihad Hassan",
+        headline: "IT Project Coordinator / Project Manager",
+        email: "",
+        phone: "",
+        location: "",
+        linkedin: "",
+        summaryHeading: "",
+        skillsHeading: "",
+        experienceHeading: "",
+        educationHeading: "",
+        licensesHeading: "",
+        summary: "\uF0B7 15 years of product management.",
+        skills: ["\u25A1 Product Management", "Business Analysis: Lean Six Sigma"],
+        experience: [
+          {
+            title: "Program Manager III",
+            company: "Western Digital",
+            location: "",
+            dates: "",
+            bullets: ["\uF0B7 Led AI/ML initiatives.", "o Daily scrum with the team."],
+          },
+        ],
+        education: [],
+        licenses: [],
+      },
+      "IT Project Coordinator / Project Manager"
+    );
+
+    expect(presented.headline).toBe("IT Project Coordinator / Project Manager");
+    expect(
+      presentSubmissionResume({ ...presented, headline: "" }, "IT Project Coordinator / Project Manager").headline
+    ).toBe("IT Project Coordinator / Project Manager");
+    expect(presented.summary.startsWith("•")).toBe(true);
+    expect(presented.summary).not.toContain("?");
+    expect(presented.skills[0]).toBe("Product Management");
+    expect(presented.experience[0]?.bullets).toEqual([
+      "Led AI/ML initiatives.",
+      "Daily scrum with the team.",
+    ]);
   });
 
   it("keeps identity from the fallback when the model omits contact fields", () => {

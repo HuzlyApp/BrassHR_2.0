@@ -416,6 +416,16 @@ ICU RN with 5 years experience
     expect(sanitized).toContain("[REDACTED_STREET_ADDRESS]");
     expect(sanitized).toContain("ICU RN with 5 years experience");
   });
+
+  it("does not treat ordinary uses of single as marital status", () => {
+    const sanitized = sanitizeResumeForMatchAnalysis(
+      "single item orders and single line order processing\nMarital Status: Single"
+    );
+    expect(sanitized).toContain("single item orders");
+    expect(sanitized).toContain("single line order processing");
+    expect(sanitized).toContain("[REDACTED_MARITAL_STATUS]");
+    expect(sanitized).not.toContain("Marital Status: Single");
+  });
 });
 
 describe("applyFairnessOutcomes", () => {

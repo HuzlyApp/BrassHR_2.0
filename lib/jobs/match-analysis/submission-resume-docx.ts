@@ -8,6 +8,10 @@ import {
   type IBorderOptions,
 } from "docx";
 import {
+  normalizeResumeBulletGlyphs,
+  stripLeadingListMarker,
+} from "@/lib/resume/resume-glyphs";
+import {
   submissionSectionHeading,
   submissionSkillParagraphs,
   SUBMISSION_SECTION_DEFAULTS,
@@ -115,14 +119,16 @@ export async function renderSubmissionResumeDocx(resume: SubmissionResume): Prom
 
   if (resume.summary) {
     children.push(sectionTitle(submissionSectionHeading(resume.summaryHeading, SUBMISSION_SECTION_DEFAULTS.summary)));
-    children.push(textParagraph(resume.summary, { spacingAfter: 120 }));
+    children.push(textParagraph(normalizeResumeBulletGlyphs(resume.summary), { spacingAfter: 120 }));
   }
 
   const skillLines = submissionSkillParagraphs(resume.skills);
   if (skillLines.length) {
     children.push(sectionTitle(submissionSectionHeading(resume.skillsHeading, SUBMISSION_SECTION_DEFAULTS.skills)));
+    const separate = skillLines.length > 1;
     for (const line of skillLines) {
-      children.push(textParagraph(line, { spacingAfter: 80 }));
+      if (separate) children.push(bulletParagraph(stripLeadingListMarker(line)));
+      else children.push(textParagraph(line, { spacingAfter: 80 }));
     }
   }
 
@@ -140,7 +146,8 @@ export async function renderSubmissionResumeDocx(resume: SubmissionResume): Prom
         children.push(textParagraph(meta, { size: 22, color: MUTED, spacingAfter: 60 }));
       }
       for (const bullet of job.bullets) {
-        if (bullet.trim()) children.push(bulletParagraph(bullet.trim()));
+        const text = stripLeadingListMarker(bullet);
+        if (text) children.push(bulletParagraph(text));
       }
       children.push(new Paragraph({ spacing: { after: 120 }, children: [] }));
     }

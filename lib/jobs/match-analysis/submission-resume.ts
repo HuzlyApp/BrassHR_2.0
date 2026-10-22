@@ -4,6 +4,7 @@ import {
   sanitizeResumeNamePart,
 } from "@/lib/resume/worker-resume-file-name";
 import { normalizeResumeWhitespace } from "./sanitize-resume";
+import { normalizeResumeBulletGlyphs, stripLeadingListMarker } from "@/lib/resume/resume-glyphs";
 import type { MatchAnalysisResponse } from "./schema";
 
 export { isSubmissionResumeFileName };
@@ -268,8 +269,23 @@ export function submissionSectionHeading(custom: string | undefined, fallback: s
  * Short keyword lists stay on one line. Labeled or long source lines stay separate
  * so a skills section is not flattened.
  */
+/** Keep the model headline. If it is empty, use the target job title. */
+export function presentSubmissionResume(resume: SubmissionResume, jobTitle?: string): SubmissionResume {
+  const headline = resume.headline.replace(/\s+/g, " ").trim() || String(jobTitle ?? "").replace(/\s+/g, " ").trim();
+  return {
+    ...resume,
+    headline,
+    summary: normalizeResumeBulletGlyphs(resume.summary),
+    skills: resume.skills.map((skill) => stripLeadingListMarker(skill)).filter(Boolean),
+    experience: resume.experience.map((job) => ({
+      ...job,
+      bullets: job.bullets.map((bullet) => stripLeadingListMarker(bullet)).filter(Boolean),
+    })),
+  };
+}
+
 export function submissionSkillParagraphs(skills: string[]): string[] {
-  const clean = skills.map((item) => item.replace(/\s+/g, " ").trim()).filter(Boolean);
+  const clean = skills.map((item) => stripLeadingListMarker(item)).filter(Boolean);
   if (!clean.length) return [];
   const separate = clean.some((item) => item.length > 60 || item.includes(":"));
   return separate ? clean : [clean.join("  ·  ")];

@@ -11,6 +11,7 @@ import {
   buildFallbackSubmissionResume,
   mergeSubmissionResume,
   parseSubmissionResume,
+  presentSubmissionResume,
   type SubmissionResume,
   type SubmissionResumeIdentity,
 } from "./submission-resume";
@@ -85,7 +86,7 @@ If a job has no objective and no bullets, leave bullets empty. Do not invent a b
 Do not reduce older roles to a few bullets. Do not cut a quarter of the bullets. Recent and older roles follow the same rule.
 skills[] is one entry per source skill line or labeled group, copied from the source. Do not flatten labeled groups into one keyword string.
 Set summaryHeading, skillsHeading, and experienceHeading to the source section titles when the source has them. Leave a heading empty when it does not.
-Set headline only when the source has a headline. Do not invent one from the target job.
+Set headline to the target job title.
 When a screening response, follow-up answer, or interview note states a concrete project, tool, responsibility, metric, certification, or education detail that is not already on the résumé, add it as an extra bullet under the employer the candidate named, or as an extra skill line. Use the candidate's wording. Do not replace or rewrite an existing bullet.
 If they named no employer, put the new fact in the summary or as a short skill only when they explicitly claimed that skill or tool.
 A concrete start date, schedule, or location commitment the candidate stated may be one short summary line. Do not turn that into a skill keyword.
@@ -140,6 +141,14 @@ export function neutralizeSubmissionShrinkRules(catalogSystem: string): string {
     .replace(
       /Optimize wording and order for the target job\.\s*Keep chronological jobs\./gi,
       "Keep chronological jobs and the source wording."
+    )
+    .replace(
+      /Set headline only when the source has a headline\.\s*Do not invent one from the target job\./gi,
+      "Set headline to the target job title."
+    )
+    .replace(
+      /Headline is empty unless the source has a headline\.\s*/gi,
+      "Set headline to the target job title. "
     );
 }
 
@@ -261,6 +270,7 @@ function finalizeSubmissionResume(args: {
   enrichmentNotes?: string | null;
   evidenceNotes?: string | null;
   confirmedEvidence: string[];
+  jobTitle?: string;
   modelSummary?: unknown;
 }): {
   resume: SubmissionResume;
@@ -270,7 +280,8 @@ function finalizeSubmissionResume(args: {
     evidenceNotes: args.evidenceNotes,
     enrichmentNotes: args.enrichmentNotes,
   });
-  const { resume, evidence } = applySkillEvidenceFilter(args.resume, {
+  const presented = presentSubmissionResume(args.resume, args.jobTitle);
+  const { resume, evidence } = applySkillEvidenceFilter(presented, {
     resumeText: args.resumeText,
     enrichmentNotes: evidenceNotes,
     confirmedEvidence: args.confirmedEvidence,
@@ -309,6 +320,7 @@ export async function generateOptimizedSubmissionResume(args: {
     enrichmentNotes: args.enrichmentNotes,
     evidenceNotes: args.evidenceNotes,
     confirmedEvidence,
+    jobTitle: args.identity.jobTitle,
   };
   const client = resolveGrokClient();
   if (!client) {

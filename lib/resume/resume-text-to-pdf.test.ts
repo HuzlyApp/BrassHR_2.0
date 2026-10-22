@@ -18,6 +18,12 @@ describe("sanitizeTextForPdfDrawing", () => {
     );
   });
 
+  it("folds Word symbol-font bullets instead of printing a question mark", () => {
+    expect(sanitizeTextForPdfDrawing("\uF0B7 Led team\n\u25A1 Shipped product")).toBe(
+      "• Led team\n• Shipped product"
+    );
+  });
+
   it("still replaces unsupported glyphs with ?", () => {
     expect(sanitizeTextForPdfDrawing("smile 🙂")).toBe("smile ?");
   });

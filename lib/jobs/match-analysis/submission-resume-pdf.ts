@@ -1,6 +1,10 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import { sanitizeTextForPdfDrawing } from "@/lib/resume/resume-text-to-pdf";
 import {
+  normalizeResumeBulletGlyphs,
+  stripLeadingListMarker,
+} from "@/lib/resume/resume-glyphs";
+import {
   submissionSectionHeading,
   submissionSkillParagraphs,
   SUBMISSION_SECTION_DEFAULTS,
@@ -89,14 +93,22 @@ export async function renderSubmissionResumePdf(resume: SubmissionResume): Promi
 
   if (resume.summary) {
     section(submissionSectionHeading(resume.summaryHeading, SUBMISSION_SECTION_DEFAULTS.summary));
-    drawLines(wrap(resume.summary, regular, 10, maxWidth), regular, 10, SLATE, 13);
+    drawLines(
+      wrap(normalizeResumeBulletGlyphs(resume.summary), regular, 10, maxWidth),
+      regular,
+      10,
+      SLATE,
+      13
+    );
   }
 
   const skillLines = submissionSkillParagraphs(resume.skills);
   if (skillLines.length) {
     section(submissionSectionHeading(resume.skillsHeading, SUBMISSION_SECTION_DEFAULTS.skills));
+    const separate = skillLines.length > 1;
     for (const line of skillLines) {
-      drawLines(wrap(line, regular, 10, maxWidth), regular, 10, SLATE, 13);
+      const text = separate ? `•  ${stripLeadingListMarker(line)}` : line;
+      drawLines(wrap(text, regular, 10, maxWidth), regular, 10, SLATE, 13);
     }
   }
 
@@ -112,7 +124,9 @@ export async function renderSubmissionResumePdf(resume: SubmissionResume): Promi
         drawLines(wrap(meta, regular, 11, maxWidth), regular, 11, MUTED, 14);
       }
       for (const bullet of job.bullets) {
-        const wrapped = wrap(`•  ${bullet}`, regular, 10, maxWidth - 10);
+        const text = stripLeadingListMarker(bullet);
+        if (!text) continue;
+        const wrapped = wrap(`•  ${text}`, regular, 10, maxWidth - 10);
         for (const line of wrapped) {
           ensure(13);
           page.drawText(line, { x: MARGIN + 8, y, size: 10, font: regular, color: SLATE });
