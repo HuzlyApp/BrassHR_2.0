@@ -43,6 +43,7 @@ describe("resolveCompletionOwner", () => {
     expect(resolveCompletionOwner("applicant", "submit-to-client")).toBe("recruiter_or_hr");
     expect(resolveCompletionOwner("applicant", "manager-facility-approval")).toBe("recruiter_or_hr");
     expect(resolveCompletionOwner("applicant", "release-to-client")).toBe("recruiter_or_hr");
+    expect(resolveCompletionOwner("applicant", "offer-prep")).toBe("recruiter_or_hr");
   });
 
   it("leaves the applicant's review step on Candidate", () => {
