@@ -38,6 +38,7 @@
     "@types/mapbox-gl": "^3.4.1",
     "@types/pdfjs-dist": "^2.10.377",
     "@upstash/redis": "^1.38.0",
+    "@vercel/speed-insights": "^2.0.0",
     "@xyflow/react": "^12.10.2",
     "axios": "^1.13.6",
     "clsx": "^2.1.1",
