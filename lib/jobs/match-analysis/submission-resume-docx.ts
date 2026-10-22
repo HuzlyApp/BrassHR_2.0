@@ -7,7 +7,12 @@ import {
   BorderStyle,
   type IBorderOptions,
 } from "docx";
-import type { SubmissionResume } from "./submission-resume";
+import {
+  submissionSectionHeading,
+  submissionSkillParagraphs,
+  SUBMISSION_SECTION_DEFAULTS,
+  type SubmissionResume,
+} from "./submission-resume";
 
 const NAVY = "011C46";
 const SLATE = "334155";
@@ -109,17 +114,22 @@ export async function renderSubmissionResumeDocx(resume: SubmissionResume): Prom
   }
 
   if (resume.summary) {
-    children.push(sectionTitle("Professional summary"));
+    children.push(sectionTitle(submissionSectionHeading(resume.summaryHeading, SUBMISSION_SECTION_DEFAULTS.summary)));
     children.push(textParagraph(resume.summary, { spacingAfter: 120 }));
   }
 
-  if (resume.skills.length) {
-    children.push(sectionTitle("Core qualifications"));
-    children.push(textParagraph(resume.skills.join("  ·  "), { spacingAfter: 120 }));
+  const skillLines = submissionSkillParagraphs(resume.skills);
+  if (skillLines.length) {
+    children.push(sectionTitle(submissionSectionHeading(resume.skillsHeading, SUBMISSION_SECTION_DEFAULTS.skills)));
+    for (const line of skillLines) {
+      children.push(textParagraph(line, { spacingAfter: 80 }));
+    }
   }
 
   if (resume.experience.length) {
-    children.push(sectionTitle("Professional experience"));
+    children.push(
+      sectionTitle(submissionSectionHeading(resume.experienceHeading, SUBMISSION_SECTION_DEFAULTS.experience))
+    );
     for (const job of resume.experience) {
       const heading = [job.title, job.company].filter(Boolean).join("  —  ");
       if (heading) {
@@ -137,7 +147,7 @@ export async function renderSubmissionResumeDocx(resume: SubmissionResume): Prom
   }
 
   if (resume.education.length) {
-    children.push(sectionTitle("Education"));
+    children.push(sectionTitle(submissionSectionHeading(resume.educationHeading, SUBMISSION_SECTION_DEFAULTS.education)));
     for (const item of resume.education) {
       const line = [item.credential, item.school, item.year].filter(Boolean).join("  —  ");
       if (line) children.push(textParagraph(line, { spacingAfter: 80 }));
@@ -145,7 +155,9 @@ export async function renderSubmissionResumeDocx(resume: SubmissionResume): Prom
   }
 
   if (resume.licenses.length) {
-    children.push(sectionTitle("Licenses & certifications"));
+    children.push(
+      sectionTitle(submissionSectionHeading(resume.licensesHeading, SUBMISSION_SECTION_DEFAULTS.licenses))
+    );
     for (const item of resume.licenses) {
       if (item.trim()) children.push(bulletParagraph(item.trim()));
     }

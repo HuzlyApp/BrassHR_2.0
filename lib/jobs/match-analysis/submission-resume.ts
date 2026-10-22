@@ -31,17 +31,23 @@ export const submissionResumeSchema = z.object({
   phone: clipped(40).default(""),
   location: clipped(200).default(""),
   linkedin: clipped(300).default(""),
-  summary: clipped(2400).default(""),
-  skills: cappedList(clipped(80), 40).default([]),
+  summary: clipped(4000).default(""),
+  summaryHeading: clipped(80).default(""),
+  skillsHeading: clipped(80).default(""),
+  experienceHeading: clipped(80).default(""),
+  educationHeading: clipped(80).default(""),
+  licensesHeading: clipped(80).default(""),
+  /** Skill lines can be a full labeled group from the source résumé, not only a short keyword. */
+  skills: cappedList(clipped(500), 48).default([]),
   experience: cappedList(
     z.object({
       title: clipped(160).default(""),
       company: clipped(160).default(""),
       location: clipped(160).default(""),
       dates: clipped(80).default(""),
-      bullets: cappedList(clipped(800), 20).default([]),
+      bullets: cappedList(clipped(1800), 48).default([]),
     }),
-    24
+    40
   ).default([]),
   education: cappedList(
     z.object({
@@ -195,6 +201,11 @@ export function mergeSubmissionResume(
     location: preferred.location || fallback.location,
     linkedin: preferred.linkedin || fallback.linkedin,
     summary: preferred.summary || fallback.summary,
+    summaryHeading: preferred.summaryHeading || fallback.summaryHeading,
+    skillsHeading: preferred.skillsHeading || fallback.skillsHeading,
+    experienceHeading: preferred.experienceHeading || fallback.experienceHeading,
+    educationHeading: preferred.educationHeading || fallback.educationHeading,
+    licensesHeading: preferred.licensesHeading || fallback.licensesHeading,
     skills: preferred.skills.length ? preferred.skills : fallback.skills,
     experience: preferred.experience.length ? preferred.experience : fallback.experience,
     education: preferred.education.length ? preferred.education : fallback.education,
@@ -237,19 +248,57 @@ export function buildFallbackSubmissionResume(args: {
   });
 }
 
+export const SUBMISSION_SECTION_DEFAULTS = {
+  summary: "Professional summary",
+  skills: "Core qualifications",
+  experience: "Professional experience",
+  education: "Education",
+  licenses: "Licenses & certifications",
+} as const;
+
+/** Use a source section title when the model copied one. Otherwise keep the standard packet title. */
+export function submissionSectionHeading(custom: string | undefined, fallback: string): string {
+  const text = String(custom ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text || fallback;
+}
+
+/**
+ * Short keyword lists stay on one line. Labeled or long source lines stay separate
+ * so a skills section is not flattened.
+ */
+export function submissionSkillParagraphs(skills: string[]): string[] {
+  const clean = skills.map((item) => item.replace(/\s+/g, " ").trim()).filter(Boolean);
+  if (!clean.length) return [];
+  const separate = clean.some((item) => item.length > 60 || item.includes(":"));
+  return separate ? clean : [clean.join("  ·  ")];
+}
+
 export function submissionResumeToPlainText(resume: SubmissionResume): string {
   const lines: string[] = [resume.fullName];
   if (resume.headline) lines.push(resume.headline);
   const contact = [resume.location, resume.email, resume.phone, resume.linkedin].filter(Boolean).join("  |  ");
   if (contact) lines.push(contact);
   if (resume.summary) {
-    lines.push("", "PROFESSIONAL SUMMARY", resume.summary);
+    lines.push(
+      "",
+      submissionSectionHeading(resume.summaryHeading, "PROFESSIONAL SUMMARY"),
+      resume.summary
+    );
   }
   if (resume.skills.length) {
-    lines.push("", "CORE QUALIFICATIONS", resume.skills.map((item) => `• ${item}`).join("\n"));
+    lines.push(
+      "",
+      submissionSectionHeading(resume.skillsHeading, "CORE QUALIFICATIONS"),
+      resume.skills.map((item) => `• ${item}`).join("\n")
+    );
   }
   if (resume.experience.length) {
-    lines.push("", "PROFESSIONAL EXPERIENCE");
+    lines.push(
+      "",
+      submissionSectionHeading(resume.experienceHeading, "PROFESSIONAL EXPERIENCE")
+    );
     for (const job of resume.experience) {
       lines.push([job.title, job.company].filter(Boolean).join(" — "));
       const meta = [job.location, job.dates].filter(Boolean).join("  |  ");
@@ -258,13 +307,13 @@ export function submissionResumeToPlainText(resume: SubmissionResume): string {
     }
   }
   if (resume.education.length) {
-    lines.push("", "EDUCATION");
+    lines.push("", submissionSectionHeading(resume.educationHeading, "EDUCATION"));
     for (const item of resume.education) {
       lines.push([item.credential, item.school, item.year].filter(Boolean).join(" — "));
     }
   }
   if (resume.licenses.length) {
-    lines.push("", "LICENSES & CERTIFICATIONS");
+    lines.push("", submissionSectionHeading(resume.licensesHeading, "LICENSES & CERTIFICATIONS"));
     for (const item of resume.licenses) lines.push(`• ${item}`);
   }
   return lines.join("\n");

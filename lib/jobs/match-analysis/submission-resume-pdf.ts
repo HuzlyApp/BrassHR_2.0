@@ -1,6 +1,11 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import { sanitizeTextForPdfDrawing } from "@/lib/resume/resume-text-to-pdf";
-import type { SubmissionResume } from "./submission-resume";
+import {
+  submissionSectionHeading,
+  submissionSkillParagraphs,
+  SUBMISSION_SECTION_DEFAULTS,
+  type SubmissionResume,
+} from "./submission-resume";
 
 const PAGE_WIDTH = 612;
 const PAGE_HEIGHT = 792;
@@ -83,17 +88,20 @@ export async function renderSubmissionResumePdf(resume: SubmissionResume): Promi
   }
 
   if (resume.summary) {
-    section("Professional summary");
+    section(submissionSectionHeading(resume.summaryHeading, SUBMISSION_SECTION_DEFAULTS.summary));
     drawLines(wrap(resume.summary, regular, 10, maxWidth), regular, 10, SLATE, 13);
   }
 
-  if (resume.skills.length) {
-    section("Core qualifications");
-    drawLines(wrap(resume.skills.join("  ·  "), regular, 10, maxWidth), regular, 10, SLATE, 13);
+  const skillLines = submissionSkillParagraphs(resume.skills);
+  if (skillLines.length) {
+    section(submissionSectionHeading(resume.skillsHeading, SUBMISSION_SECTION_DEFAULTS.skills));
+    for (const line of skillLines) {
+      drawLines(wrap(line, regular, 10, maxWidth), regular, 10, SLATE, 13);
+    }
   }
 
   if (resume.experience.length) {
-    section("Professional experience");
+    section(submissionSectionHeading(resume.experienceHeading, SUBMISSION_SECTION_DEFAULTS.experience));
     for (const job of resume.experience) {
       const heading = [job.title, job.company].filter(Boolean).join("  —  ");
       if (heading) {
@@ -116,7 +124,7 @@ export async function renderSubmissionResumePdf(resume: SubmissionResume): Promi
   }
 
   if (resume.education.length) {
-    section("Education");
+    section(submissionSectionHeading(resume.educationHeading, SUBMISSION_SECTION_DEFAULTS.education));
     for (const item of resume.education) {
       const line = [item.credential, item.school, item.year].filter(Boolean).join("  —  ");
       if (line) drawLines(wrap(line, regular, 10, maxWidth), regular, 10, SLATE, 13);
@@ -124,7 +132,7 @@ export async function renderSubmissionResumePdf(resume: SubmissionResume): Promi
   }
 
   if (resume.licenses.length) {
-    section("Licenses & certifications");
+    section(submissionSectionHeading(resume.licensesHeading, SUBMISSION_SECTION_DEFAULTS.licenses));
     for (const item of resume.licenses) {
       drawLines(wrap(`•  ${item}`, regular, 10, maxWidth), regular, 10, SLATE, 13);
     }
