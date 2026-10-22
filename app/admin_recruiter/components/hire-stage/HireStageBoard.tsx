@@ -355,6 +355,7 @@ export function HireStageBoard({
         error={inspectionError}
         inspection={inspection}
         workerId={workerId}
+        completeWithoutConfirmation
         onStepUpdated={handleStepUpdated}
         onScheduleInterview={lifecycle === "pre_hire" && workerId ? openSchedule : undefined}
       />

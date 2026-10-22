@@ -10,6 +10,7 @@ import { SidebarSubmenuToggleIcon } from "@/app/components/sidebar/SidebarSubmen
 import { useTenantBranding } from "@/app/components/tenant/TenantBrandingContext";
 import { BRAAS_PLATFORM_FAVICON } from "@/lib/tenant/tenant-branding";
 import { useAccountData } from "@/app/admin_recruiter/hooks/useAccountData";
+import { appRoleToConsoleRole } from "@/lib/admin/staff-directory-types";
 import {
   ADMIN_RECRUITER_HOME_ROUTE,
   CLIENT_SIDEBAR_SECTIONS,
@@ -73,10 +74,15 @@ export function AdminRecruiterSidebar({
   const [openSectionLabels, setOpenSectionLabels] = useState<string[]>([]);
   const { viewer } = useEffectiveBranding();
   const isGodAdmin = viewer?.godAdmin === true;
+  const isRecruiter = appRoleToConsoleRole(profile?.role) === "recruiter";
   const [sidebarHovered, setSidebarHovered] = useState(false);
   const navRef = useRef<HTMLElement>(null);
 
-  const sidebarSections = isGodAdmin ? GOD_ADMIN_SIDEBAR_SECTIONS : CLIENT_SIDEBAR_SECTIONS;
+  const sidebarSections = isGodAdmin
+    ? GOD_ADMIN_SIDEBAR_SECTIONS
+    : isRecruiter
+      ? CLIENT_SIDEBAR_SECTIONS.filter((section) => section.label !== "Automation")
+      : CLIENT_SIDEBAR_SECTIONS;
 
   const handleNavClick = () => {
     onMobileClose?.();
