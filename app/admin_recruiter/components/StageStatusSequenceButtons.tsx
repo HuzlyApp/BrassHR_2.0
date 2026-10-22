@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import toast from "react-hot-toast";
 import {
   catalogSavePlan,
@@ -44,6 +45,8 @@ type StageStatusSequenceButtonsProps = {
    * “Proceed to next stage”, point the recruiter at the Hiring Journey button.
    */
   showHiringJourneyHint?: boolean;
+  /** Destination for the Hiring Journey link in the completed-sequence hint. */
+  hiringJourneyHref?: string | null;
 };
 
 type LaneRow = SavedStageStatusLane & { workflowId: string | null };
@@ -91,6 +94,7 @@ export function StageStatusSequenceButtons({
   onStatusChanged,
   onException,
   showHiringJourneyHint = false,
+  hiringJourneyHref = null,
 }: StageStatusSequenceButtonsProps) {
   const [options, setOptions] = useState<StatusOption[]>([]);
   const [assignedGroupIds, setAssignedGroupIds] = useState<string[] | null>(null);
@@ -454,7 +458,18 @@ export function StageStatusSequenceButtons({
       </div>
       {showHiringJourneyHint && lanes.happy_path.length > 0 && !nextHappyPath ? (
         <p className="mt-2 text-sm leading-5 text-[#475467]">
-          Click on &quot;Hiring Journey&quot; button to complete the steps
+          Click on{" "}
+          {hiringJourneyHref ? (
+            <Link
+              href={hiringJourneyHref}
+              className="font-semibold text-[#001A46] underline underline-offset-2 hover:text-[#001A46]/80"
+            >
+              Hiring Journey
+            </Link>
+          ) : (
+            "Hiring Journey"
+          )}{" "}
+          button to complete the steps
         </p>
       ) : null}
       {pending ? (
