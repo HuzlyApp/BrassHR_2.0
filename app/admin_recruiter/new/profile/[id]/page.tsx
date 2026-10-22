@@ -573,7 +573,6 @@ export default function NewApplicantProfilePage() {
     return n || "Applicant";
   }, [w?.first_name, w?.last_name]);
   const candidateRole = w?.job_role?.trim() || "—";
-  const candidateStatus = w?.status_label;
   const candidateLocation = useMemo(() => {
     const parts = [w?.city ?? "", w?.state ?? "", w?.zip ?? ""].filter(Boolean);
     return parts.length ? parts.join(", ") : "—";
@@ -826,7 +825,6 @@ export default function NewApplicantProfilePage() {
             <DetailedCandidateHeader
               name={candidateName}
               role={candidateRole}
-              status={candidateStatus}
               profilePhotoUrl={w?.profile_photo_url}
               workerId={applicantId}
               candidateEmail={w?.email ?? null}

@@ -96,7 +96,6 @@ export default function CandidatePostHirePage() {
         <DetailedCandidateHeader
           name={name}
           role={worker?.job_role ?? ""}
-          status={worker?.status_label ?? worker?.status ?? undefined}
           loading={loading && !profile}
           profilePhotoUrl={worker?.profile_photo_url}
           workerId={applicantId}

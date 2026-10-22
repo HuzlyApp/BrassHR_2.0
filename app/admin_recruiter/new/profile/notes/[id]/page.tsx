@@ -16,7 +16,6 @@ export default function NewApplicantProfileNotesPage() {
   const {
     name: candidateName,
     role: candidateRole,
-    status: candidateStatus,
     profilePhotoUrl,
     email: candidateEmail,
     loading: headerLoading,
@@ -34,7 +33,6 @@ export default function NewApplicantProfileNotesPage() {
             <DetailedCandidateHeader
               name={candidateName}
               role={candidateRole}
-              status={candidateStatus}
               profilePhotoUrl={profilePhotoUrl}
               workerId={id}
               candidateEmail={candidateEmail}

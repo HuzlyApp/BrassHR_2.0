@@ -333,7 +333,6 @@ export default function NewApplicantFacilityAssignmentsPage() {
   }, [applicant]);
 
   const candidateRole = applicant?.job_role || "N/A";
-  const statusLabel = applicant?.status_label?.trim() || "New Applicant";
 
   const visibleFacilities = useMemo(() => {
     if (activeFacilityTab === "active") return assignments.active;
@@ -484,7 +483,6 @@ export default function NewApplicantFacilityAssignmentsPage() {
                 <DetailedCandidateHeader
                   name={candidateName}
                   role={candidateRole}
-                  status={statusLabel}
                   profilePhotoUrl={applicant?.profile_photo_url}
                   workerId={applicantId}
                   candidateEmail={applicant?.email ?? null}
