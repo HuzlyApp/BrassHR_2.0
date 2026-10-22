@@ -16,8 +16,10 @@ import {
   isApplicantWaitingGateStep,
   showsApplicantPartnerScreeningNotice,
 } from "@/lib/onboarding/workflow-settings";
+import { IDENTITY_DOCUMENT_GROUPS } from "@/lib/onboarding/identity-document-fields";
 import {
   STEP_PREVIEW_SAMPLE,
+  isSsnIdentityPreview,
   stepPreviewUsesProfessionDocuments,
   type StepPreviewModel,
   type StepPreviewState,
@@ -413,15 +415,92 @@ function ApprovalBody({ model, previewState }: { model: StepPreviewModel; previe
   );
 }
 
+function IdentitySideField({
+  groupTitle,
+  label,
+  required,
+  uploaded,
+}: {
+  groupTitle: string;
+  label: string;
+  required: boolean;
+  uploaded: boolean;
+}) {
+  const branding = useTenantBranding();
+  const fileName = `${groupTitle} ${label}.pdf`;
+  return (
+    <div>
+      <p className="mb-1.5 text-[11px] font-medium text-slate-500">
+        {label}
+        {required ? <span className="text-red-500"> *</span> : <span className="text-slate-400"> (optional)</span>}
+      </p>
+      {uploaded ? (
+        <div
+          className="rounded-lg border px-3 py-2.5"
+          style={{
+            borderColor: hexToRgba(branding.primaryHex, 0.4),
+            backgroundColor: hexToRgba(branding.primaryHex, 0.1),
+          }}
+        >
+          <p className="truncate text-[13px] font-semibold" style={{ color: branding.primaryHex }}>
+            {fileName}
+          </p>
+          <p className="text-[11px] text-slate-500">Uploaded</p>
+        </div>
+      ) : (
+        <div
+          className="rounded-xl border border-dashed bg-white px-3 py-4 text-center"
+          style={{ borderColor: branding.primaryHex }}
+        >
+          <div className="flex flex-col items-center gap-1.5">
+            <div
+              className="flex h-8 w-8 items-center justify-center rounded-full"
+              style={{ backgroundColor: hexToRgba(branding.primaryHex, 0.1) }}
+            >
+              <BrandedUploadIcon className="h-4 w-4" primaryHex={branding.primaryHex} />
+            </div>
+            <span
+              className="rounded-md border px-3 py-0.5 text-[11px] font-medium"
+              style={{ borderColor: branding.primaryHex, color: branding.primaryHex }}
+            >
+              Browse files
+            </span>
+            <p className="text-[10px] text-slate-400">Max 10 MB</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DocumentUploadBody({ model, previewState }: { model: StepPreviewModel; previewState: StepPreviewState }) {
   const branding = useTenantBranding();
   const docs = model.requiredDocuments;
   const uploaded = filled(previewState);
+  const identity = isSsnIdentityPreview(model.libraryId, model.step.step_type, model.step.step_key);
   return (
     <>
       <PreviewPageHeader title={model.step.title} description={model.step.description} />
-      <div className="mt-4 space-y-3">
-        {docs.length === 0 ? (
+      <div className="mt-4 space-y-4">
+        {identity
+          ? IDENTITY_DOCUMENT_GROUPS.map((group) => (
+              <div key={group.id}>
+                <p className="mb-2 text-[13px] font-semibold text-slate-800">{group.title}</p>
+                <div className="grid grid-cols-1 gap-3">
+                  {group.fields.map((field) => (
+                    <IdentitySideField
+                      key={field.column}
+                      groupTitle={group.title}
+                      label={field.side}
+                      required={field.required}
+                      uploaded={uploaded}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))
+          : null}
+        {docs.length === 0 && !identity ? (
           <p className="rounded-xl border border-dashed border-slate-300 bg-white/60 px-3 py-4 text-center text-sm text-slate-500">
             {stepPreviewUsesProfessionDocuments(model.libraryId, model.step.step_type)
               ? "No documents configured for this profession."
@@ -451,6 +530,7 @@ function DocumentUploadBody({ model, previewState }: { model: StepPreviewModel; 
             </div>
           ))
         )}
+        {identity ? <p className="text-[11px] text-slate-400">Only PNG, JPG, or PDF files</p> : null}
       </div>
       {showError(previewState) ? (
         <p className="mt-3 text-sm text-rose-600">Upload all required documents to continue.</p>

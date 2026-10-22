@@ -17,6 +17,7 @@ import {
   type MappingCandidate,
 } from "@/lib/workflow-mappings/validation";
 import { isRnrEmploymentType } from "@/lib/jobs/employment-type";
+import { resolveFlowProfessionId } from "@/lib/professions/service";
 
 type DbClient = SupabaseClient;
 
@@ -270,23 +271,18 @@ async function tenantProfessionName(
   return data?.name ? String(data.name) : null;
 }
 
-async function assertTenantProfession(
+async function resolveMappingProfessionId(
   supabase: DbClient,
   tenantId: string,
-  professionId: string | null
-) {
-  if (!professionId) return;
-  const { data, error } = await supabase
-    .from("tenant_professions")
-    .select("id")
-    .eq("id", professionId)
-    .eq("tenant_id", tenantId)
-    .eq("is_active", true)
-    .maybeSingle();
-  if (error) throw error;
-  if (!data) {
-    throw new WorkflowMappingError("Choose a profession from this tenant.", "INVALID_PROFESSION", {
-      professionId: "That profession is not available.",
+  professionRef: string | null
+): Promise<string | null> {
+  if (!professionRef) return null;
+  try {
+    return await resolveFlowProfessionId(supabase, tenantId, professionRef);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Choose a profession.";
+    throw new WorkflowMappingError(message, "INVALID_PROFESSION", {
+      professionId: message,
     });
   }
 }
@@ -320,7 +316,11 @@ export async function saveWorkflowMapping(
     });
   }
 
-  await assertTenantProfession(supabase, tenantId, input.professionId ?? null);
+  const professionId = await resolveMappingProfessionId(
+    supabase,
+    tenantId,
+    input.professionId ?? null
+  );
 
   const workflow = await loadPublishedWorkflow(supabase, tenantId, input.workflowId);
   if (workflow.status !== "published") {
@@ -346,7 +346,7 @@ export async function saveWorkflowMapping(
 
   const row = {
     tenant_id: tenantId,
-    profession_id: input.professionId ?? null,
+    profession_id: professionId,
     specialty_id: input.specialtyId ?? null,
     employment_type: input.employmentType,
     location: cleanText(input.location),
