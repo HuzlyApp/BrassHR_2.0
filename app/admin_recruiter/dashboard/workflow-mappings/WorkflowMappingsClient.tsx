@@ -63,6 +63,10 @@ function employmentLabel(type: EmploymentType): string {
   return type === "Contract" ? "RNR" : type;
 }
 
+function isProfessionId(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 function criteriaSummary(mapping: MappingItem): string {
   const parts = [employmentLabel(mapping.employmentType)];
   if (mapping.professionName) parts.push(mapping.professionName);
@@ -121,7 +125,7 @@ export default function WorkflowMappingsClient() {
     const employmentType = searchParams.get("employmentType") as EmploymentType | null;
     const workflowId = searchParams.get("workflowId");
     if (professionId || employmentType || workflowId) {
-      setFilterProfession(professionId ?? "");
+      setFilterProfession(professionId && isProfessionId(professionId) ? professionId : "");
       setFilterEmployment(employmentType ?? "");
       openCreate({
         professionId: professionId ?? "",
@@ -178,7 +182,7 @@ export default function WorkflowMappingsClient() {
       if (!response.ok) throw new Error(payload.error || "Failed to save mapping");
       toast.success(form.id ? "Mapping updated" : "Mapping created");
       setFormOpen(false);
-      await loadMappings();
+      await Promise.all([loadMappings(), loadOptions()]);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to save mapping");
     } finally {
@@ -243,11 +247,13 @@ export default function WorkflowMappingsClient() {
               onChange={(e) => setFilterProfession(e.target.value)}
             >
               <option value="">All professions</option>
-              {options?.professions.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
+              {options?.professions
+                .filter((item) => isProfessionId(item.id))
+                .map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
             </select>
           </label>
           <label className="block w-full text-sm sm:w-[220px]">
