@@ -32,6 +32,7 @@ import {
   type StageActionButtonLane,
   type StageStatusLane,
 } from "./stage-status-lanes";
+import { statusDeleteBlockReason } from "./status-catalog-audit";
 import {
   ApplicationStatusError,
   type ApplicationStatusChangeSource,
@@ -359,6 +360,7 @@ export async function updateApplicationStatus(
     isActive?: boolean;
     isDefault?: boolean;
     groupId?: string | null;
+    editedBy?: string | null;
   }
 ): Promise<ApplicationStatusRecord> {
   const existing = await getStatusOrThrow(supabase, input.tenantId, input.statusId);
@@ -367,10 +369,11 @@ export async function updateApplicationStatus(
   if (input.name !== undefined) {
     const name = input.name.trim();
     if (!name) throw new ApplicationStatusError("Status name is required", "VALIDATION");
-    patch.name = name;
+    if (name !== existing.name) patch.name = name;
   }
   if (input.description !== undefined) {
-    patch.description = input.description?.trim() || null;
+    const description = input.description?.trim() || null;
+    if (description !== existing.description) patch.description = description;
   }
   if (input.color !== undefined) {
     patch.color = input.color?.trim() || null;
@@ -401,6 +404,10 @@ export async function updateApplicationStatus(
     } else {
       patch.group_id = null;
     }
+  }
+
+  if (patch.name !== undefined || patch.description !== undefined) {
+    patch.updated_by = input.editedBy ?? null;
   }
 
   if (Object.keys(patch).length === 0) {
@@ -445,12 +452,9 @@ export async function deleteApplicationStatus(
     .eq("tenant_id", input.tenantId)
     .eq("status_id", input.statusId);
   if (countError) throw countError;
-  if ((count ?? 0) > 0) {
-    throw new ApplicationStatusError(
-      "This status is still used by applications and can't be deleted.",
-      "CONFLICT",
-      409
-    );
+  const blockReason = statusDeleteBlockReason(count ?? 0);
+  if (blockReason) {
+    throw new ApplicationStatusError(blockReason, "CONFLICT", 409, { usageCount: count ?? 0 });
   }
 
   const { error } = await supabase

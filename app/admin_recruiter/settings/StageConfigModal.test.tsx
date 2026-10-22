@@ -109,4 +109,78 @@ describe("StageConfigModal", () => {
     await user.click(screen.getByRole("button", { name: "Discard" }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it("renames a status without changing its id", async () => {
+    const user = userEvent.setup();
+    const { onSave } = renderModal(screeningDraft);
+    await user.click(screen.getByRole("button", { name: "Rename Attempted Contact" }));
+    const input = screen.getByLabelText("New name for Attempted Contact");
+    await user.clear(input);
+    await user.type(input, "Contact Attempted");
+    await user.click(screen.getByRole("button", { name: "Apply status name" }));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(onSave).toHaveBeenCalledTimes(1);
+    const draft = onSave.mock.calls[0][0] as StageConfigDraft;
+    expect(draft.lanes.happy_path[0]).toMatchObject({
+      id: "attempted",
+      name: "Contact Attempted",
+    });
+  });
+
+  it("shows tied candidates and jobs and does not delete that status", async () => {
+    const user = userEvent.setup();
+    const onDeleteStatus = vi.fn();
+    const onInspectStatus = vi.fn(async () => ({
+      versions: [
+        {
+          id: "v2",
+          statusId: "attempted",
+          versionNumber: 2,
+          name: "Attempted Contact",
+          previousName: "Screening",
+          description: null,
+          editedBy: "user-1",
+          editedByName: "Ada Admin",
+          editedAt: "2026-10-22T15:00:00.000Z",
+        },
+      ],
+      usage: {
+        total: 1,
+        records: [
+          {
+            applicationId: "app-1",
+            candidateName: "Jamie Cole",
+            workerId: "worker-1",
+            jobId: "job-1",
+            jobTitle: "ICU Nurse",
+          },
+        ],
+      },
+    }));
+    renderModal(screeningDraft, { onInspectStatus, onDeleteStatus });
+    await user.click(screen.getByRole("button", { name: "Version history for Attempted Contact" }));
+    expect(await screen.findByText(/Ada Admin/)).toBeTruthy();
+    expect(screen.getByText(/Renamed from Screening/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Delete Attempted Contact" }));
+    expect(await screen.findByText("Jamie Cole")).toBeTruthy();
+    expect(screen.getByText("ICU Nurse")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Attempted Contact will not be deleted" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Delete status" })).toBeNull();
+    expect(onDeleteStatus).not.toHaveBeenCalled();
+  });
+
+  it("deletes a status only when no candidate or job uses it", async () => {
+    const user = userEvent.setup();
+    const onDeleteStatus = vi.fn(async () => undefined);
+    const onInspectStatus = vi.fn(async () => ({
+      versions: [],
+      usage: { total: 0, records: [] },
+    }));
+    renderModal(screeningDraft, { onInspectStatus, onDeleteStatus });
+    await user.click(screen.getByRole("button", { name: "Delete Application Closed" }));
+    expect(await screen.findByRole("heading", { name: "Delete Application Closed?" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Delete status" }));
+    expect(onDeleteStatus).toHaveBeenCalledWith("closed");
+    expect(screen.queryByRole("button", { name: "Delete Application Closed" })).toBeNull();
+  });
 });

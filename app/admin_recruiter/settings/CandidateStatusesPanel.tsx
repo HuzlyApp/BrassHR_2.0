@@ -337,6 +337,55 @@ export default function CandidateStatusesPanel() {
     }
   }
 
+  async function renameCatalogStatuses(draft: StageConfigDraft): Promise<boolean> {
+    const pending: Array<{ id: string; name: string }> = [];
+    for (const lane of STAGE_STATUS_LANES) {
+      for (const status of draft.lanes[lane]) {
+        if (status.isNew) continue;
+        const name = status.name.trim().replace(/\s+/g, " ");
+        const saved = statuses.find((row) => row.id === status.id);
+        if (!saved || saved.name === name) continue;
+        pending.push({ id: status.id, name });
+      }
+    }
+    for (const status of pending) {
+      const response = await fetch(`/api/admin/application-statuses/${status.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: status.name }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message = payload.error || "Failed to rename status";
+        setModalError(message);
+        flash("error", message);
+        return false;
+      }
+      const updated = mapStatus((payload.status ?? {}) as Record<string, unknown>);
+      setStatuses((rows) => rows.map((row) => (row.id === updated.id ? updated : row)));
+    }
+    return true;
+  }
+
+  async function loadStatusAudit(statusId: string) {
+    const response = await fetch(`/api/admin/application-statuses/${statusId}`, { cache: "no-store" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Failed to load status details");
+    const versions = Array.isArray(payload.versions) ? payload.versions : [];
+    const usage =
+      payload.usage && typeof payload.usage === "object"
+        ? payload.usage
+        : { total: 0, records: [] };
+    return { versions, usage };
+  }
+
+  async function deleteCatalogStatus(statusId: string) {
+    const response = await fetch(`/api/admin/application-statuses/${statusId}`, { method: "DELETE" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Failed to delete status");
+    setStatuses((rows) => rows.filter((row) => row.id !== statusId));
+  }
+
   async function persistStageConfiguration(draft: StageConfigDraft) {
     if (!configStage) return;
     setSaving(true);
@@ -388,6 +437,9 @@ export default function CandidateStatusesPanel() {
         flash("error", message);
         return;
       }
+
+      const renamed = await renameCatalogStatuses(draft);
+      if (!renamed) return;
 
       const lanesOk = await saveStageLanes(configStage, lanes, workflowId, {
         quiet: true,
@@ -468,7 +520,7 @@ export default function CandidateStatusesPanel() {
                   Pre-Hire workflow status catalog
                 </h3>
                 <p className="mt-1 max-w-xl text-xs leading-5 text-[#64748B]">
-                  Stages in workflow order. Open a stage to edit its statuses.
+                  Stages in workflow order. Open a stage to rename a status or review who changed it. Deleting a status shows the candidates and jobs still on it, and those records stay if any are tied to it.
                 </p>
               </div>
               <label className="block shrink-0 text-xs font-medium text-[#334155] sm:w-56" htmlFor="status-workflow-scope">
@@ -542,6 +594,8 @@ export default function CandidateStatusesPanel() {
             setConfigStage(null);
           }}
           onSave={(draft) => void persistStageConfiguration(draft)}
+          onInspectStatus={loadStatusAudit}
+          onDeleteStatus={deleteCatalogStatus}
         />
       ) : null}
     </section>
