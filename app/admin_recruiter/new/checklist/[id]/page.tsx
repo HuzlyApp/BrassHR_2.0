@@ -417,7 +417,6 @@ export default function NewApplicantChecklistPage() {
             <DetailedCandidateHeader
               name={candidateName}
               role={candidateRole}
-              status={data?.worker?.status_label}
               profilePhotoUrl={data?.worker?.profile_photo_url}
               workerId={applicantId}
               candidateEmail={data?.worker?.email ?? null}
