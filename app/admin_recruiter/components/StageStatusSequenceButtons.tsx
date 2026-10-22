@@ -641,13 +641,13 @@ function StatusChangeDialog({
           </div>
         ) : (
           <label className="mt-4 block text-sm font-medium text-[#344054]">
-            Detail
+            Note
             <textarea
               value={note}
               onChange={(event) => setNote(event.target.value)}
               rows={4}
               className="mt-1 w-full rounded-lg border border-[#D0D5DD] px-3 py-2 text-sm"
-              placeholder="Add a detail"
+              placeholder="Add a note"
             />
           </label>
         )}
