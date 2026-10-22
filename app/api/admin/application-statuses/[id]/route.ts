@@ -4,8 +4,11 @@ import { requireWorkflowAdmin } from "@/lib/auth/workflow-admin";
 import { writeActivityLog } from "@/lib/audit/activity-log";
 import {
   ApplicationStatusError,
+  assertApplicationStatusInTenant,
   deleteApplicationStatus,
   listApplicationStatuses,
+  listApplicationStatusUsage,
+  listApplicationStatusVersions,
   updateApplicationStatus,
 } from "@/lib/jobs/application-statuses";
 import { resolveStaffTenantId } from "@/lib/jobs/tenant";
@@ -23,6 +26,38 @@ function handleError(error: unknown) {
     { error: error instanceof Error ? error.message : "Failed to update status" },
     { status: 500 }
   );
+}
+
+/** GET — status versions and the candidates and jobs still on this status. */
+export async function GET(
+  _req: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  const auth = await requireStaffApiSession();
+  if (auth instanceof NextResponse) return auth;
+
+  const supabase = createServiceRoleClient();
+  if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
+
+  try {
+    const tenantId = await resolveStaffTenantId(supabase, auth);
+    if (!tenantId) return NextResponse.json({ error: "No tenant selected" }, { status: 400 });
+
+    const { id } = await context.params;
+    const statusId = id?.trim();
+    if (!statusId) {
+      return NextResponse.json({ error: "Status id is required" }, { status: 400 });
+    }
+
+    await assertApplicationStatusInTenant(supabase, tenantId, statusId);
+    const [versions, usage] = await Promise.all([
+      listApplicationStatusVersions(supabase, { tenantId, statusId }),
+      listApplicationStatusUsage(supabase, { tenantId, statusId }),
+    ]);
+    return NextResponse.json({ versions, usage });
+  } catch (error) {
+    return handleError(error);
+  }
 }
 
 /** PATCH — update / activate / deactivate status (admin only). */
@@ -87,6 +122,7 @@ export async function PATCH(
           : typeof body?.groupId === "string"
             ? body.groupId
             : undefined,
+      editedBy: auth.userId,
     });
 
     await writeActivityLog({

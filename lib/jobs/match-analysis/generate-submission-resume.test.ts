@@ -4,6 +4,7 @@ import {
   buildSubmissionResumeUserPrompt,
   composeSubmissionResumePrompt,
   ensureSubmissionSystemPrompt,
+  neutralizeSubmissionShrinkRules,
   SUBMISSION_RESUME_CONTENT_RULES,
   SUBMISSION_RESUME_SOURCE_CHARS,
 } from "./generate-submission-resume";
@@ -288,9 +289,9 @@ describe("Step 5 model input", () => {
     expect(user).toContain(SCREENING_FACT);
     expect(user).toContain(FOLLOW_UP_QA_HEADING);
     expect(user).toContain(FOLLOW_UP_FACT);
-    expect(user).toContain("Do not only reformat the layout or change the font.");
+    expect(user).toContain("Keep the original wording, employers, objectives, and bullets.");
     expect(system.indexOf("CONTENT RULES")).toBeLessThan(system.indexOf("PRIMARY DUTY"));
-    expect(system).toContain("Concrete screening and follow-up facts");
+    expect(system).toContain("add it as an extra bullet");
     expect(system).toContain(SUBMISSION_RESUME_CONTENT_RULES);
     expect(system).toContain("Do not invent employers");
     expect(system).not.toContain("Preserve the source résumé. Reorganize and tighten.");
@@ -299,13 +300,28 @@ describe("Step 5 model input", () => {
     expect(enrichment.evidenceNotes).not.toContain("Which tools did you use");
   });
 
-  it("puts CONTENT RULES ahead of a catalog PRIMARY DUTY preserve-only block", () => {
+  it("puts CONTENT RULES ahead of a catalog prompt and removes older shrink rules", () => {
     const system = ensureSubmissionSystemPrompt(
-      "PRIMARY DUTY\nPreserve the source résumé. Reorganize and tighten.\n\nANTI-SHRINK\nKeep bullets."
+      [
+        "You rewrite a candidate résumé for MSP / Randstad / client submission.",
+        "PRIMARY DUTY",
+        "Preserve the source résumé. Reorganize and tighten.",
+        "ANTI-SHRINK",
+        "Earlier roles may use 2–4 bullets; recent roles keep nearly all source bullets.",
+        "Do not cut more than about one-quarter of the source work-history bullets. If you are under that, you over-cut — put bullets back.",
+      ].join("\n")
     );
     expect(system.indexOf("CONTENT RULES")).toBeLessThan(system.indexOf("PRIMARY DUTY"));
-    expect(system).toContain("must change the résumé content");
+    expect(system).toContain("add it as an extra bullet");
+    expect(system).toContain("Do not invent a bullet from the job title");
     expect(system).toContain("ANTI-SHRINK");
+    expect(system).not.toContain("2–4 bullets");
+    expect(system).not.toContain("one-quarter");
+    expect(system).not.toContain("Reorganize and tighten.");
+    expect(system).toContain("You format a candidate résumé");
+    expect(neutralizeSubmissionShrinkRules("Earlier roles may use 2-4 bullets; recent roles keep nearly all source bullets.")).toContain(
+      "Every role keeps every source bullet"
+    );
   });
 
   it("still includes screening and follow-up when the catalog template drops the enrichment placeholder", () => {
