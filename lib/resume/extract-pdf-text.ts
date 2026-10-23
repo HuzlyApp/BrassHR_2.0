@@ -71,7 +71,6 @@ async function extractWithPdfjs(data: Uint8Array): Promise<string> {
   const doc = await getDocument({
     data,
     verbosity: 0,
-    isEvalSupported: false,
   }).promise;
   try {
     const pages: string[] = [];
