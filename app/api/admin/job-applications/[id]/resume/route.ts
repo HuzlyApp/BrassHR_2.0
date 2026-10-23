@@ -213,6 +213,8 @@ export async function POST(
           jobApplicationId: applicationId,
           uploadedByUserId: auth.userId,
           uploaderRole: "admin",
+          workerId,
+          tenantId,
         },
         replacedResumeId
           ? { mode: "update", resumeId: replacedResumeId }

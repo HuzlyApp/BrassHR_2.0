@@ -119,6 +119,8 @@ async function linkResumeToApplication(
       uploadedByUserId,
       uploaderRole: "worker",
       enforceUploadLimit: false,
+      workerId: applicant.id,
+      tenantId: applicant.tenant_id,
     },
     { mode: "insert" }
   );
