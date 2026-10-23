@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildStepRecordRow,
   planInstanceStepSync,
+  syncWorkflowInstanceToDraft,
   type SyncableStepRecord,
 } from "@/lib/onboarding/sync-workflow-instances";
 
@@ -124,5 +125,84 @@ describe("planInstanceStepSync", () => {
     expect(plan.changed).toBe(false);
     expect(plan.deleteIds).toEqual([]);
     expect(plan.inserts).toEqual([]);
+  });
+});
+
+describe("syncWorkflowInstanceToDraft", () => {
+  it("updates only the open candidate, not every assignment on the flow", async () => {
+    const queries: Array<{ table: string; ops: string[] }> = [];
+
+    function query(table: string) {
+      const ops: string[] = [];
+      const api = {
+        select() {
+          ops.push("select");
+          return api;
+        },
+        eq(column: string, value: unknown) {
+          ops.push(`eq:${column}=${String(value)}`);
+          return api;
+        },
+        in(column: string, value: unknown) {
+          ops.push(`in:${column}=${JSON.stringify(value)}`);
+          queries.push({ table, ops: [...ops] });
+          return Promise.resolve({ error: null, data: [] });
+        },
+        order() {
+          return api;
+        },
+        range() {
+          queries.push({ table, ops: [...ops] });
+          return Promise.resolve({ error: null, data: [] });
+        },
+        delete() {
+          ops.push("delete");
+          return api;
+        },
+        insert(rows: unknown[]) {
+          ops.push(`insert:${rows.length}`);
+          queries.push({ table, ops: [...ops] });
+          return Promise.resolve({ error: null });
+        },
+        upsert() {
+          return Promise.resolve({ error: null });
+        },
+        update() {
+          ops.push("update");
+          return api;
+        },
+      };
+      return api;
+    }
+
+    const result = await syncWorkflowInstanceToDraft(
+      { from: (table: string) => query(table) } as never,
+      {
+        tenantId: TENANT,
+        instanceId: INSTANCE,
+        workerId: "worker-1",
+        draft: {
+          nodes: [{ id: "a", stepId: "ssn-verification", label: "SSN", settings: { phase: "pre_hire" } }],
+        },
+      }
+    );
+
+    expect(result.changed).toBe(true);
+    expect(result.inserted).toBe(1);
+    const stepRead = queries.find(
+      (entry) => entry.table === "applicant_workflow_step_records" && entry.ops.includes("select")
+    );
+    expect(stepRead?.ops).toContain(`eq:workflow_instance_id=${INSTANCE}`);
+    expect(queries.some((entry) => entry.ops.some((op) => op.startsWith("or:")))).toBe(false);
+    expect(
+      queries.some(
+        (entry) =>
+          entry.table === "applicant_workflow_instances" &&
+          entry.ops.some((op) => op.startsWith("eq:assignment_state"))
+      )
+    ).toBe(false);
+    expect(
+      queries.find((entry) => entry.table === "applicant_workflow_instances")?.ops
+    ).toContain(`in:id=${JSON.stringify([INSTANCE])}`);
   });
 });

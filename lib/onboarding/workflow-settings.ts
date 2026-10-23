@@ -41,6 +41,7 @@ const SCREENING_LIBRARY_STEP_IDS = new Set([
 /** Library steps that are organizational work, even if completionOwner defaulted to applicant. */
 const INTERNAL_LIBRARY_STEP_IDS = new Set([
   "manager-facility-approval",
+  "manager-approval",
   "hr-final-approval",
   "recruiter-screening",
   "interview-qualification",

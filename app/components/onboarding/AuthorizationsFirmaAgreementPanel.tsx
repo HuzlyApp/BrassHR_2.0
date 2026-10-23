@@ -36,6 +36,11 @@ type Props = {
   agreed: boolean;
   configLoading?: boolean;
   onSignedChange?: (signed: boolean) => void;
+  /** Signed file the recruiter can preview after the candidate finishes. */
+  onSignedDocument?: (document: {
+    signingRequestId: string | null;
+    downloadUrl: string | null;
+  }) => void;
   documentTitle?: string | null;
 };
 
@@ -52,6 +57,7 @@ export function AuthorizationsFirmaAgreementPanel({
   agreed,
   configLoading = false,
   onSignedChange,
+  onSignedDocument,
   documentTitle,
 }: Props) {
   const cardTitle = documentTitle?.trim() || "Onboarding Agreement";
@@ -76,6 +82,10 @@ export function AuthorizationsFirmaAgreementPanel({
   useEffect(() => {
     onSignedChange?.(signed);
   }, [signed, onSignedChange]);
+
+  useEffect(() => {
+    onSignedDocument?.({ signingRequestId, downloadUrl });
+  }, [signingRequestId, downloadUrl, onSignedDocument]);
 
   useEffect(() => {
     if (!showSigningModal) return;

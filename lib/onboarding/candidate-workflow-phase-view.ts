@@ -44,7 +44,7 @@ import { isParameterizedJobApplicationStepType } from "@/lib/onboarding/job-appl
 import { loadJobApplicationStepView } from "@/lib/onboarding/job-application-step";
 import { applyParameterizedJobApplicationStepEvidence } from "@/lib/onboarding/parameterized-job-application-progress";
 import {
-  syncActiveWorkflowInstancesSafely,
+  syncWorkflowInstanceToDraft,
   workflowDraftHasNewSteps,
 } from "@/lib/onboarding/sync-workflow-instances";
 
@@ -123,6 +123,7 @@ async function syncMissingFlowSteps(
   supabase: SupabaseClient,
   params: {
     tenantId: string;
+    workerId: string;
     instances: Array<Record<string, unknown>>;
     records: Array<Record<string, unknown>>;
   }
@@ -149,9 +150,10 @@ async function syncMissingFlowSteps(
     .filter((id): id is string => Boolean(id));
   if (!workflowDraftHasNewSteps(recordIds, flow.builder_draft)) return false;
 
-  await syncActiveWorkflowInstancesSafely(supabase, {
+  await syncWorkflowInstanceToDraft(supabase, {
     tenantId: params.tenantId,
-    flowId,
+    instanceId: activeId,
+    workerId: params.workerId,
     draft: flow.builder_draft,
     flowName: asText(flow.name),
   });
@@ -271,7 +273,12 @@ export async function loadCandidateWorkflowPhaseView(
 
   const instanceIds = instances.map((row) => asText(row.id)).filter((id): id is string => Boolean(id));
   let stepRecords = await loadStepRecords(supabase, tenantId, instanceIds);
-  const synced = await syncMissingFlowSteps(supabase, { tenantId, instances, records: stepRecords }).catch(
+  const synced = await syncMissingFlowSteps(supabase, {
+    tenantId,
+    workerId,
+    instances,
+    records: stepRecords,
+  }).catch(
     (error) => {
       console.warn("[workflow-phases] could not add new workflow steps", error);
       return false;

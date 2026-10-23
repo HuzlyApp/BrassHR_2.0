@@ -42,6 +42,7 @@ describe("resolveCompletionOwner", () => {
     expect(resolveCompletionOwner("applicant", "submit-to-msp")).toBe("recruiter_or_hr");
     expect(resolveCompletionOwner("applicant", "submit-to-client")).toBe("recruiter_or_hr");
     expect(resolveCompletionOwner("applicant", "manager-facility-approval")).toBe("recruiter_or_hr");
+    expect(resolveCompletionOwner("applicant", "manager-approval")).toBe("recruiter_or_hr");
     expect(resolveCompletionOwner("applicant", "release-to-client")).toBe("recruiter_or_hr");
     expect(resolveCompletionOwner("applicant", "offer-prep")).toBe("recruiter_or_hr");
   });

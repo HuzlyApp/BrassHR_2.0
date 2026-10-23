@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatJobMutationFailure,
   jobMutationSchema,
   normalizeApplicantEmail,
   validatePublishableJob,
@@ -28,6 +29,26 @@ describe("job requisition validation", () => {
       },
     });
     expect(result.success).toBe(true);
+  });
+
+  it("treats omitted optional fields as empty instead of required", () => {
+    const result = jobMutationSchema.safeParse({
+      action: "save_draft",
+      job: {
+        sourceType: "Internal",
+        professionId: validJob.professionId,
+        employmentType: "W2",
+        publicTitle: "test",
+      },
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.job.externalRequisitionId).toBeNull();
+    expect(result.data.job.payRateMin).toBeNull();
+    expect(result.data.job.billRate).toBeNull();
+    expect(result.data.job.industryKey).toBeNull();
+    expect(result.data.job.sourceJobUrl).toBeNull();
+    expect(result.data.job.internalNotes).toBeNull();
   });
 
   it("rejects unsupported industry keys with a clear message", () => {
@@ -196,6 +217,23 @@ describe("job requisition validation", () => {
       job: { ...validJob, employmentType: "w-2" },
     });
     expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(formatJobMutationFailure(result.error)).toEqual({
+      error: expect.stringContaining("Payroll employment type"),
+      fieldErrors: { employmentType: expect.any(String) },
+    });
+  });
+
+  it("names the nested field when a profession id is not a uuid", () => {
+    const result = jobMutationSchema.safeParse({
+      action: "publish",
+      job: { ...validJob, professionId: "Administrative" },
+    });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    const failure = formatJobMutationFailure(result.error);
+    expect(failure.fieldErrors.professionId).toBeDefined();
+    expect(failure.error).toContain("Profession");
   });
 
   it("normalizes applicant email without crossing tenant boundaries", () => {
