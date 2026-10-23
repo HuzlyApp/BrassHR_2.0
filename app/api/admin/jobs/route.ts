@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireStaffApiSession } from "@/lib/auth/api-session";
 import { JobValidationError, jobValidationHttpStatus, JOB_STATUSES, type JobStatus } from "@/lib/jobs/types";
-import { jobMutationSchema } from "@/lib/jobs/validation";
+import { formatJobMutationFailure, jobMutationSchema } from "@/lib/jobs/validation";
 import {
   bulkDeleteJobRequisitions,
   listInternalJobs,
@@ -193,10 +193,16 @@ export async function POST(req: NextRequest) {
 
     const parsed = jobMutationSchema.safeParse(raw);
     if (!parsed.success) {
-      return NextResponse.json(
-        { error: "Invalid job requisition", fieldErrors: parsed.error.flatten().fieldErrors },
-        { status: 400 }
+      const failure = formatJobMutationFailure(parsed.error);
+      console.error(
+        "job mutation rejected",
+        parsed.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          code: issue.code,
+          message: issue.message,
+        }))
       );
+      return NextResponse.json(failure, { status: 400 });
     }
 
     const result = await saveJobRequisition(supabase, tenantId, auth.userId, parsed.data.job, {

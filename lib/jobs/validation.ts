@@ -112,6 +112,53 @@ export const jobMutationSchema = z.object({
   action: z.enum(["save_draft", "publish", "update", "unpublish", "close", "archive"]),
 });
 
+const JOB_MUTATION_FIELD_LABELS: Record<string, string> = {
+  professionId: "Profession",
+  specialtyId: "Specialty",
+  employmentType: "Payroll employment type",
+  sourceType: "Job source",
+  placementType: "MSP placement",
+  eorType: "Employer of record type",
+  payRateMin: "Pay rate",
+  payRateMax: "Maximum pay rate",
+  suggestedPayRate: "Suggested pay rate",
+  billRate: "Bill rate",
+  hoursPerWeek: "Expected hours",
+  commissionPercent: "Commission percent",
+  commissionFixedAmount: "Commission amount",
+  numberOfPositions: "Number of positions",
+  remoteAllowedStates: "Remote work states",
+  additionalLocations: "Additional locations",
+  showInMultipleAreas: "Show in multiple areas",
+  isEmployerOnRecord: "Employer on record",
+  targetStartDate: "Start date",
+  applicationDeadline: "Application deadline",
+  sourceJobUrl: "Source job URL",
+  publicDescription: "Job description",
+  industryKey: "Industry",
+  action: "Save action",
+};
+
+/** Turn a failed job-save parse into a banner message and per-field errors. */
+export function formatJobMutationFailure(error: z.ZodError): {
+  error: string;
+  fieldErrors: Record<string, string>;
+} {
+  const fieldErrors: Record<string, string> = {};
+  for (const issue of error.issues) {
+    const parts = issue.path.filter((part) => part !== "job").map(String);
+    const key = parts[parts.length - 1] || "job";
+    if (!fieldErrors[key]) fieldErrors[key] = issue.message;
+  }
+  const details = Object.entries(fieldErrors)
+    .map(([key, message]) => `${JOB_MUTATION_FIELD_LABELS[key] ?? key}: ${message}`)
+    .join(" ");
+  return {
+    error: details ? `Invalid job requisition. ${details}` : "Invalid job requisition",
+    fieldErrors,
+  };
+}
+
 export const jobStatusSchema = z.enum(JOB_STATUSES);
 
 export function validatePublishableJob(
