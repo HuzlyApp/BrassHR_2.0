@@ -25,7 +25,8 @@ import {
 import { resolveStorageAccessibleUrl } from "@/lib/supabase/resolve-storage-accessible-url";
 import { WORKER_RESUMES_BUCKET } from "@/lib/supabase-storage-buckets";
 import { buildWorkerResumeFileName } from "@/lib/resume/worker-resume-file-name";
-import { scheduleAutoQuickMatchForApplication } from "@/lib/jobs/match-analysis/auto-quick-match";
+import { scheduleUploadedResumeProcessing } from "@/lib/resume/schedule-uploaded-resume-processing";
+import { hashResumeBytes } from "@/lib/resume/resume-file-hash";
 
 export type WorkerAppliedJobOption = {
   applicationId: string;
@@ -226,9 +227,41 @@ async function storeResumeFromFile(
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  const text = await extractResumeText(buffer, file);
-  const contentError = validateExtractedResumeText(text);
-  if (contentError) throw new ResumeUploadValidationError(contentError);
+  const fileHash = hashResumeBytes(buffer);
+  if (mode === "update" && options?.resumeId) {
+    const { data: existing } = await supabase
+      .from("worker_resumes")
+      .select("file_hash, parsing_status")
+      .eq("id", options.resumeId)
+      .eq("worker_id", applicant.id)
+      .eq("tenant_id", applicant.tenant_id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (existing?.file_hash && existing.file_hash === fileHash) {
+      return {
+        resumeId: options.resumeId,
+        parseStatus: resolveParsingStatus({
+          parsing_status: existing.parsing_status,
+          parse_status: existing.parsing_status,
+        } as WorkerResumeRow),
+      };
+    }
+  }
+
+  let text = "";
+  let unreadableMessage: string | null = null;
+  try {
+    text = await extractResumeText(buffer, file);
+  } catch (error) {
+    unreadableMessage = error instanceof Error ? error.message : "Could not read resume.";
+  }
+  if (!unreadableMessage) {
+    const contentError = validateExtractedResumeText(text);
+    if (contentError?.includes("another document")) {
+      throw new ResumeUploadValidationError(contentError);
+    }
+    unreadableMessage = contentError;
+  }
 
   const fileType = resolveResumeFileType(file);
   const storedFileName = buildWorkerResumeFileName({
@@ -247,26 +280,36 @@ async function storeResumeFromFile(
     {
       fileUrl: objectPath,
       originalFileName: storedFileName,
-      parsedData: { text },
-      parsingStatus: "pending",
+      parsedData: text ? { text } : {},
+      parsingStatus: unreadableMessage ? "failed" : "processing",
+      parseError: unreadableMessage,
       textLength,
       fileType,
       fileSizeBytes: file.size,
       extractedText: text,
+      fileHash,
       jobApplicationId: options?.jobApplicationId ?? null,
       uploadedByUserId: userId,
       uploaderRole: "worker",
       workerId: applicant.id,
       tenantId: applicant.tenant_id,
+      preserveParsedJson: mode === "update" && !unreadableMessage,
+      enforceUploadLimit: false,
     },
-    mode === "update"
-      ? { mode: "update", resumeId: options?.resumeId }
-      : { mode: "insert" }
+    unreadableMessage
+      ? { mode: "insert" }
+      : mode === "update"
+        ? { mode: "update", resumeId: options?.resumeId }
+        : { mode: "insert" }
   );
 
   if (!persistedId) throw new Error("Could not save resume record.");
 
   await syncWorkerPrimaryResumePath(supabase, applicant.id, applicant.user_id);
+
+  if (unreadableMessage) {
+    return { resumeId: persistedId, parseStatus: "failed" };
+  }
 
   let jobApplicationId = options?.jobApplicationId?.trim() || "";
   if (!jobApplicationId && mode === "update" && options?.resumeId?.trim()) {
@@ -283,32 +326,38 @@ async function storeResumeFromFile(
     await supabase
       .from("job_applications")
       .update({
-        ai_match_status: "READY",
+        ai_match_status: "ANALYZING",
         ai_match_score: null,
         ai_match_category: null,
         ai_match_action: null,
         ai_match_readiness: null,
         ai_match_display_category: null,
         ai_match_stage: null,
-        ai_analysis: null,
-        ai_analyzed_at: null,
+        ai_analysis_progress: "preparing",
         ai_analysis_error: null,
-        ai_analysis_progress: null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", jobApplicationId)
       .eq("tenant_id", applicant.tenant_id);
 
-    scheduleAutoQuickMatchForApplication({
+    scheduleUploadedResumeProcessing({
       supabase,
+      resumeId: persistedId,
+      text,
+      fileHash,
+      workerId: applicant.id,
       tenantId: applicant.tenant_id,
       jobApplicationId,
       analyzedByUserId: userId,
       reason: mode === "update" ? "applicant_portal_resume_reupload" : "applicant_portal_resume_upload",
+      supersedeResumeId:
+        mode === "update" && options?.resumeId && options.resumeId !== persistedId
+          ? options.resumeId
+          : null,
     });
   }
 
-  return { resumeId: persistedId, parseStatus: "pending" };
+  return { resumeId: persistedId, parseStatus: "processing" };
 }
 
 const RESUME_LIST_SELECT = `

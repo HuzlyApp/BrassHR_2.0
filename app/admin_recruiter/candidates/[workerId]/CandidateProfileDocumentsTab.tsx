@@ -19,6 +19,7 @@ import {
   resumeUploadLimitMessage,
 } from "@/lib/resume/resume-upload-limit";
 import { validateResumeUploadFile } from "@/lib/resume/validate-resume-upload";
+import { uploadAdminJobResume } from "@/lib/resume/direct-resume-upload-client";
 import { resumeIconType } from "./candidate-profile-ui";
 
 const CARD_CLASS = "rounded-xl border border-[#E5E7EB] bg-white";
@@ -619,24 +620,24 @@ export function CandidateProfileDocumentsTab({
     setUploading(true);
     setUploadModalError(null);
     try {
-      const form = new FormData();
-      form.set("resume", file);
-      if (resumeId) form.set("resumeId", resumeId);
-      const response = await fetch(
-        `/api/admin/job-applications/${encodeURIComponent(applicationId)}/resume`,
-        { method: "POST", body: form }
-      );
-      const payload = (await response.json().catch(() => ({}))) as {
-        error?: string;
-        autoQuickMatch?: { status?: string; error?: string | null } | null;
-      };
-      if (!response.ok) throw new Error(payload.error || "Failed to upload resume");
+      const payload = await uploadAdminJobResume({
+        applicationId,
+        file,
+        resumeId,
+      });
       setUploadModalOpen(false);
       setPendingUpload(null);
       toast.success(resumeId ? "Resume reuploaded successfully." : "Resume uploaded successfully.");
       const match = payload.autoQuickMatch;
       if (match?.status === "ANALYZED") {
         toast.success("Quick Match complete.");
+      } else if (match?.status === "ANALYZING") {
+        toast.success("Quick Match is running in the background.");
+      } else if (payload.previousResumeKept) {
+        toast.error(
+          payload.parseError?.trim() ||
+            "The new file was saved, but it could not be read. The previous resume is unchanged."
+        );
       } else if (match && match.status !== "ANALYZED") {
         toast.error(
           match.error?.trim() ||

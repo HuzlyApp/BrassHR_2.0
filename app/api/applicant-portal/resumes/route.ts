@@ -9,6 +9,7 @@ import {
 import { isResumeUploadValidationError } from "@/lib/resume/validate-resume-upload";
 
 export const runtime = "nodejs";
+export const maxDuration = 120;
 
 export async function GET(req: NextRequest) {
   try {

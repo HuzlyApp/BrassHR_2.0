@@ -10,6 +10,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
+import { uploadAdminJobResume } from "@/lib/resume/direct-resume-upload-client";
 import {
   CalendarDays,
   Check,
@@ -712,40 +713,28 @@ export default function JobCandidateReviewClient() {
     const workerIdForUpload = workerId;
     setResumeUploading(true);
     try {
-      const form = new FormData();
-      form.set("resume", pendingResumeFile);
-      if (resumeIdToReplace) form.set("resumeId", resumeIdToReplace);
-      const response = await fetch(
-        `/api/admin/job-applications/${encodeURIComponent(applicationIdForUpload)}/resume`,
-        { method: "POST", body: form }
-      );
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(
-          typeof payload.error === "string" ? payload.error : "Failed to upload resume"
-        );
-      }
+      const payload = await uploadAdminJobResume({
+        applicationId: applicationIdForUpload,
+        file: pendingResumeFile,
+        resumeId: resumeIdToReplace,
+      });
 
-      const autoQuickMatch = payload.autoQuickMatch as
-        | {
-            status?: string;
-            error?: string | null;
-            score?: number | null;
-            category?: string | null;
-            action?: string | null;
-            readiness?: string | null;
-            displayCategory?: string | null;
-            stage?: string | null;
-          }
-        | null
-        | undefined;
+      const autoQuickMatch = payload.autoQuickMatch;
       const matchOk = autoQuickMatch?.status === "ANALYZED";
-      const matchFailed = Boolean(autoQuickMatch && autoQuickMatch.status !== "ANALYZED");
+      const matchPending = autoQuickMatch?.status === "ANALYZING";
+      const matchFailed = Boolean(autoQuickMatch && !matchOk && !matchPending);
 
       setPendingResumeFile(null);
       toast.success("Resume updated successfully.");
       if (matchOk) {
         toast.success("Quick Match complete.");
+      } else if (matchPending) {
+        toast.success("Quick Match is running in the background.");
+      } else if (payload.previousResumeKept) {
+        toast.error(
+          payload.parseError?.trim() ||
+            "The new file was saved, but it could not be read. The previous resume is unchanged."
+        );
       } else if (matchFailed) {
         toast.error(
           typeof autoQuickMatch?.error === "string" && autoQuickMatch.error.trim()
@@ -781,7 +770,7 @@ export default function JobCandidateReviewClient() {
                 }
               : {
                   ...row,
-                  ai_match_status: matchFailed ? "FAILED" : "READY",
+                  ai_match_status: matchPending ? "ANALYZING" : matchFailed ? "FAILED" : "READY",
                   ai_match_score: null,
                   ai_match_category: null,
                   ai_match_action: null,

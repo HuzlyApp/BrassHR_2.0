@@ -28,6 +28,7 @@ import BrandingRightPanelLogo, {
 } from "@/app/components/BrandingRightPanelLogo"
 import BrandedUploadIcon from "@/app/components/BrandedUploadIcon"
 import { setScopedApplicantId } from "@/lib/tenant/scoped-storage"
+import { uploadFileViaSignedUrl } from "@/lib/resume/direct-resume-upload-client"
 import { readStoredApplyLocation } from "@/lib/service-area/apply-location-client"
 import { readServiceAreaApiMessage } from "@/lib/service-area/copy"
 import { useOnboardingConfigOptional } from "@/app/components/onboarding/OnboardingConfigProvider"
@@ -433,37 +434,22 @@ export default function Step1Upload() {
         }
 
         setUploadPhase("Uploading resume...")
-        const fd = new FormData()
-        fd.append("file", file)
-        fd.append("applicantId", session.applicantId)
         const uploadSearch = new URLSearchParams(window.location.search)
         const isWorkflowTestUpload = isWorkflowTestSession(window.location.search)
         const tenantSlug = uploadSearch.get("tenant")?.trim().toLowerCase() || ""
-        if (tenantSlug) {
-          fd.append("tenantSlug", tenantSlug)
-        }
-        if (workerResult.workerId) {
-          fd.append("workerId", workerResult.workerId)
-        }
-        if (workerResult.tenantId) {
-          fd.append("tenantId", workerResult.tenantId)
-        }
-        // Live job applications only — Test workflow must not attach a production job_token.
+        let activeJobToken = ""
+        let storedLocation: ReturnType<typeof readStoredApplyLocation> = null
         if (!isWorkflowTestUpload) {
           const urlJobToken = uploadSearch.get("job_token")?.trim() || ""
-          const activeJobToken =
+          activeJobToken =
             urlJobToken ||
             jobToken ||
             (typeof window !== "undefined" ? localStorage.getItem("applicationJobToken")?.trim() : "") ||
             ""
+          if (activeJobToken && tenantSlug) {
+            storedLocation = readStoredApplyLocation(tenantSlug, activeJobToken)
+          }
           if (activeJobToken) {
-            fd.append("jobToken", activeJobToken)
-            const storedLocation = tenantSlug
-              ? readStoredApplyLocation(tenantSlug, activeJobToken)
-              : null
-            if (storedLocation) {
-              fd.append("workLocation", JSON.stringify(storedLocation))
-            }
             try {
               localStorage.setItem("applicationJobToken", activeJobToken)
             } catch {
@@ -478,25 +464,58 @@ export default function Step1Upload() {
           }
         }
 
-        const uploadRes = await fetchWithTimeout(
-          "/api/upload-resume",
-          {
-            method: "POST",
-            body: fd,
-          },
-          RESUME_UPLOAD_TIMEOUT_MS,
-          "Upload timed out. Please check your connection and try again.",
-        )
-        if (!uploadRes.ok) {
-          const data = await uploadRes.json().catch(() => ({}))
-          throw new Error(readServiceAreaApiMessage(data, "Failed to upload resume"))
+        const directBody = {
+          applicantId: session.applicantId,
+          ...(tenantSlug ? { tenantSlug } : {}),
+          ...(workerResult.workerId ? { workerId: workerResult.workerId } : {}),
+          ...(workerResult.tenantId ? { tenantId: workerResult.tenantId } : {}),
+          ...(activeJobToken ? { jobToken: activeJobToken } : {}),
+          ...(storedLocation ? { workLocation: storedLocation } : {}),
         }
-        setUploadPhase("Saving upload details...")
-        const uploadJson = (await uploadRes.json()) as {
+
+        let uploadJson: {
           fileName?: string
-          storagePath?: string
+          storagePath?: string | null
           resumeId?: string | null
           parseStatus?: string
+          parseError?: string | null
+        }
+        try {
+          uploadJson = await uploadFileViaSignedUrl({
+            prepareUrl: "/api/upload-resume",
+            prepareBody: directBody,
+            file,
+            onProgress: (percent) => setUploadPhase(`Uploading resume… ${percent}%`),
+          })
+        } catch (directError) {
+          const directMessage = directError instanceof Error ? directError.message : ""
+          const canFallback =
+            directMessage === "DIRECT_UNAVAILABLE" ||
+            (file.size <= 4 * 1024 * 1024 &&
+              /upload failed|did not finish|not configured|timed out/i.test(directMessage))
+          if (!canFallback) throw directError
+          setUploadPhase("Uploading resume...")
+          const fd = new FormData()
+          fd.append("file", file)
+          fd.append("applicantId", session.applicantId)
+          if (tenantSlug) fd.append("tenantSlug", tenantSlug)
+          if (workerResult.workerId) fd.append("workerId", workerResult.workerId)
+          if (workerResult.tenantId) fd.append("tenantId", workerResult.tenantId)
+          if (activeJobToken) {
+            fd.append("jobToken", activeJobToken)
+            if (storedLocation) fd.append("workLocation", JSON.stringify(storedLocation))
+          }
+          const uploadRes = await fetchWithTimeout(
+            "/api/upload-resume",
+            { method: "POST", body: fd },
+            RESUME_UPLOAD_TIMEOUT_MS,
+            "Upload timed out. Please check your connection and try again.",
+          )
+          if (!uploadRes.ok) {
+            const data = await uploadRes.json().catch(() => ({}))
+            throw new Error(readServiceAreaApiMessage(data, "Failed to upload resume"))
+          }
+          uploadJson = (await uploadRes.json()) as typeof uploadJson
         }
 
         if (uploadJson.storagePath) {

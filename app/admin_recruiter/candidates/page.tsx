@@ -1310,14 +1310,17 @@ export default function CandidatesPage() {
           notMet: number;
         } | null;
       } | null;
+      parseError?: string | null;
+      previousResumeKept?: boolean;
     }
   ) {
     const nextName =
       [result.firstName, result.lastName].filter(Boolean).join(" ").trim() || "Candidate";
     const match = result.resumeUploaded ? result.autoQuickMatch : null;
     const matchOk = match?.status === "ANALYZED";
+    const matchPending = match?.status === "ANALYZING";
     const matchFailed = Boolean(
-      result.resumeUploaded && match && match.status !== "ANALYZED"
+      result.resumeUploaded && match && !matchOk && !matchPending
     );
 
     setCandidates((current) =>
@@ -1343,7 +1346,7 @@ export default function CandidatesPage() {
         }
         return {
           ...renamed,
-          aiMatchStatus: matchFailed ? "FAILED" : "READY",
+          aiMatchStatus: matchPending ? "ANALYZING" : matchFailed ? "FAILED" : "READY",
           aiMatchScore: null,
           aiMatchCategory: null,
           aiMatchDisplayCategory: null,
@@ -1363,6 +1366,15 @@ export default function CandidatesPage() {
         toast.success(`${nextName}: Quick Match complete`, {
           duration: ACTION_TOAST_DURATION_MS,
         });
+      } else if (matchPending) {
+        toast.success(`${nextName}: Quick Match is running in the background`, {
+          duration: ACTION_TOAST_DURATION_MS,
+        });
+      } else if (result.previousResumeKept) {
+        toast.error(
+          result.parseError?.trim() ||
+            "The new file was saved, but it could not be read. The previous resume is unchanged."
+        );
       } else if (matchFailed) {
         toast.error(
           match?.error?.trim() ||

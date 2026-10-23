@@ -25,6 +25,21 @@ export type AutoQuickMatchResult = {
   requirementCounts: RunMatchAnalysisResult["requirementCounts"];
 };
 
+export function queuedAutoQuickMatchResult(): AutoQuickMatchResult {
+  return {
+    status: "ANALYZING",
+    error: null,
+    model: null,
+    score: null,
+    category: null,
+    action: null,
+    readiness: null,
+    displayCategory: null,
+    stage: null,
+    requirementCounts: null,
+  };
+}
+
 function emptyAutoResult(error: string | null): AutoQuickMatchResult {
   return {
     status: "FAILED",

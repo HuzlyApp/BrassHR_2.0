@@ -56,6 +56,7 @@ vi.mock("@/lib/supabase-env", () => ({
 }))
 
 const storageUploadMock = vi.hoisted(() => vi.fn(async () => ({ error: null })))
+const runAutoQuickMatchMock = vi.hoisted(() => vi.fn(async () => ({ status: "ANALYZED" })))
 const startOrResumeJobApplicationMock = vi.hoisted(() => vi.fn())
 const deletedApplicationIds = vi.hoisted(() => [] as string[])
 
@@ -64,6 +65,8 @@ vi.mock("@/lib/jobs/service", () => ({
 }))
 vi.mock("@/lib/jobs/match-analysis/auto-quick-match", () => ({
   scheduleAutoQuickMatchForApplication: vi.fn(),
+  runAutoQuickMatchForApplication: (...args: unknown[]) => runAutoQuickMatchMock(...args),
+  queuedAutoQuickMatchResult: () => ({ status: "ANALYZING", error: null }),
 }))
 
 vi.mock("@supabase/supabase-js", () => ({
@@ -286,5 +289,62 @@ describe("POST /api/upload-resume", () => {
     expect(res.status).toBe(400)
     const json = await res.json()
     expect(json.error).toContain("PDF, DOC, and DOCX")
+  })
+
+  it("keeps the uploaded file and application when text extraction fails", async () => {
+    extractPdfTextMock.mockRejectedValueOnce(new Error("bad pdf"))
+    startOrResumeJobApplicationMock.mockResolvedValueOnce({
+      application: { id: "app-new", status: "new" },
+      resumed: false,
+    })
+    const fd = new FormData()
+    fd.append("file", makePdfFile())
+    fd.append("applicantId", "applicant-1")
+    fd.append("jobToken", "job-token-1")
+
+    const res = await POST(new Request("http://localhost/api/upload-resume", { method: "POST", body: fd }))
+
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json.parseStatus).toBe("failed")
+    expect(json.resumeId).toBe("resume-uuid-1")
+    expect(json.storagePath).toBeTruthy()
+    expect(deletedApplicationIds).toEqual([])
+    expect(persistRecordMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "applicant-1",
+      expect.objectContaining({ parsingStatus: "failed", parseError: "bad pdf" }),
+    )
+  })
+
+  it("returns before Quick Match finishes", async () => {
+    let release: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    runAutoQuickMatchMock.mockImplementation(() => gate.then(() => ({ status: "ANALYZED" })))
+    afterMock.mockImplementation((fn: () => Promise<void>) => {
+      void fn()
+    })
+    startOrResumeJobApplicationMock.mockResolvedValueOnce({
+      application: { id: "app-existing", status: "new" },
+      resumed: true,
+    })
+    const fd = new FormData()
+    fd.append("file", makePdfFile())
+    fd.append("applicantId", "applicant-1")
+    fd.append("jobToken", "job-token-1")
+
+    const started = Date.now()
+    const res = await POST(new Request("http://localhost/api/upload-resume", { method: "POST", body: fd }))
+    const elapsed = Date.now() - started
+
+    expect(res.status).toBe(200)
+    expect(elapsed).toBeLessThan(1000)
+    expect(runAutoQuickMatchMock).toHaveBeenCalled()
+    release()
+    await gate
+    afterMock.mockImplementation(() => undefined)
+    runAutoQuickMatchMock.mockResolvedValue({ status: "ANALYZED" })
   })
 })

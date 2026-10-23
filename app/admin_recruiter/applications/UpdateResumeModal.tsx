@@ -15,6 +15,7 @@ import ErrorModal from "@/app/components/ErrorModal";
 import { useTenantBranding } from "@/app/components/tenant/TenantBrandingContext";
 import { brandingToCssVars } from "@/lib/tenant/tenant-branding";
 import { validateResumeUploadFile } from "@/lib/resume/validate-resume-upload";
+import { uploadAdminJobResume } from "@/lib/resume/direct-resume-upload-client";
 import { PERSON_NAME_MAX_LENGTH, validatePersonName } from "@/lib/person-name";
 import type { ResumeHistoryItem } from "./ResumeHistoryModal";
 import { useMatchAnalysisProvider } from "@/app/admin_recruiter/applications/MatchAnalysisModelSelect";
@@ -38,6 +39,10 @@ export type UpdateResumeResult = {
   firstName: string;
   lastName: string;
   autoQuickMatch?: UpdateResumeAutoQuickMatch | null;
+  parseStatus?: string | null;
+  parseError?: string | null;
+  previousResumeKept?: boolean;
+  reused?: boolean;
 };
 
 type UpdateResumeModalProps = {
@@ -307,24 +312,22 @@ export default function UpdateResumeModal({
     setSaving(true);
     try {
       let autoQuickMatch: UpdateResumeAutoQuickMatch | null = null;
+      let parseStatus: string | null = null;
+      let parseError: string | null = null;
+      let previousResumeKept = false;
+      let reused = false;
       if (resumeFile) {
-        const form = new FormData();
-        form.set("resume", resumeFile);
-        form.set("analysisProvider", analysisProvider);
-        // Replacing keeps the upload out of the admin upload quota.
-        if (currentResume) form.set("resumeId", currentResume.id);
-        const response = await fetch(
-          `/api/admin/job-applications/${encodeURIComponent(applicationId)}/resume`,
-          { method: "POST", credentials: "include", body: form }
-        );
-        const payload = (await response.json().catch(() => ({}))) as {
-          error?: string;
-          autoQuickMatch?: UpdateResumeAutoQuickMatch | null;
-        };
-        if (!response.ok) {
-          throw new Error(payload.error || "Failed to upload resume");
-        }
-        autoQuickMatch = payload.autoQuickMatch ?? null;
+        const payload = await uploadAdminJobResume({
+          applicationId,
+          file: resumeFile,
+          resumeId: currentResume?.id,
+          analysisProvider,
+        });
+        autoQuickMatch = (payload.autoQuickMatch as UpdateResumeAutoQuickMatch | null) ?? null;
+        parseStatus = payload.parseStatus ?? null;
+        parseError = payload.parseError ?? null;
+        previousResumeKept = Boolean(payload.previousResumeKept);
+        reused = Boolean(payload.reused);
       }
 
       if (nameChanged) {
@@ -348,6 +351,10 @@ export default function UpdateResumeModal({
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         autoQuickMatch,
+        parseStatus,
+        parseError,
+        previousResumeKept,
+        reused,
       });
       onClose();
     } catch (error) {

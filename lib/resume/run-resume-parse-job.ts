@@ -32,6 +32,10 @@ export async function runResumeParseJob(params: {
   resumeId: string
   text: string
   continuationEmail?: ResumeParseContinuationEmailParams
+  /** Present when the caller did not already copy a completed parse for this hash. */
+  fileHash?: string | null
+  workerId?: string | null
+  tenantId?: string | null
 }): Promise<ResumeParseJobResult> {
   const { supabase, resumeId, text } = params
   const safeText = stripNullBytes(text)
@@ -52,6 +56,46 @@ export async function runResumeParseJob(params: {
     resumeId,
     textLength: text.length,
   })
+
+  if (params.fileHash && params.workerId && params.tenantId) {
+    const { findReusableResumeParse } = await import("@/lib/resume/find-reusable-resume-parse")
+    const reusable = await findReusableResumeParse(supabase, {
+      tenantId: params.tenantId,
+      workerId: params.workerId,
+      fileHash: params.fileHash,
+      excludeResumeId: resumeId,
+    }).catch(() => null)
+    if (reusable?.parsedJson) {
+      const completedAt = new Date().toISOString()
+      await supabase
+        .from("worker_resumes")
+        .update({
+          parsing_status: "completed",
+          parse_status: "completed",
+          parsed_json: reusable.parsedJson,
+          parsed_data: sanitizePostgresJson({ text: safeText }),
+          extracted_text: safeText,
+          parse_error: null,
+          parse_completed_at: completedAt,
+          parsed_at: completedAt,
+          ai_parse_ms: 0,
+          file_hash: params.fileHash,
+        })
+        .eq("id", resumeId)
+      logResumeTiming("resume-parse-job", "reused-file-hash", {
+        resumeId,
+        reusedFrom: reusable.id,
+        aiParseMs: 0,
+      })
+      return {
+        parsingStatus: "completed",
+        parsedJson: reusable.parsedJson as Record<string, string>,
+        parseError: null,
+        aiParseMs: 0,
+        qualityPassed: true,
+      }
+    }
+  }
 
   const { data: existingResume } = await supabase
     .from("worker_resumes")

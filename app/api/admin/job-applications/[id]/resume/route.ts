@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { requireStaffApiSession } from "@/lib/auth/api-session";
 import { resolveStaffTenantId } from "@/lib/jobs/tenant";
 import { extractResumeTextFromUpload } from "@/lib/jobs/match-analysis/extract-resume-text";
@@ -16,8 +16,13 @@ import {
 import { WORKER_RESUMES_BUCKET } from "@/lib/supabase-storage-buckets";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { buildWorkerResumeFileName } from "@/lib/resume/worker-resume-file-name";
-import { runAutoQuickMatchForApplication } from "@/lib/jobs/match-analysis/auto-quick-match";
+import {
+  queuedAutoQuickMatchResult,
+} from "@/lib/jobs/match-analysis/auto-quick-match";
 import { parseAnalysisProvider } from "@/lib/jobs/match-analysis/schema";
+import { hashResumeBytes } from "@/lib/resume/resume-file-hash";
+import { runUploadedResumeProcessing } from "@/lib/resume/schedule-uploaded-resume-processing";
+import { handleAdminResumeJsonPost } from "@/lib/resume/admin-resume-phases";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -57,6 +62,18 @@ export async function POST(
       return NextResponse.json({ error: "Application id is required" }, { status: 400 });
     }
 
+    const contentType = req.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+      return handleAdminResumeJsonPost({
+        supabase,
+        tenantId,
+        applicationId,
+        userId: auth.userId,
+        body,
+      });
+    }
+
     const form = await req.formData();
     const file = form.get("resume");
     if (!(file instanceof File) || file.size <= 0) {
@@ -89,26 +106,25 @@ export async function POST(
     }
 
     const bytes = Buffer.from(await file.arrayBuffer());
+    const fileHash = hashResumeBytes(bytes);
 
     let extractedText = "";
+    let extractMessage: string | null = null;
     try {
       extractedText = await extractResumeTextFromUpload(bytes, file.name);
     } catch (extractError) {
-      return NextResponse.json(
-        {
-          error:
-            extractError instanceof Error
-              ? extractError.message
-              : "Could not read resume. Please upload a PDF or DOCX resume.",
-        },
-        { status: 400 }
-      );
+      extractMessage =
+        extractError instanceof Error
+          ? extractError.message
+          : "Could not read resume. Please upload a PDF or DOCX resume.";
     }
-
-    const contentError = validateExtractedResumeText(extractedText);
-    if (contentError) {
-      return NextResponse.json({ error: contentError }, { status: 400 });
+    if (!extractMessage) {
+      extractMessage = validateExtractedResumeText(extractedText);
     }
+    if (extractMessage?.includes("another document")) {
+      return NextResponse.json({ error: extractMessage }, { status: 400 });
+    }
+    const keepUnreadableUpload = Boolean(extractMessage);
 
     const { data: application, error: appError } = await supabase
       .from("job_applications")
@@ -165,13 +181,83 @@ export async function POST(
           ? String(worker.last_name).trim()
           : null;
 
-      if (!replacedResumeId) {
+      if (!replacedResumeId && !keepUnreadableUpload) {
         await assertResumeUploadWithinLimit(supabase, {
           workerId,
           workerUserId,
           uploadedByUserId: auth.userId,
           role: "admin",
         });
+      }
+    }
+
+    if (replacedResumeId && workerId && !keepUnreadableUpload) {
+      const { data: existingResume } = await supabase
+        .from("worker_resumes")
+        .select("file_hash, storage_path, file_url, extracted_text")
+        .eq("id", replacedResumeId)
+        .eq("worker_id", workerId)
+        .eq("tenant_id", tenantId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (existingResume?.file_hash && existingResume.file_hash === fileHash) {
+        const { data: applicationMatch } = await supabase
+          .from("job_applications")
+          .select(
+            "ai_match_status, ai_match_score, ai_match_category, ai_match_action, ai_match_readiness, ai_match_display_category, ai_match_stage"
+          )
+          .eq("id", applicationId)
+          .eq("tenant_id", tenantId)
+          .maybeSingle();
+        if (applicationMatch?.ai_match_status === "ANALYZED") {
+          return NextResponse.json({
+            ok: true,
+            reused: true,
+            path: existingResume.storage_path || existingResume.file_url,
+            fileName: file.name,
+            applicationId,
+            workerId,
+            autoQuickMatch: {
+              status: "ANALYZED",
+              error: null,
+              score: applicationMatch.ai_match_score ?? null,
+              category: applicationMatch.ai_match_category ?? null,
+              action: applicationMatch.ai_match_action ?? null,
+              readiness: applicationMatch.ai_match_readiness ?? null,
+              displayCategory: applicationMatch.ai_match_display_category ?? null,
+              stage: applicationMatch.ai_match_stage ?? "quick",
+              requirementCounts: null,
+            },
+          });
+        }
+        const existingText =
+          typeof existingResume.extracted_text === "string" ? existingResume.extracted_text : "";
+        if (existingText.trim()) {
+          after(async () => {
+            await runUploadedResumeProcessing({
+              supabase,
+              resumeId: replacedResumeId,
+              text: existingText,
+              fileHash,
+              workerId,
+              tenantId,
+              jobApplicationId: applicationId,
+              analyzedByUserId: auth.userId,
+              analysisProvider,
+              reason: "admin_resume_upload_unchanged",
+              skipParse: true,
+            });
+          });
+          return NextResponse.json({
+            ok: true,
+            reused: true,
+            path: existingResume.storage_path || existingResume.file_url,
+            fileName: file.name,
+            applicationId,
+            workerId,
+            autoQuickMatch: queuedAutoQuickMatchResult(),
+          });
+        }
       }
     }
 
@@ -197,8 +283,9 @@ export async function POST(
       );
     }
 
+    let savedResumeId = replacedResumeId && !keepUnreadableUpload ? replacedResumeId : "";
     if (workerId && resumeOwnerId) {
-      await persistWorkerResumeRecord(
+      const persistedId = await persistWorkerResumeRecord(
         supabase,
         resumeOwnerId,
         {
@@ -206,24 +293,29 @@ export async function POST(
           originalFileName: safeName,
           fileType,
           fileSizeBytes: file.size,
-          parsingStatus: "pending",
+          parsingStatus: keepUnreadableUpload ? "failed" : "processing",
+          parseError: keepUnreadableUpload ? extractMessage : null,
           textLength: extractedText.trim().length,
           extractedText,
-          parsedData: { text: extractedText },
+          parsedData: extractedText ? { text: extractedText } : {},
+          fileHash,
           jobApplicationId: applicationId,
           uploadedByUserId: auth.userId,
           uploaderRole: "admin",
           workerId,
           tenantId,
+          preserveParsedJson: Boolean(replacedResumeId) && !keepUnreadableUpload,
+          enforceUploadLimit: false,
         },
-        replacedResumeId
+        replacedResumeId && !keepUnreadableUpload
           ? { mode: "update", resumeId: replacedResumeId }
           : { mode: "insert" }
       );
+      savedResumeId = persistedId || savedResumeId;
       await syncWorkerPrimaryResumePath(supabase, workerId, resumeOwnerId);
     }
 
-    if (profileId) {
+    if (profileId && !(keepUnreadableUpload && replacedResumeId)) {
       const { error: profileError } = await supabase
         .from("applicant_profiles")
         .update({
@@ -236,12 +328,24 @@ export async function POST(
       if (profileError) throw profileError;
     }
 
-    // Resume changed — reset match cache so UI can recalculate against the new file.
-    // Keep previous file in storage until this new upload succeeds (we never delete first).
+    if (keepUnreadableUpload) {
+      return NextResponse.json({
+        ok: true,
+        path: objectPath,
+        fileName: safeName,
+        applicationId,
+        workerId,
+        parseStatus: "failed",
+        parseError: extractMessage,
+        previousResumeKept: Boolean(replacedResumeId),
+        autoQuickMatch: null,
+      });
+    }
+
     const { error: matchResetError } = await supabase
       .from("job_applications")
       .update({
-        ai_match_status: "READY",
+        ai_match_status: "ANALYZING",
         ai_match_score: null,
         ai_match_category: null,
         ai_match_action: null,
@@ -251,21 +355,29 @@ export async function POST(
         ai_analysis: null,
         ai_analyzed_at: null,
         ai_analysis_error: null,
-        ai_analysis_progress: null,
+        ai_analysis_progress: "preparing",
         updated_at: new Date().toISOString(),
       })
       .eq("tenant_id", tenantId)
       .eq("id", applicationId);
     if (matchResetError) throw matchResetError;
 
-    // Step 1 Quick Match runs automatically after résumé attach; manual Re-run remains available.
-    const autoQuickMatch = await runAutoQuickMatchForApplication({
-      supabase,
-      tenantId,
-      jobApplicationId: applicationId,
-      analyzedByUserId: auth.userId,
-      analysisProvider,
-      reason: "admin_resume_upload",
+    const autoQuickMatch = queuedAutoQuickMatchResult();
+    after(async () => {
+      await runUploadedResumeProcessing({
+        supabase,
+        resumeId: savedResumeId,
+        text: extractedText,
+        fileHash,
+        workerId,
+        tenantId,
+        jobApplicationId: applicationId,
+        analyzedByUserId: auth.userId,
+        analysisProvider,
+        reason: "admin_resume_upload",
+        skipParse: !extractedText.trim() || !savedResumeId,
+        skipMatch: false,
+      });
     });
 
     return NextResponse.json({
@@ -274,6 +386,7 @@ export async function POST(
       fileName: safeName,
       applicationId,
       workerId,
+      parseStatus: "processing",
       autoQuickMatch,
     });
   } catch (error) {

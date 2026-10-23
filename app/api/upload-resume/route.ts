@@ -8,7 +8,7 @@ import { syncWorkerPrimaryResumePath } from "@/lib/onboarding/sync-worker-primar
 import { persistWorkerResumeRecord } from "@/lib/onboarding/persist-worker-resume-record"
 import { resolveOrEnsureWorkerForApplicant, resolveWorkerByApplicantId, type WorkerContext } from "@/lib/onboarding/resolve-worker-context"
 import { isDraftPreviewApplicantId } from "@/lib/onboarding/is-draft-preview"
-import { runResumeParseJob } from "@/lib/resume/run-resume-parse-job"
+import { runUploadedResumeProcessing } from "@/lib/resume/schedule-uploaded-resume-processing"
 import { createTimer, logResumeTiming } from "@/lib/resume/timing"
 import { sendResumeContinuationEmail } from "@/lib/onboarding/send-resume-continuation-email"
 import { resolveApplicantEmailAppOrigin } from "@/lib/resolve-app-origin"
@@ -22,13 +22,16 @@ import { isResumeUploadValidationError } from "@/lib/resume/validate-resume-uplo
 import { normalizeResumeWhitespace } from "@/lib/jobs/match-analysis/sanitize-resume"
 import { repairExtractedResumeText } from "@/lib/resume/normalize-resume-text"
 import { buildWorkerResumeFileName } from "@/lib/resume/worker-resume-file-name"
-import { scheduleAutoQuickMatchForApplication } from "@/lib/jobs/match-analysis/auto-quick-match"
+import { hashResumeBytes } from "@/lib/resume/resume-file-hash"
+import { handleApplicantResumeJsonPost } from "@/lib/resume/applicant-resume-phases"
 
 function finalizeExtractedResumeText(text: string): string {
   return repairExtractedResumeText(normalizeResumeWhitespace(text))
 }
 
 export const runtime = "nodejs"
+/** Background parse + Quick Match. The HTTP response returns before this elapses. */
+export const maxDuration = 120
 const MAX_RESUME_BYTES = Number(process.env.MAX_RESUME_UPLOAD_BYTES ?? 10 * 1024 * 1024)
 const STORAGE_UPLOAD_TIMEOUT_MS = Number(process.env.RESUME_STORAGE_UPLOAD_TIMEOUT_MS ?? 45_000)
 const RESUME_DB_TIMEOUT_MS = Number(process.env.RESUME_DB_TIMEOUT_MS ?? 6_000)
@@ -146,6 +149,11 @@ export async function POST(req: Request) {
   })
   if (limited) return limited
 
+  const contentType = req.headers.get("content-type") || ""
+  if (contentType.includes("application/json")) {
+    return handleApplicantResumeJsonPost(req)
+  }
+
   const formData = await req.formData()
   const file = formData.get("file") as File | null
   const applicantIdRaw = formData.get("applicantId")
@@ -185,7 +193,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Only PDF, DOC, and DOCX resumes are supported" }, { status: 400 })
   }
 
+  if (fileType === "doc" || lowerName.endsWith(".doc")) {
+    return NextResponse.json(
+      { error: "Legacy .doc files are not supported. Please save your resume as .docx or PDF." },
+      { status: 400 },
+    )
+  }
+
   const buffer = Buffer.from(await file.arrayBuffer())
+  const fileHash = hashResumeBytes(buffer)
 
   /**
    * Admin Test workflow / draft preview uses a synthetic applicant id.
@@ -443,6 +459,57 @@ export async function POST(req: Request) {
     text = await extractText(buffer, { name: file.name, type: file.type || "application/octet-stream" })
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Could not read resume"
+    // The file is already in storage. Keep it and the application; do not replace another resume.
+    try {
+      const failedResumeId = await withTimeout(
+        persistWorkerResumeRecord(supabase, applicantId, {
+          fileUrl: objectPath,
+          originalFileName: storedFileName,
+          parsedData: {},
+          parsingStatus: "failed",
+          parseError: msg,
+          textLength: 0,
+          extractionMs: extractionTimer.elapsedMs(),
+          fileType,
+          fileSizeBytes,
+          extractedText: "",
+          fileHash,
+          jobApplicationId: jobApplication?.application.id ?? null,
+          uploadedByUserId: applicantId,
+          uploaderRole: "worker",
+          enforceUploadLimit: false,
+          workerId: workerCtx.workerId,
+          tenantId: workerCtx.tenantId,
+        }),
+        RESUME_DB_TIMEOUT_MS,
+        "Resume record persistence",
+      )
+      if (failedResumeId) {
+        await syncWorkerPrimaryResumePath(supabase, workerCtx.workerId, applicantId).catch(() => undefined)
+        logResumeTiming("upload-resume", "extraction-failed-kept", {
+          resumeId: failedResumeId,
+          fileType,
+          fileSizeBytes,
+          parseError: msg,
+        })
+        return NextResponse.json({
+          resumeId: failedResumeId,
+          fileName: storedFileName,
+          storagePath: objectPath,
+          parseStatus: "failed",
+          parseError: msg,
+          bucket: WORKER_RESUMES_BUCKET,
+          textLength: 0,
+          extractionMs: extractionTimer.elapsedMs(),
+          applicationId: jobApplication?.application.id ?? null,
+          workflowInstanceId: jobApplication?.application.applicant_workflow_instance_id ?? null,
+          resumedApplication: jobApplication?.resumed ?? false,
+          previousResumeKept: true,
+        })
+      }
+    } catch (persistError) {
+      console.error("[upload-resume] could not keep unreadable resume", persistError)
+    }
     await discardNewApplication()
     return NextResponse.json({ error: msg }, { status: 400 })
   }
@@ -477,6 +544,7 @@ export async function POST(req: Request) {
         fileType,
         fileSizeBytes,
         extractedText: text,
+        fileHash,
         jobApplicationId: jobApplication?.application.id ?? null,
         uploadedByUserId: applicantId,
         uploaderRole: "worker",
@@ -520,56 +588,54 @@ export async function POST(req: Request) {
   const capturedText = text
   const capturedTenantSlug = tenantSlug
   const capturedApplicationId = jobApplication?.application.id ?? null
-  if (text.trim()) {
-    after(async () => {
-      const origin = resolveApplicantEmailAppOrigin(req)
+  const capturedFileHash = fileHash
+  after(async () => {
+    const origin = resolveApplicantEmailAppOrigin(req)
 
-      console.info("[upload-resume] resume upload success", {
-        workerId: capturedWorkerId,
-        tenantId: capturedTenantId,
-        resumeId: capturedResumeId,
-        textLength,
-        origin: origin ?? null,
-      })
+    console.info("[upload-resume] resume upload success", {
+      workerId: capturedWorkerId,
+      tenantId: capturedTenantId,
+      resumeId: capturedResumeId,
+      textLength,
+      origin: origin ?? null,
+    })
 
-      if (capturedApplicationId && capturedTenantId) {
-        scheduleAutoQuickMatchForApplication({
-          supabase,
-          tenantId: capturedTenantId,
-          jobApplicationId: capturedApplicationId,
-          analyzedByUserId: null,
-          reason: "candidate_resume_upload",
-        })
-      }
+    const emailPromise =
+      origin
+        ? sendResumeContinuationEmail(supabase, {
+            workerId: capturedWorkerId,
+            tenantId: capturedTenantId,
+            resumeId: capturedResumeId,
+            origin,
+            tenantSlug: capturedTenantSlug || null,
+            extractedText: capturedText,
+            trigger: "resume_upload",
+            request: req,
+          }).catch((error) => {
+            console.error("[upload-resume] continuation email", error)
+          })
+        : Promise.resolve(null)
 
-      if (origin) {
-        await sendResumeContinuationEmail(supabase, {
-          workerId: capturedWorkerId,
-          tenantId: capturedTenantId,
-          resumeId: capturedResumeId,
-          origin,
-          tenantSlug: capturedTenantSlug || null,
-          extractedText: capturedText,
-          trigger: "resume_upload",
-          request: req,
-        })
-      } else {
-        console.warn("[upload-resume] skipping continuation email — could not resolve app origin", {
-          workerId: capturedWorkerId,
-          resumeId: capturedResumeId,
-        })
-      }
+    logResumeTiming("upload-resume", "ai-parse-enqueued", {
+      resumeId: capturedResumeId,
+      textLength,
+    })
 
-      logResumeTiming("upload-resume", "ai-parse-enqueued", {
-        resumeId: capturedResumeId,
-        textLength,
-      })
-      await runResumeParseJob({
+    await Promise.all([
+      emailPromise,
+      runUploadedResumeProcessing({
         supabase,
         resumeId: capturedResumeId,
         text: capturedText,
+        fileHash: capturedFileHash,
+        workerId: capturedWorkerId,
+        tenantId: capturedTenantId,
+        jobApplicationId: capturedApplicationId,
+        reason: "candidate_resume_upload",
+        skipMatch: !capturedApplicationId,
+        skipParse: !capturedText.trim(),
         continuationEmail:
-          origin && capturedWorkerId && capturedTenantId
+          origin && capturedText.trim()
             ? {
                 workerId: capturedWorkerId,
                 tenantId: capturedTenantId,
@@ -579,25 +645,9 @@ export async function POST(req: Request) {
                 request: req,
               }
             : undefined,
-      })
-    })
-  } else if (capturedResumeId) {
-    after(async () => {
-      const origin = resolveApplicantEmailAppOrigin(req)
-      if (!origin) return
-
-      await sendResumeContinuationEmail(supabase, {
-        workerId: capturedWorkerId,
-        tenantId: capturedTenantId,
-        resumeId: capturedResumeId,
-        origin,
-        tenantSlug: capturedTenantSlug || null,
-        extractedText: capturedText,
-        trigger: "resume_upload",
-        request: req,
-      })
-    })
-  }
+      }),
+    ])
+  })
 
   const totalMs = routeTimer.elapsedMs()
   logResumeTiming("upload-resume", "response", {

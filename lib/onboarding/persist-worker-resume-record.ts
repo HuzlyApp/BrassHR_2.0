@@ -20,6 +20,14 @@ export type PersistWorkerResumeRecordOpts = {
   jobApplicationId?: string | null;
   uploadedByUserId?: string | null;
   uploaderRole?: ResumeUploaderRole;
+  /** SHA-256 of the file bytes. Same hash skips a second AI parse for this worker. */
+  fileHash?: string | null;
+  parseError?: string | null;
+  /**
+   * In-place file replacement keeps the previous structured parse until the new
+   * parse finishes. A failed parse must not wipe a valid `parsed_json`.
+   */
+  preserveParsedJson?: boolean;
   /**
    * Worker already resolved for this upload. Required when the auth user has
    * a worker row in more than one tenant — an unscoped user_id lookup then
@@ -174,9 +182,10 @@ function buildResumeRow(
       opts.extractedText != null ? stripNullBytes(opts.extractedText) : null,
     parse_started_at: opts.parseStartedAt ?? (parsingStatus === "processing" ? now : null),
     parse_completed_at: parsingStatus === "completed" ? now : null,
-    parse_error: null,
+    parse_error: opts.parseError ?? null,
     parsed_json: null,
     ai_parse_ms: null,
+    file_hash: opts.fileHash?.trim() || null,
     deleted_at: null,
     job_application_id: opts.jobApplicationId?.trim() || null,
     uploaded_by_user_id: opts.uploadedByUserId?.trim() || null,
@@ -224,13 +233,18 @@ export async function persistWorkerResumeRecord(
     if (existingErr) throw existingErr;
     if (!existing?.id) throw new Error("Resume not found.");
 
-    const updateRow = {
+    const updateRow: Record<string, unknown> = {
       ...row,
       job_application_id:
         opts.jobApplicationId?.trim() ||
         (existing.job_application_id as string | null) ||
         null,
     };
+    if (opts.preserveParsedJson) {
+      delete updateRow.parsed_json;
+      delete updateRow.parsed_at;
+      delete updateRow.parse_completed_at;
+    }
 
     const { error } = await supabase.from("worker_resumes").update(updateRow).eq("id", resumeId);
     if (error) throw error;
