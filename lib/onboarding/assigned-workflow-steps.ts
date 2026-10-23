@@ -1,3 +1,4 @@
+import { isCandidateCheckboxStep, isI9CheckboxStep } from "@/lib/onboarding/candidate-checkbox-steps";
 import { workflowStepIdToOnboardingType } from "@/lib/onboarding/workflow-step-mapping";
 import type { OnboardingStepStatus, TenantOnboardingStep } from "@/lib/onboarding/types";
 import { readStepLifecyclePhase } from "@/lib/onboarding/workflow-phase";
@@ -201,16 +202,111 @@ const VERIFIABLE_DISPLAY_STATUSES: ReadonlySet<WorkflowStepDisplayStatus> = new 
   "approved",
 ]);
 
+const RECRUITER_REVIEW_LIBRARY_IDS = new Set([
+  "document-upload",
+  "credential-license-verification",
+  "certification-upload",
+  "ssn-identity-verification",
+  "tax-forms",
+  "employee-agreement",
+  "agreement-esign",
+  "agreement-signature",
+  "welcome-packet-esign",
+  "policy-acknowledgment",
+  "background-check",
+  "authorization-esign",
+]);
+
+function libraryTokens(step: {
+  snapshotStepId?: string | null;
+  stepKey?: string | null;
+  stepType?: string | null;
+}): string[] {
+  return [step.snapshotStepId, step.stepKey, step.stepType]
+    .map((value) => String(value ?? "").trim().toLowerCase().replaceAll("_", "-"))
+    .filter(Boolean);
+}
+
 /**
- * A candidate step the candidate finished reads Submitted until a recruiter verifies it with
- * Mark as complete. Progress stays `completed`, so the candidate's next step is never held back.
+ * Agreement / signature and document steps stay Submitted until a recruiter verifies them.
+ * Checkbox, typed answers, and resume steps do not: the candidate finishing them is completion.
+ */
+export function candidateStepRequiresRecruiterReview(step: {
+  snapshotStepId?: string | null;
+  stepKey?: string | null;
+  stepType?: string | null;
+  onboardingType?: string | null;
+  title?: string | null;
+}): boolean {
+  if (isResumeLikeAssignedStep(step)) return false;
+  const checkboxLike = {
+    step_key: step.stepKey ?? step.stepType,
+    title: step.title,
+    metadata: { workflow_step_id: step.stepType ?? step.snapshotStepId ?? "" },
+  };
+  if (isCandidateCheckboxStep(checkboxLike) || isI9CheckboxStep({ ...step, ...checkboxLike })) return false;
+
+  const onboarding = String(step.onboardingType ?? "").trim().toLowerCase();
+  if (
+    onboarding === "document_upload" ||
+    onboarding === "professional_license" ||
+    onboarding === "authorizations"
+  ) {
+    return true;
+  }
+
+  const tokens = libraryTokens(step);
+  if (tokens.some((token) => RECRUITER_REVIEW_LIBRARY_IDS.has(token) || [...RECRUITER_REVIEW_LIBRARY_IDS].some((id) => token.includes(id)))) {
+    return true;
+  }
+
+  const title = String(step.title ?? "").trim().toLowerCase();
+  if (
+    /collect documents|document upload|upload documents|certification|credential|licen[cs]e|tax form|identity verification/.test(
+      title
+    )
+  ) {
+    return true;
+  }
+  return /agreement|e-sign|esign|\bsignature\b/.test(title);
+}
+
+/**
+ * Document and agreement steps the candidate finished read Submitted until a recruiter
+ * marks them complete. Checkbox, input, and resume steps read Completed immediately.
+ * Progress stays `completed`, so the candidate's next step is never held back.
  */
 export function candidateReviewDisplayStatus(
-  step: Pick<MappedAssignedStep, "status" | "displayStatus" | "candidateOwned" | "verifiedAt">
+  step: Pick<
+    MappedAssignedStep,
+    | "status"
+    | "displayStatus"
+    | "candidateOwned"
+    | "verifiedAt"
+    | "snapshotStepId"
+    | "stepKey"
+    | "stepType"
+    | "onboardingType"
+    | "title"
+  >
 ): WorkflowStepDisplayStatus {
-  if (!step.candidateOwned || step.status !== "completed") return step.displayStatus;
-  if (!VERIFIABLE_DISPLAY_STATUSES.has(step.displayStatus)) return step.displayStatus;
-  return step.verifiedAt ? "completed" : "submitted";
+  if (!step.candidateOwned) return step.displayStatus;
+  if (candidateStepRequiresRecruiterReview(step)) {
+    if (step.status !== "completed") return step.displayStatus;
+    if (!VERIFIABLE_DISPLAY_STATUSES.has(step.displayStatus)) return step.displayStatus;
+    return step.verifiedAt ? "completed" : "submitted";
+  }
+  if (
+    step.displayStatus === "rejected" ||
+    step.displayStatus === "needs_revision" ||
+    step.displayStatus === "blocked"
+  ) {
+    return step.displayStatus;
+  }
+  if (step.status === "completed" || step.displayStatus === "submitted" || step.displayStatus === "approved") {
+    return "completed";
+  }
+  return step.displayStatus;
 }
 
 /** Resume / profile collection steps often have evidence in worker_resumes, not step_progress. */
@@ -704,6 +800,11 @@ export function mapAssignedStepRecords(params: {
         displayStatus: mapProgressToDisplayStatus(normalizedStatus),
         candidateOwned,
         verifiedAt,
+        snapshotStepId: record.snapshot_step_id,
+        stepKey: matched?.step_key ?? snapshotStepKey(record.snapshot_step_id),
+        stepType: record.step_type,
+        onboardingType: matched?.step_type ?? workflowStepIdToOnboardingType(record.step_type),
+        title: record.title,
       }),
       inspectable: true,
       unmatched,

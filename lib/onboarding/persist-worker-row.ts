@@ -33,6 +33,13 @@ function isUniqueViolation(err: unknown): boolean {
   return typeof e.message === "string" && /duplicate key|unique constraint/i.test(e.message)
 }
 
+function isWorkerTenantUserIdUniqueViolation(err: unknown): boolean {
+  const e = err as { code?: string; message?: string; details?: string; hint?: string } | null
+  if (!isUniqueViolation(e)) return false
+  const text = `${e?.message ?? ""} ${e?.details ?? ""} ${e?.hint ?? ""}`.toLowerCase()
+  return text.includes("worker_tenant_user_id_uidx")
+}
+
 function describeDbErr(err: unknown, fallback = "Database error"): string {
   const e = err as { message?: string; details?: string; hint?: string } | null
   if (!e) return fallback
@@ -422,12 +429,29 @@ export async function persistWorkerRow(
       }
     }
 
+    if (!inserted.ok && isWorkerTenantUserIdUniqueViolation(inserted.error)) {
+      const existing = await findWorkerByUser(supabase, tenantId, applicantId)
+      if (existing?.id) {
+        targetId = existing.id
+        inserted = await updateWorkerWithFallback(supabase, targetId, rowAttempts)
+      }
+    }
+
     if (!inserted.ok) {
       if (isWorkerTenantEmailUniqueViolation(inserted.error)) {
         const taken = tenantEmailTakenResult()
         return { ok: false, error: taken.error, code: taken.code, status: taken.status }
       }
-      return { ok: false, error: describeDbErr(inserted.error), status: 500 }
+      if (isWorkerTenantUserIdUniqueViolation(inserted.error)) {
+        const raced = await findWorkerByUser(supabase, tenantId, applicantId)
+        if (raced?.id) {
+          targetId = raced.id
+        } else {
+          return { ok: false, error: describeDbErr(inserted.error), status: 500 }
+        }
+      } else {
+        return { ok: false, error: describeDbErr(inserted.error), status: 500 }
+      }
     }
   }
 

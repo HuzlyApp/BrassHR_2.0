@@ -220,7 +220,6 @@ export default function NewApplicantHistoryPage() {
             <DetailedCandidateHeader
               name={candidateName}
               role={candidateRole}
-              status={applicant?.status_label ?? undefined}
               profilePhotoUrl={applicant?.profile_photo_url ?? undefined}
               workerId={applicantId}
               candidateEmail={applicant?.email ?? null}

@@ -38,6 +38,11 @@ export type WorkflowCompletionResult = {
   firstPostHireStep: TenantOnboardingStep | null;
   firstPostHireRoute: string | null;
   nextIncompletePostHireRoute: string | null;
+  /**
+   * True only when every required Pre-Hire step in the dynamic workflow is finished,
+   * including recruiter steps the candidate does not see.
+   */
+  postHireReady?: boolean;
 };
 
 function normalizeStatus(status: string | null | undefined): string {

@@ -78,11 +78,13 @@ export function AdminRecruiterSidebar({
   const [sidebarHovered, setSidebarHovered] = useState(false);
   const navRef = useRef<HTMLElement>(null);
 
-  const sidebarSections = isGodAdmin
-    ? GOD_ADMIN_SIDEBAR_SECTIONS
-    : isRecruiter
-      ? CLIENT_SIDEBAR_SECTIONS.filter((section) => section.label !== "Automation")
-      : CLIENT_SIDEBAR_SECTIONS;
+  const sidebarSections = useMemo(() => {
+    if (isGodAdmin) return GOD_ADMIN_SIDEBAR_SECTIONS;
+    if (isRecruiter) {
+      return CLIENT_SIDEBAR_SECTIONS.filter((section) => section.label !== "Automation");
+    }
+    return CLIENT_SIDEBAR_SECTIONS;
+  }, [isGodAdmin, isRecruiter]);
 
   const handleNavClick = () => {
     onMobileClose?.();
@@ -156,7 +158,10 @@ export function AdminRecruiterSidebar({
       )
       .map((section) => section.label);
     if (activeParents.length === 0) return;
-    setOpenSectionLabels((prev) => Array.from(new Set([...prev, ...activeParents])));
+    setOpenSectionLabels((prev) => {
+      if (activeParents.every((label) => prev.includes(label))) return prev;
+      return Array.from(new Set([...prev, ...activeParents]));
+    });
   }, [pathname, sidebarSections]);
 
   useEffect(() => {

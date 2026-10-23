@@ -97,7 +97,6 @@ export default function CandidatePreHirePage() {
           <DetailedCandidateHeader
             name={name}
             role={worker?.job_role ?? ""}
-            status={worker?.status_label ?? worker?.status ?? undefined}
             profilePhotoUrl={worker?.profile_photo_url}
             workerId={applicantId}
             candidateEmail={worker?.email}

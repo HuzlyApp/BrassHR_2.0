@@ -1598,6 +1598,13 @@ export function AiAnalysisOverviewClient({
                 applicationId={applicationId}
                 stageName={preHireStageName}
                 showHiringJourneyHint
+                hiringJourneyHref={
+                  workerId
+                    ? embedded
+                      ? candidateDetailPreHireHref(workerId)
+                      : candidateHireJourneyHref(workerId)
+                    : null
+                }
                 onStatusChanged={(next) => {
                   setStatusName(next.statusName);
                   setStatusSystemKey(null);

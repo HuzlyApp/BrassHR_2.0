@@ -25,17 +25,7 @@ function readStepPhase(step: TenantOnboardingStep): StepPhase {
 }
 
 function isPostHireUnlocked(progress: WorkerOnboardingProgressPayload | null): boolean {
-  if (progress?.workflowPhase === "post_hire" || progress?.workflowPhase === "completed") {
-    return true;
-  }
-  const appStatus = String(progress?.applicationStatus ?? "").toLowerCase();
-  if (appStatus === "hired") return true;
-  for (const step of progress?.steps ?? []) {
-    if (step.data?.transition_approved === true || step.data?.post_hire_unlocked === true) {
-      return true;
-    }
-  }
-  return false;
+  return progress?.workflowPhase === "post_hire" || progress?.workflowPhase === "completed";
 }
 
 function preferStatus(

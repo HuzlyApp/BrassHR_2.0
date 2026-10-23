@@ -270,7 +270,7 @@ export default function NewApplicantSkillAssessmentsPage() {
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [uploadingPdf, setUploadingPdf] = useState(false);
   const pdfInputRef = useRef<HTMLInputElement>(null);
-  const { status: candidateStatus, profilePhotoUrl, email: candidateEmail } =
+  const { profilePhotoUrl, email: candidateEmail } =
     useCandidateHeader(applicantId);
 
   const loadSkillPdfs = useCallback(async () => {
@@ -611,7 +611,6 @@ export default function NewApplicantSkillAssessmentsPage() {
             <DetailedCandidateHeader
               name={candidateName}
               role={candidateRole}
-              status={candidateStatus ?? applicant?.status_label}
               profilePhotoUrl={profilePhotoUrl}
               workerId={applicantId}
               candidateEmail={candidateEmail}

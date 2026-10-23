@@ -82,6 +82,7 @@ describe("PreHireCompletionView", () => {
     firstPostHireStep: null,
     firstPostHireRoute: "/application/custom-step/direct_deposit?tenant=subdomaintest",
     nextIncompletePostHireRoute: "/application/custom-step/direct_deposit?tenant=subdomaintest",
+    postHireReady: true,
   };
 
   it("renders congratulations message and pre-hire completed text", () => {
@@ -91,6 +92,14 @@ describe("PreHireCompletionView", () => {
     expect(screen.getByText(/your all pre hire steps are completed/i)).toBeDefined();
     expect(screen.getByText(/you continue with post hire steps/i)).toBeDefined();
     expect(screen.getByRole("button", { name: /continue with post hire/i })).toBeDefined();
+  });
+
+  it("hides the post-hire button until every required pre-hire step is complete", () => {
+    render(<PreHireCompletionView completionResult={{ ...mockResult, postHireReady: false }} />);
+
+    expect(screen.queryByRole("button", { name: /continue with post hire/i })).toBeNull();
+    expect(screen.queryByText(/you continue with post hire steps/i)).toBeNull();
+    expect(screen.getByText(/post-hire opens after every required pre-hire step is complete/i)).toBeDefined();
   });
 
   it("triggers continue callback when Continue with post hire is clicked", () => {
@@ -124,6 +133,7 @@ describe("PostHireCompletionView", () => {
     firstPostHireStep: null,
     firstPostHireRoute: null,
     nextIncompletePostHireRoute: null,
+    postHireReady: true,
   };
 
   it("renders congratulations and all steps completed message on last screen", () => {

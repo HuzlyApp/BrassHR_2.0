@@ -400,7 +400,7 @@ describe("assigned workflow steps", () => {
       progressByStepId: new Map([["tenant-resume", { onboarding_step_id: "tenant-resume", status: "completed" }]]),
     });
     expect(mapped[0]?.status).toBe("completed");
-    expect(mapped[0]?.displayStatus).toBe("submitted");
+    expect(mapped[0]?.displayStatus).toBe("completed");
     expect(mapped[0]?.tenantStepId).toBe("tenant-resume");
     expect(mapped[0]?.settings).toEqual({ stageName: "Intake", phase: "pre_hire" });
   });
@@ -482,7 +482,7 @@ describe("assigned workflow steps", () => {
       steps: mapped,
       hasResumeUpload: true,
     });
-    expect(enriched[0]?.displayStatus).toBe("submitted");
+    expect(enriched[0]?.displayStatus).toBe("completed");
   });
 
   function mapIdentityStep(
@@ -579,14 +579,14 @@ describe("assigned workflow steps", () => {
       })[0]!;
     }
 
-    it("shows Submitted when the candidate completes it, without changing the progress status", () => {
+    it("shows Completed when the candidate finishes an input step, without a recruiter mark", () => {
       const step = mapInfo({});
       expect(step.candidateOwned).toBe(true);
       expect(step.status).toBe("completed");
-      expect(step.displayStatus).toBe("submitted");
+      expect(step.displayStatus).toBe("completed");
       expect(step.verifiedAt).toBeNull();
-      expect(stepDisplayStatusLabel(step)).toBe("Submitted");
-      expect(stepStatusPill(step)).toEqual({ label: "Submitted", tone: "info" });
+      expect(stepDisplayStatusLabel(step)).toBe("Completed");
+      expect(stepStatusPill(step)).toBeNull();
     });
 
     it("shows Completed once a recruiter marks it complete", () => {
@@ -601,13 +601,66 @@ describe("assigned workflow steps", () => {
       expect(stepStatusPill(step)).toBeNull();
     });
 
-    it("goes back to Submitted when the candidate re-submits after verification", () => {
-      const step = mapInfo(
-        { review_decision: "complete", status_changed_at: "2026-10-11T09:00:00.000Z" },
-        { ...submitted, completed_at: "2026-10-12T08:00:00.000Z" }
-      );
-      expect(step.displayStatus).toBe("submitted");
-      expect(step.verifiedAt).toBeNull();
+    it("keeps a document step Submitted until the recruiter marks it complete", () => {
+      const [step] = mapAssignedStepRecords({
+        records: [
+          {
+            id: "rec-docs",
+            snapshot_step_id: "step-documents",
+            title: "Collect documents",
+            step_type: "document-upload",
+            is_required: true,
+            position: 3,
+            status: "completed",
+            settings: { completionOwner: "applicant" },
+          },
+        ],
+        tenantSteps: [
+          tenantStep({
+            id: "tenant-docs",
+            step_key: "document_upload",
+            title: "Collect documents",
+            step_type: "document_upload",
+          }),
+        ],
+        progressByStepId: new Map([
+          ["tenant-docs", { onboarding_step_id: "tenant-docs", status: "completed", completed_at: "2026-10-10T10:00:00.000Z" }],
+        ]),
+      });
+      expect(step?.displayStatus).toBe("submitted");
+      expect(stepDisplayStatusLabel(step!)).toBe("Submitted");
+    });
+
+    it("goes back to Submitted when the candidate re-submits a document after verification", () => {
+      const [step] = mapAssignedStepRecords({
+        records: [
+          {
+            id: "rec-docs",
+            snapshot_step_id: "step-documents",
+            title: "Collect documents",
+            step_type: "document-upload",
+            is_required: true,
+            position: 3,
+            status: "completed",
+            settings: { completionOwner: "applicant" },
+            review_decision: "complete",
+            status_changed_at: "2026-10-11T09:00:00.000Z",
+          },
+        ],
+        tenantSteps: [
+          tenantStep({
+            id: "tenant-docs",
+            step_key: "document_upload",
+            title: "Collect documents",
+            step_type: "document_upload",
+          }),
+        ],
+        progressByStepId: new Map([
+          ["tenant-docs", { onboarding_step_id: "tenant-docs", status: "completed", completed_at: "2026-10-12T08:00:00.000Z" }],
+        ]),
+      });
+      expect(step?.displayStatus).toBe("submitted");
+      expect(step?.verifiedAt).toBeNull();
     });
 
     it("leaves unfinished candidate steps and recruiter steps alone", () => {

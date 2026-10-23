@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts } from "pdf-lib";
+import { mapResumeSymbol } from "@/lib/resume/resume-glyphs";
 import { stripNullBytes } from "@/lib/resume/sanitize-postgres-text";
 
 /**
@@ -13,6 +14,8 @@ const WIN_ANSI_EXTRAS = new Set([
 
 /** Map common Unicode lookalikes to WinAnsi-safe characters before the catch-all. */
 function foldToWinAnsi(ch: string): string {
+  const symbol = mapResumeSymbol(ch);
+  if (symbol != null) return symbol;
   switch (ch) {
     case "\u25CF": // ●
     case "\u25E6": // ◦

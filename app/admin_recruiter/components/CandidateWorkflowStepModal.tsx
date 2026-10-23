@@ -379,7 +379,6 @@ export default function CandidateWorkflowStepModal({
   workerId,
   onStepUpdated,
   onScheduleInterview,
-  completeWithoutConfirmation = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -391,8 +390,6 @@ export default function CandidateWorkflowStepModal({
   onStepUpdated?: () => void | Promise<void>;
   /** Shown on interview steps until the interview outcome is recorded. */
   onScheduleInterview?: () => void;
-  /** Hiring journey completes the step from the first Mark as complete click. */
-  completeWithoutConfirmation?: boolean;
 }) {
   const branding = useTenantBranding();
   const hireJourneyTheme = useHireJourneyTheme();
@@ -746,18 +743,10 @@ export default function CandidateWorkflowStepModal({
 
   function markCompleteNow(flags: { onBehalf: boolean; verify: boolean }) {
     setActionError(null);
-    if (completeWithoutConfirmation) {
-      // Hiring journey skips the "Complete this step for the candidate?" dialog.
-      // Reject, review, and reopen still open WorkflowStepStaffActionModal.
-      void submitAction(
-        { note: "", notifyCandidate: false },
-        { action: "complete", onBehalf: flags.onBehalf, verify: flags.verify }
-      );
-      return;
-    }
-    setPendingOnBehalf(flags.onBehalf);
-    setPendingVerify(flags.verify);
-    setPendingAction("complete");
+    void submitAction(
+      { note: "", notifyCandidate: false },
+      { action: "complete", onBehalf: flags.onBehalf, verify: flags.verify }
+    );
   }
 
   return (
@@ -811,6 +800,11 @@ export default function CandidateWorkflowStepModal({
               {currentInspection ? (
                 <p className="mt-2 text-xs text-slate-600">{ownership.note}</p>
               ) : null}
+              {currentInspection?.completedBy && currentInspection.step.displayStatus === "completed" ? (
+                <p className="mt-1 text-xs font-medium text-slate-700">
+                  Completed by {currentInspection.completedBy}
+                </p>
+              ) : null}
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
@@ -833,7 +827,7 @@ export default function CandidateWorkflowStepModal({
           </div>
 
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-[#F8FAFC] px-5 py-4">
-            {actionError && completeWithoutConfirmation ? (
+            {actionError && !pendingAction ? (
               <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
                 {actionError}
               </div>
@@ -991,41 +985,6 @@ export default function CandidateWorkflowStepModal({
                     </div>
                   </Section>
                 ) : null}
-
-                <Section title="Overview">
-                  <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {/* Step identity fields hidden on Pre-Hire and Post-Hire step details.
-                    <Meta label="Step name" value={inspection.step.title} />
-                    <Meta label="Step type" value={titleCase(inspection.step.stepType)} />
-                    <Meta label="Phase" value={lifecyclePhaseLabel(inspection.phase)} />
-                    <Meta
-                      label="Requirement"
-                      value={inspection.step.required ? "Required" : "Optional"}
-                    />
-                    <Meta label="Completed by" value={inspection.completedBy} />
-                    <Meta label="Step for" value={ownership.stepFor} />
-                    */}
-                    <Meta label="Workflow" value={inspection.workflowName} />
-                    <Meta label="Workflow version" value={inspection.workflowVersion} />
-                    <Meta
-                      label="Verified by"
-                      value={
-                        candidateReview
-                          ? candidateReview.verifiedBy ??
-                            (candidateReview.canVerify ? "Awaiting recruiter review" : null)
-                          : inspection.approvedOrRejectedBy
-                      }
-                    />
-                    {/*
-                    {candidateReview?.verifiedAt ? (
-                      <Meta label="Verified on" value={formatDateTime(candidateReview.verifiedAt)} />
-                    ) : null}
-                    {inspection.reviewable ? (
-                      <Meta label="Approved or rejected by" value={inspection.approvedOrRejectedBy} />
-                    ) : null}
-                    */}
-                  </dl>
-                </Section>
 
                 {/* Timeline hidden from step details.
                 <Section title="Timeline">
@@ -1481,9 +1440,6 @@ export default function CandidateWorkflowStepModal({
                   <button
                     type="button"
                     onClick={() => {
-                      // Confirmation popup skipped on the hiring journey.
-                      // setPendingOnBehalf / setPendingVerify / setPendingAction("complete")
-                      // still run from markCompleteNow when confirmation is required.
                       const verify = Boolean(
                         canVerifyCandidate || inspection?.step.displayStatus === "submitted"
                       );
@@ -1512,8 +1468,6 @@ export default function CandidateWorkflowStepModal({
                   <button
                     type="button"
                     onClick={() => {
-                      // Confirmation popup skipped on the hiring journey.
-                      // setPendingOnBehalf(true); setPendingAction("complete");
                       markCompleteNow({ onBehalf: true, verify: false });
                     }}
                     disabled={submitting || uploadingKey != null}
@@ -1533,8 +1487,6 @@ export default function CandidateWorkflowStepModal({
                     onClick={() => {
                       setActionError(null);
                       if (action === "complete") {
-                        // Confirmation popup skipped on the hiring journey.
-                        // setPendingAction("complete");
                         markCompleteNow({ onBehalf: false, verify: false });
                         return;
                       }
@@ -1567,15 +1519,9 @@ export default function CandidateWorkflowStepModal({
           ) : null}
         </Dialog.Content>
       </Dialog.Portal>
-      {/*
-        Confirmation dialog ("Complete … for the candidate?").
-        On the hiring journey, Mark as complete does not open this dialog.
-        Reject, Need to Review, and Reopen still use it.
-      */}
+      {/* Reject, Need to Review, and Reopen. Mark as complete skips this dialog. */}
       <WorkflowStepStaffActionModal
-        action={
-          completeWithoutConfirmation && pendingAction === "complete" ? null : pendingAction
-        }
+        action={pendingAction === "complete" ? null : pendingAction}
         variant={variant}
         optional={inspection ? !inspection.step.required : false}
         onBehalf={pendingOnBehalf}

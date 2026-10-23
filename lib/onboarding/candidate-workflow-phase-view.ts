@@ -6,7 +6,6 @@ import { loadTenantOnboardingConfig } from "@/lib/onboarding/load-tenant-config"
 import {
   canRevealPostHire,
   canRevealPostHireForStaffJourney,
-  hasCompletedAgreementEsignStep,
 } from "@/lib/onboarding/lock-post-hire";
 
 import { resolveCandidateHireGate } from "@/lib/onboarding/resolve-candidate-hire-gate";
@@ -262,7 +261,6 @@ export async function loadCandidateWorkflowPhaseView(
   const workflowPhase = hireGate.workflowPhase;
   const postHireUnlockedAt = hireGate.postHireUnlockedAt;
   const postHireSuspended = hireGate.postHireSuspended;
-  const postHireUnlocked = hireGate.postHireUnlocked;
   const postHireActivationFailed = hireGate.postHireActivationFailed;
 
   const workerRow = (workerRes.data ?? {}) as Record<string, unknown>;
@@ -551,8 +549,7 @@ export async function loadCandidateWorkflowPhaseView(
     ) ??
     null;
 
-  const agreementEsignDone = hasCompletedAgreementEsignStep(preHireSteps);
-  const effectivePostHireUnlocked = postHireVisible && (postHireUnlocked || agreementEsignDone);
+  const effectivePostHireUnlocked = postHireVisible && !postHireSuspended;
 
   const onboarded = isCandidateAlreadyConverted(workerRow);
   const currentStage = resolveEmploymentJourneyStage({

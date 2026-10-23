@@ -51,7 +51,7 @@ describe("resolveWorkflowPersistTarget", () => {
     expect(target.action).not.toBe("tenant-default-flow");
   });
 
-  it("keeps Publish to All on the tenant default flow when no template is open", () => {
+  it("keeps Publish Workflow on the tenant default flow when no template is open", () => {
     expect(
       resolveWorkflowPersistTarget({
         editingTemplate: null,

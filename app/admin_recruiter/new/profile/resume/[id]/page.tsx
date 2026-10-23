@@ -242,7 +242,6 @@ export default function NewApplicantProfileResumePage() {
             <DetailedCandidateHeader
               name={candidateName}
               role={candidateRole}
-              status={candidateStatus}
               profilePhotoUrl={w?.profile_photo_url}
               workerId={applicantId}
               candidateEmail={w?.email ?? null}

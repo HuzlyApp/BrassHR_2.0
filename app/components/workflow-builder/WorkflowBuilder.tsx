@@ -139,7 +139,7 @@ function WorkflowBuilderInner({
   onSaveAsTemplate,
   onPreview,
   onPublish,
-  publishLabel = "Publish to All",
+  publishLabel = "Publish Workflow",
   embedded = false,
   publishStatusLabel,
   toolbarData,

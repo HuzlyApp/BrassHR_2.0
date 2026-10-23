@@ -31,6 +31,17 @@ export {
   replaceGroupButtonLanes,
 } from "./service";
 export {
+  assertApplicationStatusInTenant,
+  listApplicationStatusUsage,
+  listApplicationStatusVersions,
+  statusDeleteBlockReason,
+} from "./status-catalog-audit";
+export type {
+  ApplicationStatusUsage,
+  ApplicationStatusUsageRecord,
+  ApplicationStatusVersionRecord,
+} from "./types";
+export {
   getApplicationStatusSummariesForWorkers,
   getApplicationStatusSummaryForWorker,
 } from "./attach-worker-application-status";

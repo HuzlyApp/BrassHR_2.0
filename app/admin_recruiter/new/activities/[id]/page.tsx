@@ -317,7 +317,6 @@ export default function NewApplicantActivitiesPage() {
             <DetailedCandidateHeader
               name={candidateName}
               role={candidateRole}
-              status={statusLabel}
               profilePhotoUrl={applicant?.profile_photo_url}
               workerId={applicantId}
               candidateEmail={applicant?.email ?? null}
