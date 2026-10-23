@@ -37,6 +37,28 @@ describe("resolveRecruiterDashboardUrl", () => {
     expect(url).toBe("/admin_recruiter/home");
   });
 
+  it("keeps staging preview hosts on the same origin", () => {
+    const url = resolveRecruiterDashboardUrl({
+      path: "/admin_recruiter/jobs",
+      tenantSubdomain: "0kjsu1",
+      currentHostname: "brasshr-devmode.vercel.app",
+      protocol: "https",
+      rootDomain: "brasshr.com",
+    });
+    expect(url).toBe("/admin_recruiter/jobs");
+  });
+
+  it("does not build a vanity host when the root domain is a Vercel preview host", () => {
+    const url = resolveRecruiterDashboardUrl({
+      path: "/admin_recruiter/jobs",
+      tenantSubdomain: "0kjsu1",
+      currentHostname: "brasshr-devmode.vercel.app",
+      protocol: "https",
+      rootDomain: "brasshr-devmode.vercel.app",
+    });
+    expect(url).toBe("/admin_recruiter/jobs");
+  });
+
   it("keeps localhost relative for local development", () => {
     const url = resolveRecruiterDashboardUrl({
       path: "/admin_recruiter/home",

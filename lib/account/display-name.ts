@@ -1,4 +1,5 @@
 import type { User } from "@supabase/supabase-js";
+import { appRoleToConsoleRole, staffRoleLabel } from "@/lib/admin/staff-directory-types";
 import type { AccountOrganization, AccountProfile } from "./types";
 
 export function buildFullName(firstName?: string | null, lastName?: string | null): string | null {
@@ -41,6 +42,8 @@ export function getOrganizationDisplayName(
 }
 
 export function formatRoleLabel(role: string | null | undefined): string {
+  const consoleRole = appRoleToConsoleRole(role);
+  if (consoleRole) return staffRoleLabel(consoleRole);
   if (!role) return "Account Owner";
   return role
     .replace(/_/g, " ")
