@@ -113,6 +113,7 @@ import {
 } from "@/lib/onboarding/firma-step-settings";
 import { tryGetFirmaSigningRequestDownload } from "@/lib/firma/client";
 import { resolveTenantFirmaWorkspaceId } from "@/lib/firma/resolve-tenant-workspace";
+import { isBackgroundCheckAuthorizationStep } from "@/lib/onboarding/authorizations-documents-step";
 import { isAgreementOrSignatureStep } from "@/lib/onboarding/is-agreement-step";
 import { isAgreementEsignStep, isAuthorizationEsignStep } from "@/lib/onboarding/lock-post-hire";
 import {
@@ -1253,6 +1254,43 @@ export async function loadCandidateWorkflowStepInspection(
         .eq("signing_request_id", asText(progressData.signing_request_id)!)
         .maybeSingle();
       if (byRequestId) session = byRequestId;
+    }
+
+    // Background check can sign through a sibling step that holds the template.
+    if (!session) {
+      const templateId =
+        asText(recordSettings.firmaRecruiterTemplateId) ??
+        (tenantStep ? getFirmaRecruiterTemplateId(tenantStep) : null);
+      const backgroundStepIds =
+        kind === "background_check"
+          ? tenantSteps
+              .filter((step) => isBackgroundCheckAuthorizationStep(step))
+              .map((step) => step.id)
+          : [];
+      const sessionColumns =
+        "id, onboarding_step_id, firma_status, created_at, updated_at, recruiter_template_id, signing_request_id, firma_workspace_id";
+      if (templateId) {
+        const { data: byTemplate } = await supabase
+          .from("worker_firma_signing_sessions")
+          .select(sessionColumns)
+          .eq("tenant_id", tenantId)
+          .eq("worker_id", workerId)
+          .eq("recruiter_template_id", templateId)
+          .order("created_at", { ascending: false })
+          .limit(1);
+        session = ((byTemplate ?? []) as Array<Record<string, unknown>>)[0] ?? null;
+      }
+      if (!session && backgroundStepIds.length) {
+        const { data: byBackgroundStep } = await supabase
+          .from("worker_firma_signing_sessions")
+          .select(sessionColumns)
+          .eq("tenant_id", tenantId)
+          .eq("worker_id", workerId)
+          .in("onboarding_step_id", backgroundStepIds)
+          .order("created_at", { ascending: false })
+          .limit(1);
+        session = ((byBackgroundStep ?? []) as Array<Record<string, unknown>>)[0] ?? null;
+      }
     }
 
     const signingRequestId = asText(session?.signing_request_id) ?? asText(progressData.signing_request_id);
