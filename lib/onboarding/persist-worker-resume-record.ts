@@ -21,6 +21,13 @@ export type PersistWorkerResumeRecordOpts = {
   uploadedByUserId?: string | null;
   uploaderRole?: ResumeUploaderRole;
   /**
+   * Worker already resolved for this upload. Required when the auth user has
+   * a worker row in more than one tenant — an unscoped user_id lookup then
+   * returns multiple rows and PostgREST rejects maybeSingle().
+   */
+  workerId?: string | null;
+  tenantId?: string | null;
+  /**
    * Applying to a job always has to succeed, so the job-application resume step
    * opts out of the quota. Uploads started from a Resume Submitted screen do not.
    */
@@ -36,24 +43,87 @@ export type PersistWorkerResumeRecordOptions = {
 
 const WORKER_RESUME_SELECT = "id, tenant_id, user_id, first_name, last_name";
 
-async function resolveWorkerForResume(
-  supabase: SupabaseClient,
-  applicantId: string
-): Promise<{
+type WorkerResumeIdentity = {
   workerId: string;
   tenantId: string;
   userId: string | null;
   firstName: string | null;
   lastName: string | null;
-} | null> {
+};
+
+function mapWorkerResumeIdentity(worker: {
+  id?: unknown;
+  tenant_id?: unknown;
+  user_id?: unknown;
+  first_name?: unknown;
+  last_name?: unknown;
+}): WorkerResumeIdentity | null {
+  if (!worker?.id || worker.tenant_id == null) return null;
+  return {
+    workerId: String(worker.id),
+    tenantId: String(worker.tenant_id),
+    userId: worker.user_id != null ? String(worker.user_id) : null,
+    firstName: worker.first_name != null ? String(worker.first_name) : null,
+    lastName: worker.last_name != null ? String(worker.last_name) : null,
+  };
+}
+
+async function resolveWorkerForResume(
+  supabase: SupabaseClient,
+  applicantId: string,
+  scope?: { workerId?: string | null; tenantId?: string | null }
+): Promise<WorkerResumeIdentity | null> {
+  const scopedWorkerId = scope?.workerId?.trim() || "";
+  const scopedTenantId = scope?.tenantId?.trim() || "";
+
+  if (scopedWorkerId) {
+    let query = supabase
+      .from("worker")
+      .select(WORKER_RESUME_SELECT)
+      .eq("id", scopedWorkerId);
+    if (scopedTenantId) query = query.eq("tenant_id", scopedTenantId);
+    const { data, error } = await query.maybeSingle();
+    if (error) throw error;
+    return mapWorkerResumeIdentity(data ?? {});
+  }
+
+  if (scopedTenantId) {
+    const byUser = await supabase
+      .from("worker")
+      .select(WORKER_RESUME_SELECT)
+      .eq("user_id", applicantId)
+      .eq("tenant_id", scopedTenantId)
+      .maybeSingle();
+    if (byUser.error) throw byUser.error;
+    const scoped = mapWorkerResumeIdentity(byUser.data ?? {});
+    if (scoped) return scoped;
+
+    const byId = await supabase
+      .from("worker")
+      .select(WORKER_RESUME_SELECT)
+      .eq("id", applicantId)
+      .eq("tenant_id", scopedTenantId)
+      .maybeSingle();
+    if (byId.error) throw byId.error;
+    return mapWorkerResumeIdentity(byId.data ?? {});
+  }
+
+  // One auth user can have a worker row per tenant. maybeSingle() errors
+  // (PGRST116) when more than one row matches, which aborted resume save.
   const byUser = await supabase
     .from("worker")
     .select(WORKER_RESUME_SELECT)
     .eq("user_id", applicantId)
-    .maybeSingle();
+    .limit(2);
   if (byUser.error) throw byUser.error;
+  const userRows = byUser.data ?? [];
+  if (userRows.length > 1) {
+    throw new Error(
+      "Multiple worker profiles exist for this account. Tenant is required to save the resume."
+    );
+  }
 
-  let worker = byUser.data;
+  let worker: (typeof userRows)[number] | null = userRows[0] ?? null;
   if (!worker?.id) {
     const byId = await supabase
       .from("worker")
@@ -64,14 +134,7 @@ async function resolveWorkerForResume(
     worker = byId.data;
   }
 
-  if (!worker?.id || worker.tenant_id == null) return null;
-  return {
-    workerId: String(worker.id),
-    tenantId: String(worker.tenant_id),
-    userId: worker.user_id != null ? String(worker.user_id) : null,
-    firstName: worker.first_name != null ? String(worker.first_name) : null,
-    lastName: worker.last_name != null ? String(worker.last_name) : null,
-  };
+  return mapWorkerResumeIdentity(worker ?? {});
 }
 
 function buildResumeRow(
@@ -126,7 +189,10 @@ export async function persistWorkerResumeRecord(
   opts: PersistWorkerResumeRecordOpts,
   recordOptions?: PersistWorkerResumeRecordOptions
 ): Promise<string | null> {
-  const worker = await resolveWorkerForResume(supabase, applicantId);
+  const worker = await resolveWorkerForResume(supabase, applicantId, {
+    workerId: opts.workerId,
+    tenantId: opts.tenantId,
+  });
   if (!worker) return null;
 
   const mode = recordOptions?.mode ?? "insert";

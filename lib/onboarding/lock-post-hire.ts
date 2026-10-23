@@ -1,5 +1,13 @@
 import { isCompleteDisplayStatus } from "@/lib/onboarding/assigned-workflow-steps";
 import type { WorkflowStepDisplayStatus } from "@/lib/onboarding/assigned-workflow-steps";
+import {
+  POST_HIRE_COMPLETION_STEP_ID,
+  PRE_HIRE_COMPLETION_STEP_ID,
+} from "@/lib/onboarding/phase-completion-steps";
+import {
+  ALWAYS_OPTIONAL_STEP_LIBRARY_IDS,
+  UPLOAD_LATER_STEP_LIBRARY_IDS,
+} from "@/lib/onboarding/reference-verification";
 import type { OnboardingStepStatus } from "@/lib/onboarding/types";
 import { isPlacementAcceptedStatus, parseApplicantLifecyclePhase, type ApplicantLifecyclePhase } from "@/lib/onboarding/workflow-phase";
 
@@ -31,10 +39,83 @@ export type PreHireProgressStep = {
   stepKey?: string | null;
   stepType?: string | null;
   title?: string | null;
+  phase?: string | null;
   required?: boolean;
-  displayStatus?: WorkflowStepDisplayStatus | OnboardingStepStatus | null;
+  displayStatus?: WorkflowStepDisplayStatus | OnboardingStepStatus | string | null;
   status?: OnboardingStepStatus | string | null;
 };
+
+const NON_BLOCKING_PRE_HIRE_LIBRARY_IDS = new Set<string>([
+  ...ALWAYS_OPTIONAL_STEP_LIBRARY_IDS,
+  ...UPLOAD_LATER_STEP_LIBRARY_IDS,
+  PRE_HIRE_COMPLETION_STEP_ID,
+  POST_HIRE_COMPLETION_STEP_ID,
+  "completion-milestone",
+]);
+
+function normalizeLibraryId(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase().replaceAll("_", "-");
+}
+
+function stepLibraryIds(step: PreHireProgressStep): string[] {
+  return [step.snapshotStepId, step.stepKey, step.stepType]
+    .map(normalizeLibraryId)
+    .filter(Boolean);
+}
+
+/** Finished for the required-step gate. A candidate submission still needs recruiter review. */
+export function isResolvedRequiredPreHireStatus(status: string | null | undefined): boolean {
+  const norm = String(status ?? "").trim().toLowerCase();
+  return (
+    norm === "completed" ||
+    norm === "approved" ||
+    norm === "skipped" ||
+    norm === "not_applicable" ||
+    norm === "signed" ||
+    norm === "complete"
+  );
+}
+
+function isCompletionMilestoneStep(step: PreHireProgressStep): boolean {
+  if (stepLibraryIds(step).some((id) => NON_BLOCKING_PRE_HIRE_LIBRARY_IDS.has(id) || id.includes("completion-milestone"))) {
+    return stepLibraryIds(step).some((id) => id.includes("completion-milestone") || id === "completion-milestone");
+  }
+  const title = String(step.title ?? "").trim().toLowerCase();
+  return title === "pre-hire complete" || title === "post-hire complete";
+}
+
+/** Required dynamic-workflow Pre-Hire steps that must finish before Post-Hire opens. */
+export function isBlockingRequiredPreHireStep(step: PreHireProgressStep): boolean {
+  if (String(step.phase ?? "").trim().toLowerCase() === "post_hire") return false;
+  if (step.required === false) return false;
+  if (stepLibraryIds(step).some((id) => NON_BLOCKING_PRE_HIRE_LIBRARY_IDS.has(id))) return false;
+  if (isCompletionMilestoneStep(step)) return false;
+  return true;
+}
+
+/**
+ * Post-Hire stays locked until every required Pre-Hire step is finished.
+ * Optional steps, upload-later steps, and the completion screen itself do not block.
+ * `submitted` does not count — the recruiter still has to mark that step complete.
+ */
+export function areAllRequiredPreHireStepsComplete(steps: PreHireProgressStep[]): boolean {
+  const required = steps.filter(isBlockingRequiredPreHireStep);
+  if (!required.length) return true;
+  return required.every((step) =>
+    isResolvedRequiredPreHireStatus(String(step.displayStatus ?? step.status ?? ""))
+  );
+}
+
+export function isHrFinalApprovalStep(step: {
+  snapshotStepId?: string | null;
+  stepKey?: string | null;
+  stepType?: string | null;
+  title?: string | null;
+}): boolean {
+  const ids = [step.snapshotStepId, step.stepKey, step.stepType].map(normalizeLibraryId);
+  if (ids.some((id) => id === "hr-final-approval" || id.includes("hr-final-approval"))) return true;
+  return String(step.title ?? "").trim().toLowerCase().includes("hr final approval");
+}
 
 function esignStepIds(step: {
   snapshotStepId?: string | null;
@@ -149,21 +230,16 @@ export function areRequiredPreHireStepsAlmostComplete(steps: PreHireProgressStep
 }
 
 /**
- * Staff hire-journey Post-Hire tab:
- * - after conversion (Approve as Worker), or
- * - after the recruiter marks Agreement e-sign complete, or
- * - after application is Selected (hired) and required Pre-Hire steps are nearly complete.
+ * Staff hire-journey Post-Hire tab opens only when every required Pre-Hire step
+ * in the dynamic workflow is finished. Conversion, hired status, Agreement e-sign,
+ * and "almost complete" progress do not open it on their own.
  */
 export function canRevealPostHireForStaffJourney(params: {
   convertedVisible: boolean;
   applicationHired: boolean;
   preHireSteps: PreHireProgressStep[];
 }): boolean {
-  if (params.convertedVisible) return true;
-  if (hasCompletedAgreementEsignStep(params.preHireSteps)) return true;
-  return (
-    params.applicationHired && areRequiredPreHireStepsAlmostComplete(params.preHireSteps)
-  );
+  return areAllRequiredPreHireStepsComplete(params.preHireSteps);
 }
 
 export function shouldRejectPostHirePhaseRequest(

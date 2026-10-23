@@ -85,7 +85,8 @@ One experience object per dated employer, in source order. If that job has an Ob
 If a job has no objective and no bullets, leave bullets empty. Do not invent a bullet from the job title.
 Do not reduce older roles to a few bullets. Do not cut a quarter of the bullets. Recent and older roles follow the same rule.
 skills[] is one entry per source skill line or labeled group, copied from the source. Do not flatten labeled groups into one keyword string.
-Set summaryHeading, skillsHeading, and experienceHeading to the source section titles when the source has them. Leave a heading empty when it does not.
+Leave summaryHeading, skillsHeading, experienceHeading, educationHeading, and licensesHeading empty.
+Put certification and license names in licenses[], not in skills[].
 Set headline to the target job title.
 When a screening response, follow-up answer, or interview note states a concrete project, tool, responsibility, metric, certification, or education detail that is not already on the résumé, add it as an extra bullet under the employer the candidate named, or as an extra skill line. Use the candidate's wording. Do not replace or rewrite an existing bullet.
 If they named no employer, put the new fact in the summary or as a short skill only when they explicitly claimed that skill or tool.
@@ -143,8 +144,8 @@ export function neutralizeSubmissionShrinkRules(catalogSystem: string): string {
       "Keep chronological jobs and the source wording."
     )
     .replace(
-      /Set headline only when the source has a headline\.\s*Do not invent one from the target job\./gi,
-      "Set headline to the target job title."
+      /Set summaryHeading, skillsHeading, and experienceHeading to the source section titles when the source has them\.\s*Leave a heading empty when it does not\./gi,
+      "Leave summaryHeading, skillsHeading, experienceHeading, educationHeading, and licensesHeading empty. Put certification and license names in licenses[], not in skills[]."
     )
     .replace(
       /Headline is empty unless the source has a headline\.\s*/gi,

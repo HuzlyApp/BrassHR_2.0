@@ -1327,7 +1327,7 @@ export default function TenantOnboardingWorkflowBuilder({
           <p className="font-semibold">Draft changes are not live until published</p>
           <p className="mt-1 text-amber-900/90">
             Autosave keeps your workflow canvas as a draft. Applicants and recruiters still see the
-            last published flow until you click <strong>Publish to All</strong>. Use Preview to test
+            last published flow until you click <strong>Publish Workflow</strong>. Use Preview to test
             the draft in a new tab.
           </p>
         </div>
@@ -1386,7 +1386,7 @@ export default function TenantOnboardingWorkflowBuilder({
           onSaveAsTemplate={(state) => void persist(state, { template: true })}
           onPreview={handlePreview}
           onPublish={(state) => void persist(state, { publish: true })}
-          publishLabel={editingTemplate ? "Publish" : "Publish to All"}
+          publishLabel={editingTemplate ? "Publish" : "Publish Workflow"}
         />
       </div>
 

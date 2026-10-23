@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Inter, Poppins, Roboto, Ubuntu } from "next/font/google";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import ReactQueryProvider from "@/app/components/ReactQueryProvider";
 import TenantBrandingRoot from "@/app/components/tenant/TenantBrandingRoot";
 import TenantBrandingHead from "@/app/components/tenant/TenantBrandingHead";
@@ -89,6 +90,7 @@ export default function RootLayout({
             toastOptions={{ duration: 4000 }}
           />
         </ReactQueryProvider>
+        <SpeedInsights />
       </body>
     </html>
   );

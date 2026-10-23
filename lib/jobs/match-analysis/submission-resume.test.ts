@@ -144,7 +144,7 @@ describe("submission résumé pack", () => {
       expect.arrayContaining(["Lead Test Professional", "Test Coordinator"])
     );
     expect(resume.experience[0]?.title).toBe("Lead Test Professional");
-    expect(submissionResumeToPlainText(resume)).toContain("PROFESSIONAL SUMMARY");
+    expect(submissionResumeToPlainText(resume)).toContain("Professional summary");
   });
 
   it("truncates overlong skills instead of failing Zod validation", () => {
@@ -235,7 +235,7 @@ describe("submission résumé pack", () => {
     expect(parsed!.experience[11]?.company).toBe("Employer 12");
     expect(parsed!.skills).toHaveLength(18);
     expect(parsed!.experience[0]?.location).toBe("Austin, TX");
-    expect(submissionResumeToPlainText(parsed!)).toContain("PROFESSIONAL EXPERIENCE");
+    expect(submissionResumeToPlainText(parsed!)).toContain("Professional experience");
     expect(submissionResumeToPlainText(parsed!)).not.toContain("RELEVANT EXPERIENCE");
   });
 
@@ -267,15 +267,24 @@ describe("submission résumé pack", () => {
     expect(parsed).not.toBeNull();
     expect(parsed!.skills[1]).toBe(skillLine);
     expect(parsed!.experience[0]?.bullets).toHaveLength(30);
-    expect(submissionSectionHeading(parsed!.summaryHeading, SUBMISSION_SECTION_DEFAULTS.summary)).toBe("SUMMARY");
-    expect(submissionSectionHeading("", SUBMISSION_SECTION_DEFAULTS.summary)).toBe("Professional summary");
+    expect(submissionSectionHeading(parsed!.summaryHeading, SUBMISSION_SECTION_DEFAULTS.summary)).toBe(
+      "Professional summary"
+    );
+    expect(submissionSectionHeading("", SUBMISSION_SECTION_DEFAULTS.skills)).toBe("Core qualifications");
+    expect(submissionSectionHeading("EXPERIENCE", SUBMISSION_SECTION_DEFAULTS.experience)).toBe(
+      "Professional experience"
+    );
+    expect(submissionSectionHeading("EDUCATION", SUBMISSION_SECTION_DEFAULTS.education)).toBe("Education");
+    expect(submissionSectionHeading("TECHNICAL SKILLS AND CERTIFICATES", SUBMISSION_SECTION_DEFAULTS.licenses)).toBe(
+      "Licenses & certifications"
+    );
     expect(submissionSkillParagraphs(["PMP", "Jira", "SQL"])).toEqual(["PMP  ·  Jira  ·  SQL"]);
     expect(submissionSkillParagraphs(["Product Management", skillLine])).toEqual([
       "Product Management",
       skillLine,
     ]);
-    expect(submissionResumeToPlainText(parsed!)).toContain("SUMMARY");
-    expect(submissionResumeToPlainText(parsed!)).toContain("TECHNICAL SKILLS AND CERTIFICATES");
+    expect(submissionResumeToPlainText(parsed!)).toContain("Professional summary");
+    expect(submissionResumeToPlainText(parsed!)).toContain("Core qualifications");
   });
 
   it("keeps the target job title as the headline and cleans symbol-font bullets", () => {

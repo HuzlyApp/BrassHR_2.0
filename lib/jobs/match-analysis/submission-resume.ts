@@ -257,12 +257,9 @@ export const SUBMISSION_SECTION_DEFAULTS = {
   licenses: "Licenses & certifications",
 } as const;
 
-/** Use a source section title when the model copied one. Otherwise keep the standard packet title. */
-export function submissionSectionHeading(custom: string | undefined, fallback: string): string {
-  const text = String(custom ?? "")
-    .replace(/\s+/g, " ")
-    .trim();
-  return text || fallback;
+/** The generated packet always uses these titles. Source résumé titles are not copied. */
+export function submissionSectionHeading(_custom: string | undefined, fallback: string): string {
+  return fallback;
 }
 
 /**
@@ -275,6 +272,11 @@ export function presentSubmissionResume(resume: SubmissionResume, jobTitle?: str
   return {
     ...resume,
     headline,
+    summaryHeading: "",
+    skillsHeading: "",
+    experienceHeading: "",
+    educationHeading: "",
+    licensesHeading: "",
     summary: normalizeResumeBulletGlyphs(resume.summary),
     skills: resume.skills.map((skill) => stripLeadingListMarker(skill)).filter(Boolean),
     experience: resume.experience.map((job) => ({
@@ -299,21 +301,21 @@ export function submissionResumeToPlainText(resume: SubmissionResume): string {
   if (resume.summary) {
     lines.push(
       "",
-      submissionSectionHeading(resume.summaryHeading, "PROFESSIONAL SUMMARY"),
+      submissionSectionHeading(resume.summaryHeading, SUBMISSION_SECTION_DEFAULTS.summary),
       resume.summary
     );
   }
   if (resume.skills.length) {
     lines.push(
       "",
-      submissionSectionHeading(resume.skillsHeading, "CORE QUALIFICATIONS"),
+      submissionSectionHeading(resume.skillsHeading, SUBMISSION_SECTION_DEFAULTS.skills),
       resume.skills.map((item) => `• ${item}`).join("\n")
     );
   }
   if (resume.experience.length) {
     lines.push(
       "",
-      submissionSectionHeading(resume.experienceHeading, "PROFESSIONAL EXPERIENCE")
+      submissionSectionHeading(resume.experienceHeading, SUBMISSION_SECTION_DEFAULTS.experience)
     );
     for (const job of resume.experience) {
       lines.push([job.title, job.company].filter(Boolean).join(" — "));
@@ -323,13 +325,13 @@ export function submissionResumeToPlainText(resume: SubmissionResume): string {
     }
   }
   if (resume.education.length) {
-    lines.push("", submissionSectionHeading(resume.educationHeading, "EDUCATION"));
+    lines.push("", submissionSectionHeading(resume.educationHeading, SUBMISSION_SECTION_DEFAULTS.education));
     for (const item of resume.education) {
       lines.push([item.credential, item.school, item.year].filter(Boolean).join(" — "));
     }
   }
   if (resume.licenses.length) {
-    lines.push("", submissionSectionHeading(resume.licensesHeading, "LICENSES & CERTIFICATIONS"));
+    lines.push("", submissionSectionHeading(resume.licensesHeading, SUBMISSION_SECTION_DEFAULTS.licenses));
     for (const item of resume.licenses) lines.push(`• ${item}`);
   }
   return lines.join("\n");
