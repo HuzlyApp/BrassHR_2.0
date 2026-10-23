@@ -1280,10 +1280,10 @@ export async function loadCandidateWorkflowStepInspection(
             .filter((step) => {
               const libraryId = workflowStepIdFromMetadata(step.metadata) || "";
               return (
-                libraryId === mapped.stepType ||
-                step.step_type === mapped.stepType ||
-                step.step_key === mapped.stepKey ||
-                (Boolean(mapped.title) && step.title === mapped.title)
+                libraryId === signatureIdentity.stepType ||
+                step.step_type === signatureIdentity.stepType ||
+                step.step_key === signatureIdentity.stepKey ||
+                (Boolean(signatureIdentity.title) && step.title === signatureIdentity.title)
               );
             })
             .map((step) => step.id)
