@@ -191,8 +191,8 @@ export function applicantMayActOnStep(params: {
   }
   if (params.stepPhase === "post_hire") {
     if (params.postHireSuspended) return false;
-    if (params.isHired !== true) return false;
-    return params.activePhase === "post_hire" || params.isHired === true;
+    // Phase is set to post_hire only after every required Pre-Hire step is finished.
+    return params.activePhase === "post_hire";
   }
   if (params.stepPhase === "pre_hire") {
     return true;

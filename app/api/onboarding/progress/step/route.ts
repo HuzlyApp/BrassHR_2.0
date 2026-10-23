@@ -17,6 +17,7 @@ import { normalizeJobToken } from "@/lib/jobs/public-application-routing";
 import { dispatchWorkflowIntegrationPartner } from "@/lib/onboarding/integration-partner-dispatch";
 import { notifyHrOnOnboardingStepFailure } from "@/lib/onboarding/notify-hr-on-step-failure";
 import { sendConfiguredStepCompletionEmail } from "@/lib/onboarding/step-completion-email";
+import { unlockPostHireWhenRequiredComplete } from "@/lib/onboarding/unlock-post-hire-when-ready";
 import { shouldPauseFlowOnStepFailure } from "@/lib/onboarding/workflow-settings";
 import { isUploadResumeStep } from "@/lib/onboarding/enforce-upload-resume-first";
 import {
@@ -631,6 +632,17 @@ export async function POST(req: NextRequest) {
         }
       } catch (syncErr) {
         console.warn("[onboarding/progress/step] sync applicant step record failed", syncErr);
+      }
+
+      try {
+        await unlockPostHireWhenRequiredComplete(supabase, {
+          tenantId: ctx.tenantId,
+          workerId: ctx.workerId,
+          applicationId: applicationId || null,
+          origin: req.nextUrl.origin,
+        });
+      } catch (unlockError) {
+        console.error("[onboarding/progress/step] post-hire unlock failed", unlockError);
       }
     }
 

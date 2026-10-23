@@ -24,10 +24,17 @@ describe("candidate workflow phase view rules", () => {
     expect(countsForPhase(12, 0, "post_hire").label).toBe("0 / 12 Post-Hire completed");
   });
 
-  it("locks Post-Hire writes for applicants who are not hired", () => {
+  it("allows Post-Hire writes once the application phase is Post-Hire", () => {
     expect(
       applicantMayActOnStep({
         activePhase: "post_hire",
+        stepPhase: "post_hire",
+        isHired: false,
+      })
+    ).toBe(true);
+    expect(
+      applicantMayActOnStep({
+        activePhase: "pre_hire",
         stepPhase: "post_hire",
         isHired: false,
       })

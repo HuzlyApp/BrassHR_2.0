@@ -8,6 +8,7 @@ import {
   isTerminalApplicationStatus,
   parseApplicantLifecyclePhase,
 } from "@/lib/onboarding/workflow-phase";
+import { requiredPreHireStepsComplete } from "@/lib/onboarding/required-pre-hire-gate";
 import { loadApplicationWorkflowPhase } from "@/lib/onboarding/resolve-application-workflow-phase";
 
 export type ActivatePostHireResult = {
@@ -167,6 +168,27 @@ export async function activatePostHire(
       postHireActivatedAt: existing.postHireActivatedAt,
       email: null,
     };
+  }
+
+  if (existing.phase === "pre_hire" && existing.workerId) {
+    const ready = await requiredPreHireStepsComplete(supabase, {
+      tenantId: input.tenantId,
+      workerId: existing.workerId,
+      applicationId: input.applicationId,
+    });
+    if (!ready) {
+      return {
+        applicationId: existing.applicationId,
+        tenantId: existing.tenantId,
+        phase: existing.phase,
+        activated: false,
+        alreadyActive: false,
+        skipped: true,
+        skipReason: "REQUIRED_PRE_HIRE_INCOMPLETE",
+        postHireActivatedAt: existing.postHireActivatedAt,
+        email: null,
+      };
+    }
   }
 
   if (!isPlacementAcceptedStatus(existing.status) && existing.phase === "pre_hire") {
