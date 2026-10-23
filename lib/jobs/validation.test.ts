@@ -31,6 +31,26 @@ describe("job requisition validation", () => {
     expect(result.success).toBe(true);
   });
 
+  it("treats omitted optional fields as empty instead of required", () => {
+    const result = jobMutationSchema.safeParse({
+      action: "save_draft",
+      job: {
+        sourceType: "Internal",
+        professionId: validJob.professionId,
+        employmentType: "W2",
+        publicTitle: "test",
+      },
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.job.externalRequisitionId).toBeNull();
+    expect(result.data.job.payRateMin).toBeNull();
+    expect(result.data.job.billRate).toBeNull();
+    expect(result.data.job.industryKey).toBeNull();
+    expect(result.data.job.sourceJobUrl).toBeNull();
+    expect(result.data.job.internalNotes).toBeNull();
+  });
+
   it("rejects unsupported industry keys with a clear message", () => {
     const errors = validatePublishableJob(
       { ...validJob, industryKey: "cybersecurity", shiftType: "Full-time" },
