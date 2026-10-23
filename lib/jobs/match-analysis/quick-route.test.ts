@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitBandFromQuickRoute, recomputeQuickMatchMetrics } from "./quick-route";
+import { fitBandFromQuickRoute, recomputeQuickMatchMetrics, resolveHistoryQuickRoute } from "./quick-route";
 
 describe("recomputeQuickMatchMetrics", () => {
   it("marks STRONG when weighted, mand_met, and confirmed share clear the bar", () => {
@@ -152,5 +152,20 @@ describe("recomputeQuickMatchMetrics", () => {
     });
     expect(result.weighted).toBe(0.625);
     expect(result.quick_route).toBe("REVIEW");
+  });
+});
+
+describe("resolveHistoryQuickRoute", () => {
+  it("uses the stored route without the analysis document", () => {
+    expect(resolveHistoryQuickRoute({ quick_route: "STRONG" })).toBe("STRONG");
+    expect(resolveHistoryQuickRoute({ quick_route: "not-a-route" })).toBeNull();
+  });
+
+  it("falls back to the analysis blob when the route column is absent", () => {
+    expect(
+      resolveHistoryQuickRoute({
+        analysis: { quick_match: { quick_route: "LOW_MATCH" } },
+      })
+    ).toBe("LOW_MATCH");
   });
 });

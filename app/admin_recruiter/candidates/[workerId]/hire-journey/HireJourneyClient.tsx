@@ -5,6 +5,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { HireStageBoard } from "@/app/admin_recruiter/components/hire-stage/HireStageBoard";
 import { HireJourneyThemeProvider } from "@/app/admin_recruiter/components/hire-stage/HireJourneyTheme";
 import { dispatchCandidatePipelineRefresh } from "@/lib/admin/candidate-pipeline-events";
+import { fetchStaffDetailJson, prefetchStaffDetail } from "@/lib/admin/staff-detail-fetch-cache";
+import {
+  APPLICATION_STAGE_ASSIGNMENTS_URL,
+  APPLICATION_STATUS_CATALOG_URL,
+  type KnownStageApplication,
+} from "@/app/admin_recruiter/components/StageStatusSequenceButtons";
 import type { HireStageSidebarProfile } from "@/app/admin_recruiter/components/hire-stage/HireStageSidebar";
 import type { CandidateProfilePayload } from "@/lib/admin/candidate-profile-view";
 import { workTypeSummaryLabel } from "@/lib/admin/candidate-profile-view";
@@ -79,39 +85,41 @@ export default function HireJourneyClient({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async (options?: { silent?: boolean }) => {
+  const load = useCallback(async (options?: { silent?: boolean; bust?: boolean }) => {
     if (!workerId) return;
     const silent = options?.silent === true;
+    const bust = options?.bust === true || silent;
     if (!silent) {
       setLoading(true);
       setError(null);
     }
+    const profileUrl = `/api/admin/candidates/${encodeURIComponent(workerId)}/profile?view=journey`;
+    const phaseUrl = `/api/admin/candidates/${encodeURIComponent(workerId)}/workflow-phases`;
+    // Status catalog is the same for every stage. Start it with the journey
+    // so the open stage can render statuses without a second waterfall.
+    prefetchStaffDetail(APPLICATION_STATUS_CATALOG_URL);
+    prefetchStaffDetail(APPLICATION_STAGE_ASSIGNMENTS_URL);
     try {
-      const [profileRes, phaseRes] = await Promise.all([
-        fetch(`/api/admin/candidates/${encodeURIComponent(workerId)}/profile`, {
-          cache: "no-store",
-        }),
-        fetch(`/api/admin/candidates/${encodeURIComponent(workerId)}/workflow-phases`, {
-          cache: "no-store",
-        }),
-      ]);
-
-      const profileJson = (await profileRes.json()) as CandidateProfilePayload & {
-        error?: string;
-      };
-      const phaseJson = (await phaseRes.json()) as CandidateWorkflowPhaseView & {
-        error?: string;
-      };
-
-      if (!profileRes.ok) {
-        throw new Error(profileJson.error || "Failed to load candidate profile");
+      const profilePromise = fetchStaffDetailJson<CandidateProfilePayload & { error?: string }>(
+        profileUrl,
+        { bust }
+      );
+      const phaseResult = await fetchStaffDetailJson<CandidateWorkflowPhaseView & { error?: string }>(
+        phaseUrl,
+        { bust }
+      );
+      if (!phaseResult.ok) {
+        throw new Error(phaseResult.payload.error || "Failed to load hire workflow");
       }
-      if (!phaseRes.ok) {
-        throw new Error(phaseJson.error || "Failed to load hire workflow");
-      }
+      setView(phaseResult.payload);
+      if (!silent) setLoading(false);
 
-      setProfile(profileJson);
-      setView(phaseJson);
+      const profileResult = await profilePromise;
+      if (profileResult.ok) {
+        setProfile(profileResult.payload);
+      } else if (!silent) {
+        setProfile(null);
+      }
     } catch (err) {
       if (silent) {
         console.warn("[hire-journey] background refresh failed", err);
@@ -162,7 +170,16 @@ export default function HireJourneyClient({
   }, [embedded, load, workerId]);
 
   const sidebarProfile = useMemo(() => buildSidebarProfile(profile, view), [profile, view]);
+  const phaseApplication = view?.primaryApplication ?? null;
   const primaryApplication = profile?.applications?.[0] ?? null;
+  const applicationId = primaryApplication?.id ?? phaseApplication?.id ?? null;
+  const knownApplication: KnownStageApplication | null = phaseApplication
+    ? {
+        status_id: phaseApplication.statusId,
+        status: phaseApplication.status,
+        workflow_id: phaseApplication.workflowId,
+      }
+    : null;
   const postHireVisible = Boolean(view?.postHireVisible);
   const postHireBlock = view?.postHire ?? null;
   const workflowHasPostHire = view ? view.workflowHasPostHireSteps : true;
@@ -198,8 +215,9 @@ export default function HireJourneyClient({
           phaseView={view}
           profile={sidebarProfile}
           activationFailed={Boolean(view?.postHireActivationFailed)}
-          applicationId={primaryApplication?.id}
+          applicationId={applicationId}
           jobTitle={primaryApplication?.jobTitle}
+          onRetry={() => void load({ bust: true })}
           onScheduled={() => refreshJourney()}
           onWorkflowChanged={() => refreshJourney()}
         />
@@ -216,8 +234,10 @@ export default function HireJourneyClient({
         assignment={view?.preHire.assignment}
         phaseView={view}
         profile={sidebarProfile}
-        applicationId={primaryApplication?.id}
+        applicationId={applicationId}
+        knownApplication={knownApplication}
         jobTitle={primaryApplication?.jobTitle}
+        onRetry={() => void load({ bust: true })}
         onScheduled={() => refreshJourney()}
         onWorkflowChanged={() => refreshJourney()}
         onRequestPostHireTab={openPostHireTab}

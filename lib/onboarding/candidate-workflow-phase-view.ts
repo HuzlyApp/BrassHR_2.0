@@ -94,6 +94,16 @@ export type CandidateWorkflowPhaseView = {
   tags: CandidateWorkflowTag[];
   preHire: CandidateWorkflowPhaseBlock;
   postHire: CandidateWorkflowPhaseBlock | null;
+  /**
+   * Newest application for this candidate. Same row the hire journey treats as primary.
+   * Lets status actions render without a second application request.
+   */
+  primaryApplication?: {
+    id: string;
+    statusId: string | null;
+    status: string | null;
+    workflowId: string | null;
+  } | null;
 };
 
 function asText(value: unknown): string | null {
@@ -243,7 +253,11 @@ export async function loadCandidateWorkflowPhaseView(
       .is("deleted_at", null)
       .order("uploaded_at", { ascending: false })
       .limit(1),
-    supabase.from("worker_documents").select("*").eq("worker_id", workerId).limit(1),
+    supabase
+      .from("worker_documents")
+      .select("tenant_id, ssn_url, drivers_license_url")
+      .eq("worker_id", workerId)
+      .limit(1),
   ]);
 
   if (applicationsRes.error && !/hired_at|post_hire_suspended_at|does not exist/i.test(applicationsRes.error.message)) {
@@ -344,22 +358,25 @@ export async function loadCandidateWorkflowPhaseView(
     });
   }
 
-  const documents = await loadAdminAttachmentRequirements({
-    supabase,
-    workerId,
-    tenantId,
-    resumeUrl:
-      params.resumeUrl ??
-      (hasResumeUpload ? asText(latestResume?.file_url) || "resume-uploaded" : null),
-    resumePath: params.resumePath ?? asText(latestResume?.storage_path),
-    resumePathRaw: params.resumePathRaw ?? asText(latestResume?.storage_path),
-    legacyUrls: params.legacyUrls ?? {
-      nursing_license_url: null,
-      tb_test_url: null,
-      cpr_certification_url: null,
-      authorization_document_url: null,
+  const documents = await loadAdminAttachmentRequirements(
+    {
+      supabase,
+      workerId,
+      tenantId,
+      resumeUrl:
+        params.resumeUrl ??
+        (hasResumeUpload ? asText(latestResume?.file_url) || "resume-uploaded" : null),
+      resumePath: params.resumePath ?? asText(latestResume?.storage_path),
+      resumePathRaw: params.resumePathRaw ?? asText(latestResume?.storage_path),
+      legacyUrls: params.legacyUrls ?? {
+        nursing_license_url: null,
+        tb_test_url: null,
+        cpr_certification_url: null,
+        authorization_document_url: null,
+      },
     },
-  }).catch(() => [] as AdminAttachmentRequirement[]);
+    { signFileUrls: false }
+  ).catch(() => [] as AdminAttachmentRequirement[]);
 
   const documentStatusByStepKey = new Map<string, string | null | undefined>();
   for (const doc of documents) {
@@ -499,6 +516,10 @@ export async function loadCandidateWorkflowPhaseView(
 
   const toDocumentView = (doc: AdminAttachmentRequirement): CandidateWorkflowDocumentView => ({
     ...doc,
+    // Status was already applied to the steps. Drop file locations so the
+    // journey payload does not carry storage paths or unused signed URLs.
+    url: null,
+    files: doc.files?.map((file) => ({ ...file, url: null })),
     stepTitle: doc.step_title?.trim() || doc.title,
   });
 
@@ -580,6 +601,14 @@ export async function loadCandidateWorkflowPhaseView(
     currentWorkflowName: workflowName,
     currentStepTitle: currentStep?.title ?? null,
     tags: sanitizeTagsForClient(tags, postHireVisible),
+    primaryApplication: asText(primaryApp?.id)
+      ? {
+          id: String(primaryApp?.id),
+          statusId: asText(primaryApp?.status_id),
+          status: asText(primaryApp?.status),
+          workflowId: asText(primaryApp?.workflow_id),
+        }
+      : null,
     preHire: {
       assigned: preHireSteps.length > 0,
       progress: countsFromAssignedSteps(preHireSteps, "pre_hire"),

@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 
 type RouteContext = { params: Promise<{ workerId: string }> };
 
-export async function GET(_req: Request, context: RouteContext) {
+export async function GET(req: Request, context: RouteContext) {
   const auth = await requireStaffApiSession();
   if (auth instanceof NextResponse) return auth;
 
@@ -30,9 +30,11 @@ export async function GET(_req: Request, context: RouteContext) {
       return NextResponse.json({ error: idCheck.error }, { status: 400 });
     }
 
+    const view = new URL(req.url).searchParams.get("view") === "journey" ? "journey" : "full";
     const profile = await loadCandidateProfile(supabase, {
       workerId: idCheck.value,
       tenantId,
+      view,
     });
     if (!profile) {
       return NextResponse.json({ error: "Candidate not found" }, { status: 404 });

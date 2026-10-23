@@ -17,6 +17,7 @@ import {
   Upload,
 } from "lucide-react";
 import toast from "react-hot-toast";
+import { uploadAdminJobResume } from "@/lib/resume/direct-resume-upload-client";
 import BrandedSvgIcon from "@/app/components/BrandedSvgIcon";
 import BrandedFileTypeIcon from "@/app/admin_recruiter/components/BrandedFileTypeIcon";
 import { ListTableCheckbox } from "@/app/admin_recruiter/components/ListTableCheckbox";
@@ -108,7 +109,16 @@ import {
   matchProgressionStepRequiresDeepConfirm,
   type QuickMatchFitBand,
 } from "@/lib/jobs/match-analysis/progression";
-import { fitBandFromQuickRoute, quickRouteFromAnalysis } from "@/lib/jobs/match-analysis/quick-route";
+import {
+  fitBandFromQuickRoute,
+  quickRouteFromAnalysis,
+  resolveHistoryQuickRoute,
+} from "@/lib/jobs/match-analysis/quick-route";
+import { fetchStaffDetailJson, prefetchStaffDetail } from "@/lib/admin/staff-detail-fetch-cache";
+import {
+  APPLICATION_STAGE_ASSIGNMENTS_URL,
+  APPLICATION_STATUS_CATALOG_URL,
+} from "@/app/admin_recruiter/components/StageStatusSequenceButtons";
 import { isSubmissionResumeFileName } from "@/lib/jobs/match-analysis/submission-resume";
 import { adminWorkerResumePreviewHref } from "@/lib/resume/worker-resume-file-name";
 import { MatchProgressionStepper } from "./MatchProgressionStepper";
@@ -376,9 +386,10 @@ function historyStatusFromItem(item: {
   score: number | null;
   category: string | null;
   display_category: string | null;
+  quick_route?: string | null;
   analysis?: unknown;
 }): { label: string; band: QuickMatchFitBand | null } {
-  const route = quickRouteFromAnalysis(item.analysis);
+  const route = resolveHistoryQuickRoute(item);
   if (route) {
     const band = fitBandFromQuickRoute(route);
     const fromAnalysis =
@@ -430,6 +441,7 @@ function AnalysisHistoryItem({
     display_category: string | null;
     model: string | null;
     analyzed_at: string;
+    quick_route?: string | null;
     analysis?: unknown;
   };
 }) {
@@ -722,6 +734,7 @@ export function AiAnalysisOverviewClient({
   const [statusSystemKey, setStatusSystemKey] = useState<string | null>(null);
   const [statusRevision, setStatusRevision] = useState(0);
   const [preHireStageName, setPreHireStageName] = useState<PreHireStatusStageName>("Intake");
+  const [stageReady, setStageReady] = useState(false);
   const [viewedStep, setViewedStep] = useState(0);
   const [userPickedStep, setUserPickedStep] = useState(false);
   const [confirmDeepOpen, setConfirmDeepOpen] = useState(false);
@@ -821,26 +834,23 @@ export function AiAnalysisOverviewClient({
     if (!file) return;
     setResumeUploading(true);
     try {
-      const formData = new FormData();
-      formData.append("resume", file);
-      const response = await fetch(
-        `/api/admin/job-applications/${encodeURIComponent(applicationId)}/resume`,
-        { method: "POST", body: formData }
-      );
-      const payload = (await response.json().catch(() => ({}))) as {
-        error?: string;
-        autoQuickMatch?: {
-          status?: string;
-          error?: string | null;
-        } | null;
-      };
-      if (!response.ok) throw new Error(payload.error || "Could not upload resume.");
+      const payload = await uploadAdminJobResume({
+        applicationId,
+        file,
+      });
       await loadResumeHistory();
       setWorkspaceReloadToken((t) => t + 1);
       toast.success("Resume uploaded.");
       const match = payload.autoQuickMatch;
       if (match?.status === "ANALYZED") {
         toast.success("Quick Match complete.");
+      } else if (match?.status === "ANALYZING") {
+        toast.success("Quick Match is running in the background.");
+      } else if (payload.previousResumeKept) {
+        toast.error(
+          payload.parseError?.trim() ||
+            "The new file was saved, but it could not be read. The previous resume is unchanged."
+        );
       } else if (match && match.status !== "ANALYZED") {
         toast.error(
           match.error?.trim() ||
@@ -1182,45 +1192,56 @@ export function AiAnalysisOverviewClient({
     if (app?.status_system_key !== undefined) setStatusSystemKey(app.status_system_key ?? null);
   }, [app?.status_name, app?.status_system_key]);
 
+  useEffect(() => {
+    setStageReady(false);
+  }, [workerId, applicationId]);
+
   // Status actions under This Job use the Pre-Hire catalog for the candidate's
   // current hire-journey stage — never AI Analysis progression steps.
   useEffect(() => {
     const scopedWorkerId = workerId?.trim();
     if (!scopedWorkerId) {
       setPreHireStageName("Intake");
+      setStageReady(true);
       return;
     }
 
     let cancelled = false;
+    prefetchStaffDetail(APPLICATION_STATUS_CATALOG_URL);
+    prefetchStaffDetail(APPLICATION_STAGE_ASSIGNMENTS_URL);
     void (async () => {
       try {
-        const [phaseRes, assignRes, appRes] = await Promise.all([
-          fetch(`/api/admin/candidates/${encodeURIComponent(scopedWorkerId)}/workflow-phases`, {
-            cache: "no-store",
-          }),
-          fetch("/api/admin/application-status-stage-assignments", { cache: "no-store" }),
-          fetch(`/api/admin/job-applications/${encodeURIComponent(applicationId)}`, {
-            cache: "no-store",
+        const [phaseResult, assignResult, appResult] = await Promise.all([
+          fetchStaffDetailJson<CandidateWorkflowPhaseView & { error?: string }>(
+            `/api/admin/candidates/${encodeURIComponent(scopedWorkerId)}/workflow-phases`,
+            { bust: statusRevision > 0 }
+          ),
+          fetchStaffDetailJson<{
+            lanes?: Array<{
+              stageName?: string;
+              statusId?: string;
+              lane?: string;
+              workflowId?: string | null;
+              sortOrder?: number;
+            }>;
+            error?: string;
+          }>(APPLICATION_STAGE_ASSIGNMENTS_URL),
+          fetchStaffDetailJson<{
+            application?: { status_id?: string | null; workflow_id?: string | null };
+            error?: string;
+          }>(`/api/admin/job-applications/${encodeURIComponent(applicationId)}`, {
+            bust: statusRevision > 0,
           }),
         ]);
-        const phaseJson = (await phaseRes.json()) as CandidateWorkflowPhaseView & { error?: string };
-        const assignJson = (await assignRes.json()) as {
-          lanes?: Array<{
-            stageName?: string;
-            statusId?: string;
-            lane?: string;
-            workflowId?: string | null;
-            sortOrder?: number;
-          }>;
-          error?: string;
-        };
-        const appJson = (await appRes.json()) as {
-          application?: { status_id?: string | null; workflow_id?: string | null };
-          error?: string;
-        };
+        const phaseJson = phaseResult.payload;
+        const assignJson = assignResult.payload;
+        const appJson = appResult.payload;
         if (cancelled) return;
 
-        const journeyStages = groupStepsIntoHireStages(phaseRes.ok ? (phaseJson.preHire?.steps ?? []) : [], "pre_hire");
+        const journeyStages = groupStepsIntoHireStages(
+          phaseResult.ok ? (phaseJson.preHire?.steps ?? []) : [],
+          "pre_hire"
+        );
         const journeyStage = currentPreHireStatusStageName(journeyStages);
         const laneRows = Array.isArray(assignJson.lanes)
           ? assignJson.lanes
@@ -1251,8 +1272,12 @@ export function AiAnalysisOverviewClient({
           lanes: laneRows,
         });
         if (!cancelled && isPreHireStatusStageName(next)) setPreHireStageName(next);
+        if (!cancelled) setStageReady(true);
       } catch {
-        if (!cancelled) setPreHireStageName("Intake");
+        if (!cancelled) {
+          setPreHireStageName("Intake");
+          setStageReady(true);
+        }
       }
     })();
 
@@ -1593,6 +1618,7 @@ export function AiAnalysisOverviewClient({
                   </p>
                 ) : null}
               </div>
+              {stageReady ? (
               <StageStatusSequenceButtons
                 key={`${preHireStageName}-${statusRevision}`}
                 applicationId={applicationId}
@@ -1617,6 +1643,9 @@ export function AiAnalysisOverviewClient({
                   return true;
                 }}
               />
+              ) : (
+                <p className="text-sm text-[#98A2B3]">Loading statuses…</p>
+              )}
             </div>
           </section>
 

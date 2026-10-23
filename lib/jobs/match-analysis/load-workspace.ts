@@ -59,6 +59,37 @@ function questionsWithAnswers(
   });
 }
 
+async function loadWorkspaceResumeText(
+  supabase: SupabaseClient,
+  tenantId: string,
+  applicationId: string,
+  workerId: unknown
+): Promise<{ text: string; fileName: string | null } | null> {
+  const { data: resumeRow } = await supabase
+    .from("worker_resumes")
+    .select("extracted_text, file_name, original_file_name, job_application_id, uploaded_at")
+    .eq("tenant_id", tenantId)
+    .eq("job_application_id", applicationId)
+    .is("deleted_at", null)
+    .order("uploaded_at", { ascending: false })
+    .limit(5);
+  const preferred = pickResumeForApplication(resumeRow, applicationId);
+  if (preferred?.extracted_text || preferred?.original_file_name || preferred?.file_name) {
+    return {
+      text: String(preferred.extracted_text ?? ""),
+      fileName: String(preferred.original_file_name || preferred.file_name || "Resume"),
+    };
+  }
+  // Imported / talent-pool candidates: attach the worker's existing résumé to this job.
+  const ensured = await ensureApplicationResumeFromWorker({
+    supabase,
+    tenantId,
+    applicationId,
+    workerId: typeof workerId === "string" ? workerId : null,
+  });
+  return ensured ? { text: ensured.text, fileName: ensured.fileName } : null;
+}
+
 export async function loadMatchAnalysisWorkspace(
   supabase: SupabaseClient,
   tenantId: string,
@@ -134,7 +165,7 @@ export async function loadMatchAnalysisWorkspace(
       .select("id, question_key, question_text, reason, related_requirement, answer_text, updated_at")
       .eq("tenant_id", tenantId)
       .eq("application_id", applicationId),
-    loadAnalysisHistory(supabase, tenantId, applicationId, true).catch(() => []),
+    loadAnalysisHistory(supabase, tenantId, applicationId, { includeQuickRoute: true }).catch(() => []),
     loadVerificationNotesForApplication(supabase, tenantId, applicationId).catch(() => []),
     loadVerificationNoteAuditForApplication(supabase, tenantId, applicationId, {
       limit: 100,
@@ -203,35 +234,6 @@ export async function loadMatchAnalysisWorkspace(
     deep: analysis?.question_sets_stale?.deep === true,
   };
 
-  let extractedResume: { text: string; fileName: string | null } | null = null;
-  const { data: resumeRow } = await supabase
-    .from("worker_resumes")
-    .select("extracted_text, file_name, original_file_name, job_application_id, uploaded_at")
-    .eq("tenant_id", tenantId)
-    .eq("job_application_id", applicationId)
-    .is("deleted_at", null)
-    .order("uploaded_at", { ascending: false })
-    .limit(5);
-  const preferred = pickResumeForApplication(resumeRow, applicationId);
-  if (preferred?.extracted_text || preferred?.original_file_name || preferred?.file_name) {
-    extractedResume = {
-      text: String(preferred.extracted_text ?? ""),
-      fileName: String(preferred.original_file_name || preferred.file_name || "Resume"),
-    };
-  } else {
-    // Imported / talent-pool candidates: attach the worker's existing résumé to this job.
-    const ensured = await ensureApplicationResumeFromWorker({
-      supabase,
-      tenantId,
-      applicationId,
-      workerId:
-        typeof application.worker_id === "string" ? application.worker_id : null,
-    });
-    if (ensured) {
-      extractedResume = { text: ensured.text, fileName: ensured.fileName };
-    }
-  }
-
   const statusRel = Array.isArray(application.application_statuses)
     ? application.application_statuses[0]
     : application.application_statuses;
@@ -279,12 +281,12 @@ export async function loadMatchAnalysisWorkspace(
       storedFingerprint !== liveJobFingerprint
   );
   const promptStamp = storedAnalysisPromptStamp(analysis);
-  const analysisStaleDueToPrompt =
+  const promptDiffersPromise =
     !analysisStaleDueToJobUpdate &&
     application.ai_match_status === "ANALYZED" &&
     promptStamp.contentHash &&
     promptStamp.variantKey
-      ? await publishedPromptHashDiffers({
+      ? publishedPromptHashDiffers({
           supabase,
           tenantId,
           variantKey: promptStamp.variantKey as AiVariantKey,
@@ -299,7 +301,12 @@ export async function loadMatchAnalysisWorkspace(
                 : null,
           sourceKey: typeof jobRow?.msp_name === "string" ? jobRow.msp_name : null,
         })
-      : false;
+      : Promise.resolve(false);
+  const extractedResumePromise = loadWorkspaceResumeText(supabase, tenantId, applicationId, application.worker_id);
+  const [analysisStaleDueToPrompt, extractedResume] = await Promise.all([
+    promptDiffersPromise,
+    extractedResumePromise,
+  ]);
   const analysisIsStale = analysisStaleDueToJobUpdate || analysisStaleDueToPrompt;
   const effectiveAnalysis = analysisIsStale ? null : analysis;
   const jobTitleFromRequisition = jobRow

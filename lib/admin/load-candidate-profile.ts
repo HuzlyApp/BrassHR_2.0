@@ -108,9 +108,10 @@ async function loadProfessionalSummaryText(
 
 export async function loadCandidateProfile(
   supabase: SupabaseClient,
-  input: { workerId: string; tenantId: string }
+  input: { workerId: string; tenantId: string; view?: "full" | "journey" }
 ): Promise<CandidateProfilePayload | null> {
   const timer = createPerfTimer();
+  const journeyView = input.view === "journey";
   const workerPromise = supabase
     .from("worker")
     .select(
@@ -120,27 +121,39 @@ export async function loadCandidateProfile(
     .maybeSingle();
 
   const relatedPromise = Promise.all([
-    listWorkerJobApplications(supabase, {
-      workerId: input.workerId,
-      tenantId: input.tenantId,
-    }),
-    supabase
-      .from("activity_logs")
-      .select("id, action, entity_type, details, created_at")
-      .eq("entity_id", input.workerId)
-      .order("created_at", { ascending: false })
-      .limit(500),
-    listWorkerResumesForApplicant(supabase, input.workerId, input.tenantId, {
-      includeUploaderPhotos: false,
-    }).catch((error) => {
-      console.warn("[candidate-profile] worker_resumes", error);
-      return [];
-    }),
-    listWorkerDocumentsForApplicant(supabase, input.workerId, input.tenantId).catch((error) => {
-      console.warn("[candidate-profile] worker_documents", error);
-      return [];
-    }),
-    loadProfessionalSummaryText(supabase, input.workerId, input.tenantId),
+    listWorkerJobApplications(
+      supabase,
+      {
+        workerId: input.workerId,
+        tenantId: input.tenantId,
+      },
+      journeyView ? { includeStatusNotes: false, includeResumes: false } : undefined
+    ),
+    journeyView
+      ? Promise.resolve({ data: [], error: null })
+      : supabase
+          .from("activity_logs")
+          .select("id, action, entity_type, details, created_at")
+          .eq("entity_id", input.workerId)
+          .order("created_at", { ascending: false })
+          .limit(500),
+    journeyView
+      ? Promise.resolve([])
+      : listWorkerResumesForApplicant(supabase, input.workerId, input.tenantId, {
+          includeUploaderPhotos: false,
+        }).catch((error) => {
+          console.warn("[candidate-profile] worker_resumes", error);
+          return [];
+        }),
+    journeyView
+      ? Promise.resolve([])
+      : listWorkerDocumentsForApplicant(supabase, input.workerId, input.tenantId).catch((error) => {
+          console.warn("[candidate-profile] worker_documents", error);
+          return [];
+        }),
+    journeyView
+      ? Promise.resolve("")
+      : loadProfessionalSummaryText(supabase, input.workerId, input.tenantId),
   ]);
 
   const { data: worker, error } = await workerPromise;
@@ -280,6 +293,7 @@ export async function loadCandidateProfile(
     totalMs: timer.elapsedMs(),
     workerId: input.workerId,
     tenantId: input.tenantId,
+    view: journeyView ? "journey" : "full",
     applications: applications.length,
     resumes: resumes.length,
     documents: documents.length,

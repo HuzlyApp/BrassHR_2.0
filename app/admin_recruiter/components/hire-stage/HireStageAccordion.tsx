@@ -27,7 +27,10 @@ import {
 } from "./hire-figma-assets";
 import { HireStepTypeIcon } from "./HireStepTypeIcon";
 import { StepRefreshButton, useStepStatusRefresh } from "./StepStatusRefresh";
-import { StageStatusSequenceButtons } from "@/app/admin_recruiter/components/StageStatusSequenceButtons";
+import {
+  StageStatusSequenceButtons,
+  type KnownStageApplication,
+} from "@/app/admin_recruiter/components/StageStatusSequenceButtons";
 import { isPreHireStatusStageName } from "@/lib/jobs/application-statuses/stage-assignments";
 
 function formatCompletedOn(value: string | null | undefined, prefix = "Completed"): string | null {
@@ -87,6 +90,7 @@ export function HireStageAccordion({
   workflowSteps,
   lifecycle = "pre_hire",
   applicationId,
+  knownApplication = null,
   onInspectStep,
   onScheduleInterview,
   onRefresh,
@@ -97,6 +101,7 @@ export function HireStageAccordion({
   workflowSteps?: CandidateWorkflowStepView[];
   lifecycle?: HireStageLifecycle;
   applicationId?: string | null;
+  knownApplication?: KnownStageApplication | null;
   onInspectStep: (step: CandidateWorkflowStepView) => void;
   onScheduleInterview?: (step: CandidateWorkflowStepView) => void;
   /** Reloads the journey; the pending-step icon becomes a refresh button when set. */
@@ -297,6 +302,7 @@ export function HireStageAccordion({
                       applicationId={applicationId}
                       stageName={stage.name}
                       showCurrentStatus
+                      knownApplication={knownApplication}
                       onStatusChanged={() => onStatusChanged?.()}
                     />
                   </div>

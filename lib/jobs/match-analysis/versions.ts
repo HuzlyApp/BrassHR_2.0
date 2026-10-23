@@ -12,7 +12,14 @@ export type AnalysisVersionRow = {
   model: string | null;
   analyzed_by: string | null;
   analyzed_at: string;
+  /** Quick Match route only. The history list does not need the full analysis document. */
+  quick_route?: string | null;
   analysis?: MatchAnalysisResponse | null;
+};
+
+type AnalysisHistoryLoadOptions = {
+  includeAnalysis?: boolean;
+  includeQuickRoute?: boolean;
 };
 
 export async function snapshotCurrentAnalysisVersion(args: {
@@ -69,17 +76,41 @@ export async function loadAnalysisHistory(
   supabase: SupabaseClient,
   tenantId: string,
   applicationId: string,
-  includeAnalysis = false
+  includeAnalysis: boolean | AnalysisHistoryLoadOptions = false
 ): Promise<AnalysisVersionRow[]> {
-  const select = includeAnalysis
-    ? "id, version, score, category, recommended_action, display_category, model, analyzed_by, analyzed_at, analysis"
-    : "id, version, score, category, recommended_action, display_category, model, analyzed_by, analyzed_at";
-  const { data, error } = await supabase
-    .from("job_application_analysis_versions")
-    .select(select)
-    .eq("tenant_id", tenantId)
-    .eq("application_id", applicationId)
-    .order("version", { ascending: false });
+  const options: AnalysisHistoryLoadOptions =
+    typeof includeAnalysis === "boolean" ? { includeAnalysis } : includeAnalysis;
+  const includeBody = options.includeAnalysis === true;
+  const includeQuickRoute = options.includeQuickRoute === true && !includeBody;
+  const base =
+    "id, version, score, category, recommended_action, display_category, model, analyzed_by, analyzed_at";
+  const select = includeBody
+    ? `${base}, analysis`
+    : includeQuickRoute
+      ? `${base}, quick_route:analysis->quick_match->>quick_route`
+      : base;
+
+  const query = () =>
+    supabase
+      .from("job_application_analysis_versions")
+      .select(select)
+      .eq("tenant_id", tenantId)
+      .eq("application_id", applicationId)
+      .order("version", { ascending: false });
+
+  let { data, error } = await query();
+  let quickRouteSelected = includeQuickRoute;
+  if (error && includeQuickRoute) {
+    quickRouteSelected = false;
+    const fallback = await supabase
+      .from("job_application_analysis_versions")
+      .select(base)
+      .eq("tenant_id", tenantId)
+      .eq("application_id", applicationId)
+      .order("version", { ascending: false });
+    data = fallback.data;
+    error = fallback.error;
+  }
   if (error) throw error;
   const rows = (data ?? []) as unknown as Array<{
     id: string | number;
@@ -91,6 +122,7 @@ export async function loadAnalysisHistory(
     model: string | null;
     analyzed_by: string | null;
     analyzed_at: string;
+    quick_route?: string | null;
     analysis?: MatchAnalysisResponse | null;
   }>;
   return rows.map((row) => ({
@@ -103,6 +135,7 @@ export async function loadAnalysisHistory(
     model: row.model ? String(row.model) : null,
     analyzed_by: row.analyzed_by ? String(row.analyzed_by) : null,
     analyzed_at: String(row.analyzed_at),
-    analysis: includeAnalysis ? (row.analysis ?? null) : undefined,
+    quick_route: quickRouteSelected && typeof row.quick_route === "string" ? row.quick_route : null,
+    analysis: includeBody ? (row.analysis ?? null) : undefined,
   }));
 }

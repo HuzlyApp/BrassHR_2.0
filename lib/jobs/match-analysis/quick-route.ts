@@ -129,3 +129,11 @@ export function quickRouteFromAnalysis(analysis: unknown): QuickRoute | null {
   const nested = (analysis as { quick_match?: { quick_route?: unknown } }).quick_match;
   return parseQuickRoute(nested?.quick_route);
 }
+
+/** History rows store the route on the version; older payloads only have the analysis blob. */
+export function resolveHistoryQuickRoute(input: {
+  quick_route?: unknown;
+  analysis?: unknown;
+}): QuickRoute | null {
+  return parseQuickRoute(input.quick_route) ?? quickRouteFromAnalysis(input.analysis);
+}

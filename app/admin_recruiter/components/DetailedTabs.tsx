@@ -133,19 +133,16 @@ export default function DetailedTabs({
           }),
       workflowView
         ? Promise.resolve(null)
-        : fetch(`/api/admin/candidates/${encodeURIComponent(applicantId)}/workflow-phases`, {
-            cache: "no-store",
-          }),
+        : fetchStaffDetailJson<CandidateWorkflowPhaseView & { error?: string }>(
+            `/api/admin/candidates/${encodeURIComponent(applicantId)}/workflow-phases`
+          ),
     ])
-      .then(async ([profileResult, checklistRes, phaseRes]) => {
+      .then(async ([profileResult, checklistRes, phaseResult]) => {
         const profile = profileResult.ok ? profileResult.payload : {};
         const checklist = checklistRes?.ok
           ? ((await checklistRes.json()) as CandidatePipelineChecklistPayload)
           : {};
-        const phases =
-          phaseRes && "ok" in phaseRes && phaseRes.ok
-            ? ((await phaseRes.json()) as CandidateWorkflowPhaseView)
-            : null;
+        const phases = phaseResult && phaseResult.ok ? phaseResult.payload : null;
 
         if (cancelled) return;
 

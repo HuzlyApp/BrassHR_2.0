@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import CandidateWorkflowStepModal from "@/app/admin_recruiter/components/CandidateWorkflowStepModal";
 import { candidateAiAnalysisHref } from "@/app/admin_recruiter/candidates/candidate-links";
+import type { KnownStageApplication } from "@/app/admin_recruiter/components/StageStatusSequenceButtons";
 import { ScheduleInterviewModal } from "@/app/admin_recruiter/calendar/components/ScheduleInterviewModal";
 import {
   invitationSuccessMessage,
@@ -55,7 +56,9 @@ export function HireStageBoard({
   onRequestPostHireTab,
   onPostHireActivated,
   applicationId,
+  knownApplication,
   jobTitle,
+  onRetry,
   onScheduled,
   onWorkflowChanged,
 }: {
@@ -77,7 +80,9 @@ export function HireStageBoard({
   /** Called after "Proceed" hires the candidate; should refresh the journey and open Post-Hire. */
   onPostHireActivated?: () => void | Promise<void>;
   applicationId?: string | null;
+  knownApplication?: KnownStageApplication | null;
   jobTitle?: string | null;
+  onRetry?: () => void;
   onScheduled?: () => void | Promise<void>;
   /** Called after staff change a step's status so the journey can refresh without unmounting. */
   onWorkflowChanged?: () => void | Promise<void>;
@@ -237,7 +242,16 @@ export function HireStageBoard({
   if (error) {
     return (
       <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-6 text-sm text-red-700">
-        {error}
+        <p>{error}</p>
+        {onRetry ? (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-3 text-sm font-semibold underline underline-offset-2"
+          >
+            Retry
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -309,6 +323,7 @@ export function HireStageBoard({
                 workflowSteps={steps}
                 lifecycle={lifecycle}
                 applicationId={applicationId}
+                knownApplication={knownApplication}
                 onInspectStep={openStep}
                 onScheduleInterview={openSchedule}
                 onRefresh={onWorkflowChanged}

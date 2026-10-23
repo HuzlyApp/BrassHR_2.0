@@ -135,6 +135,7 @@ export type MatchAnalysisWorkspacePayload = {
     display_category: string | null;
     model: string | null;
     analyzed_at: string;
+    quick_route?: string | null;
     analysis?: MatchAnalysisResponse | null;
   }>;
   extractedResume?: { text: string; fileName: string | null } | null;

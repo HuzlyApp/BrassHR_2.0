@@ -66,7 +66,7 @@ export function CandidatesAiAnalysisClient({
   embedded = false,
 }: CandidatesAiAnalysisClientProps) {
   const searchParams = useSearchParams();
-  const preferredApplicationId = searchParams.get("applicationId");
+    const preferredApplicationId = searchParams.get("applicationId")?.trim() || "";
   const [applicationId, setApplicationId] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | undefined>();
   const [loading, setLoading] = useState(true);
@@ -77,6 +77,13 @@ export function CandidatesAiAnalysisClient({
     const id = workerId.trim();
     if (!id) {
       setError("Missing candidate.");
+      setLoading(false);
+      return;
+    }
+
+    if (preferredApplicationId) {
+      setApplicationId(preferredApplicationId);
+      setError(null);
       setLoading(false);
       return;
     }

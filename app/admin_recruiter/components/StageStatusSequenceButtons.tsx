@@ -24,10 +24,23 @@ import {
   type StageStatusLane,
 } from "@/lib/jobs/application-statuses/stage-status-lanes";
 import {
+  fetchStaffDetailJson,
+  invalidateStaffDetailCache,
+} from "@/lib/admin/staff-detail-fetch-cache";
+import {
   mapApplicationStatusOptions,
   resolveApplicationStatusFromPayload,
   type StatusOption,
 } from "./CandidateApplicationStatusControl";
+
+export const APPLICATION_STATUS_CATALOG_URL = "/api/admin/application-statuses?activeOnly=1";
+export const APPLICATION_STAGE_ASSIGNMENTS_URL = "/api/admin/application-status-stage-assignments";
+
+export type KnownStageApplication = {
+  status_id?: string | null;
+  status?: string | null;
+  workflow_id?: string | null;
+};
 
 type StageStatusSequenceButtonsProps = {
   applicationId: string;
@@ -47,6 +60,11 @@ type StageStatusSequenceButtonsProps = {
   showHiringJourneyHint?: boolean;
   /** Destination for the Hiring Journey link in the completed-sequence hint. */
   hiringJourneyHref?: string | null;
+  /**
+   * Application status already loaded with the journey. Skips a second
+   * application request; the catalog is still loaded (and shared) separately.
+   */
+  knownApplication?: KnownStageApplication | null;
 };
 
 type LaneRow = SavedStageStatusLane & { workflowId: string | null };
@@ -95,6 +113,7 @@ export function StageStatusSequenceButtons({
   onException,
   showHiringJourneyHint = false,
   hiringJourneyHref = null,
+  knownApplication = null,
 }: StageStatusSequenceButtonsProps) {
   const [options, setOptions] = useState<StatusOption[]>([]);
   const [assignedGroupIds, setAssignedGroupIds] = useState<string[] | null>(null);
@@ -118,30 +137,45 @@ export function StageStatusSequenceButtons({
   } | null>(null);
 
   const stageFilter = stageName.trim();
+  const knownStatusId = knownApplication?.status_id ?? null;
+  const knownStatus = knownApplication?.status ?? null;
+  const knownWorkflowId = knownApplication?.workflow_id ?? null;
+  const hasKnownApplication = knownApplication != null;
 
   const load = useCallback(async () => {
     const scopedApplicationId = applicationId.trim();
     if (!scopedApplicationId || !stageFilter) return;
     setLoading(true);
     try {
-      const [statusRes, assignRes, appRes] = await Promise.all([
-        fetch("/api/admin/application-statuses?activeOnly=1", { cache: "no-store" }),
-        fetch("/api/admin/application-status-stage-assignments", { cache: "no-store" }),
-        fetch(`/api/admin/job-applications/${encodeURIComponent(scopedApplicationId)}`, {
-          cache: "no-store",
-        }),
+      const applicationUrl = `/api/admin/job-applications/${encodeURIComponent(scopedApplicationId)}`;
+      const [statusResult, assignResult, appResult] = await Promise.all([
+        fetchStaffDetailJson<Record<string, unknown>>(APPLICATION_STATUS_CATALOG_URL),
+        fetchStaffDetailJson<Record<string, unknown>>(APPLICATION_STAGE_ASSIGNMENTS_URL),
+        hasKnownApplication
+          ? Promise.resolve(null)
+          : fetchStaffDetailJson<{ application?: Record<string, unknown>; error?: string }>(applicationUrl),
       ]);
-      const statusPayload = await statusRes.json();
-      const assignPayload = await assignRes.json();
-      const appPayload = await appRes.json();
-      if (!statusRes.ok) throw new Error(statusPayload.error || "Failed to load statuses");
-      if (!assignRes.ok) throw new Error(assignPayload.error || "Failed to load stage statuses");
-      if (!appRes.ok) throw new Error(appPayload.error || "Failed to load application");
+      const statusPayload = statusResult.payload;
+      const assignPayload = assignResult.payload;
+      if (!statusResult.ok) {
+        throw new Error(
+          typeof statusPayload.error === "string" ? statusPayload.error : "Failed to load statuses"
+        );
+      }
+      if (!assignResult.ok) {
+        throw new Error(
+          typeof assignPayload.error === "string" ? assignPayload.error : "Failed to load stage statuses"
+        );
+      }
+      if (appResult && !appResult.ok) {
+        throw new Error(appResult.payload.error || "Failed to load application");
+      }
 
       const nextOptions = mapApplicationStatusOptions(statusPayload);
-      const application =
-        appPayload.application && typeof appPayload.application === "object"
-          ? (appPayload.application as { status?: unknown; status_id?: unknown; workflow_id?: unknown })
+      const application = hasKnownApplication
+        ? { status_id: knownStatusId, status: knownStatus, workflow_id: knownWorkflowId }
+        : appResult?.payload.application && typeof appResult.payload.application === "object"
+          ? appResult.payload.application
           : {};
       const resolved = resolveApplicationStatusFromPayload(application, nextOptions);
       const rows = Array.isArray(assignPayload.assignments) ? assignPayload.assignments : [];
@@ -223,7 +257,7 @@ export function StageStatusSequenceButtons({
     } finally {
       setLoading(false);
     }
-  }, [applicationId, stageFilter]);
+  }, [applicationId, hasKnownApplication, knownStatus, knownStatusId, knownWorkflowId, stageFilter]);
 
   useEffect(() => {
     void load();
@@ -313,6 +347,7 @@ export function StageStatusSequenceButtons({
       );
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Failed to update status");
+      invalidateStaffDetailCache(`/api/admin/job-applications/${encodeURIComponent(applicationId)}`);
       const nextName = String(payload.application?.statusName ?? option.name);
       const nextId = String(payload.application?.statusId ?? option.id);
       setStatusId(nextId);
@@ -344,6 +379,7 @@ export function StageStatusSequenceButtons({
         });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error || "Failed to save the reason code");
+        invalidateStaffDetailCache(APPLICATION_STAGE_ASSIGNMENTS_URL);
         setReasonRows(mapReasonRows(payload.reasonCodes, stageFilter));
       }
       const noteResponse = await fetch("/api/admin/application-status-stage-assignments", {
@@ -358,6 +394,7 @@ export function StageStatusSequenceButtons({
       });
       const notePayload = await noteResponse.json();
       if (!noteResponse.ok) throw new Error(notePayload.error || "Failed to save the note");
+      invalidateStaffDetailCache(APPLICATION_STAGE_ASSIGNMENTS_URL);
       const savedNotes = Array.isArray(notePayload.notes) ? notePayload.notes : [];
       setNoteRows(
         savedNotes.flatMap((row: { stageName?: unknown; body?: unknown; workflowId?: unknown }) => {

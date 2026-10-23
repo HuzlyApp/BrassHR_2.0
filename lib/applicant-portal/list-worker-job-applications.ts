@@ -108,8 +108,11 @@ function companyNameFromJob(job: JobRequisitionJoin | null, tenantName: string):
 
 export async function listWorkerJobApplications(
   supabase: SupabaseClient,
-  input: { workerId: string; tenantId: string }
+  input: { workerId: string; tenantId: string },
+  options?: { includeStatusNotes?: boolean; includeResumes?: boolean }
 ): Promise<WorkerJobApplicationListItem[]> {
+  const includeResumes = options?.includeResumes !== false;
+  const includeStatusNotes = options?.includeStatusNotes !== false;
   const [applicationResult, resumeResult, workerResult] = await Promise.all([
     supabase
       .from("job_applications")
@@ -133,13 +136,15 @@ export async function listWorkerJobApplications(
       .eq("worker_id", input.workerId)
       .eq("tenant_id", input.tenantId)
       .order("created_at", { ascending: false }),
-    supabase
-      .from("worker_resumes")
-      .select("id, original_file_name, file_name, file_type, file_size_bytes, uploaded_at, job_application_id")
-      .eq("worker_id", input.workerId)
-      .eq("tenant_id", input.tenantId)
-      .is("deleted_at", null)
-      .order("uploaded_at", { ascending: false }),
+    includeResumes
+      ? supabase
+          .from("worker_resumes")
+          .select("id, original_file_name, file_name, file_type, file_size_bytes, uploaded_at, job_application_id")
+          .eq("worker_id", input.workerId)
+          .eq("tenant_id", input.tenantId)
+          .is("deleted_at", null)
+          .order("uploaded_at", { ascending: false })
+      : Promise.resolve({ data: [], error: null }),
     supabase
       .from("worker")
       .select("first_name, last_name")
@@ -157,7 +162,7 @@ export async function listWorkerJobApplications(
   const workerLastName = String(workerResult.data?.last_name ?? "").trim();
 
   const noteByApplication = new Map<string, string>();
-  if (applicationIds.length > 0) {
+  if (includeStatusNotes && applicationIds.length > 0) {
     const { data: historyRows } = await supabase
       .from("application_status_history")
       .select("application_id, note, created_at")

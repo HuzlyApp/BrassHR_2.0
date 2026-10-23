@@ -35,6 +35,12 @@ export type LoadAdminAttachmentRequirementsOptions = {
   onboardingConfigVersion?: number;
   /** When set, skips re-fetching worker_legacy_document_reviews. */
   legacyReviewRows?: LegacyReviewRow[];
+  /**
+   * Hire-journey phase load only reads document status. Signing every file
+   * blocks that response and the signed URLs are not opened from the board.
+   * Defaults to true for the attachments screen.
+   */
+  signFileUrls?: boolean;
 };
 
 export async function loadAdminAttachmentRequirements(
@@ -91,6 +97,7 @@ export async function loadAdminAttachmentRequirements(
     review_notes?: string | null;
   }>;
 
+  const signFileUrls = options?.signFileUrls !== false;
   const signedEntries = await Promise.all(
     submittedRows.map(async (row) => {
       const requiredDocumentId = String(row.required_document_id ?? "").trim();
@@ -99,10 +106,14 @@ export async function loadAdminAttachmentRequirements(
       const fileUrl = String(row.file_url ?? "").trim();
       let signedUrl: string | null = null;
       if (fileUrl) {
-        signedUrl = await resolveStorageAccessibleUrl(supabase, fileUrl, {
-          defaultBucket: WORKER_REQUIRED_FILES_BUCKET,
-        });
-        if (!signedUrl) {
+        // A stored path is enough to mark the file uploaded. Signing is only
+        // needed when the caller opens the file.
+        signedUrl = signFileUrls
+          ? await resolveStorageAccessibleUrl(supabase, fileUrl, {
+              defaultBucket: WORKER_REQUIRED_FILES_BUCKET,
+            })
+          : fileUrl;
+        if (signFileUrls && !signedUrl) {
           console.warn("[load-admin-attachment-requirements] signed URL unavailable for", fileUrl);
         }
       }
@@ -189,9 +200,11 @@ export async function loadAdminAttachmentRequirements(
         const documentId = String(upload.profession_document_id ?? "");
         const fileUrl = String(upload.file_url ?? "").trim();
         if (!documentId || !fileUrl) return;
-        const signedUrl = await resolveStorageAccessibleUrl(supabase, fileUrl, {
-          defaultBucket: WORKER_REQUIRED_FILES_BUCKET,
-        });
+        const signedUrl = signFileUrls
+          ? await resolveStorageAccessibleUrl(supabase, fileUrl, {
+              defaultBucket: WORKER_REQUIRED_FILES_BUCKET,
+            })
+          : fileUrl;
         const list = filesByDocumentId.get(documentId) ?? [];
         list.push({
           id: String(upload.id ?? ""),
