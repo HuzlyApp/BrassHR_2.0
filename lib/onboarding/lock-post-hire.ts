@@ -41,7 +41,7 @@ export type PreHireProgressStep = {
   title?: string | null;
   phase?: string | null;
   required?: boolean;
-  displayStatus?: WorkflowStepDisplayStatus | OnboardingStepStatus | null;
+  displayStatus?: WorkflowStepDisplayStatus | OnboardingStepStatus | string | null;
   status?: OnboardingStepStatus | string | null;
 };
 
