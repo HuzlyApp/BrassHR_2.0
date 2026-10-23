@@ -800,6 +800,11 @@ export default function CandidateWorkflowStepModal({
               {currentInspection ? (
                 <p className="mt-2 text-xs text-slate-600">{ownership.note}</p>
               ) : null}
+              {currentInspection?.completedBy && currentInspection.step.displayStatus === "completed" ? (
+                <p className="mt-1 text-xs font-medium text-slate-700">
+                  Completed by {currentInspection.completedBy}
+                </p>
+              ) : null}
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
