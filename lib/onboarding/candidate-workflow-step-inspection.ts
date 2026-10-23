@@ -110,11 +110,13 @@ import {
   getFirmaRecruiterTemplateId,
   isFirmaAttachableWorkflowStepId,
   isFirmaSigningComplete,
+  workflowStepIdFromMetadata,
 } from "@/lib/onboarding/firma-step-settings";
 import { tryGetFirmaSigningRequestDownload } from "@/lib/firma/client";
 import { resolveTenantFirmaWorkspaceId } from "@/lib/firma/resolve-tenant-workspace";
 import { isBackgroundCheckAuthorizationStep } from "@/lib/onboarding/authorizations-documents-step";
 import { isAgreementOrSignatureStep } from "@/lib/onboarding/is-agreement-step";
+import { isAgreementSignatureLibraryStepId } from "@/lib/onboarding/agreement-signature-step";
 import { isAgreementEsignStep, isAuthorizationEsignStep } from "@/lib/onboarding/lock-post-hire";
 import {
   interviewStepStatus,
@@ -1256,59 +1258,91 @@ export async function loadCandidateWorkflowStepInspection(
       if (byRequestId) session = byRequestId;
     }
 
-    // Background check can sign through a sibling step that holds the template.
+    // A signature can be stored on the published step when the assigned record points elsewhere.
     if (!session) {
-      const templateId =
-        asText(recordSettings.firmaRecruiterTemplateId) ??
-        (tenantStep ? getFirmaRecruiterTemplateId(tenantStep) : null);
+      const signatureIdentity = {
+        snapshotStepId: mapped.stepType,
+        stepKey: mapped.stepKey,
+        stepType: mapped.stepType,
+        title: mapped.title,
+      };
+      const currentIsPreHireSignature =
+        mapped.phase !== "post_hire" &&
+        (isAuthorizationEsignStep(signatureIdentity) ||
+          isAgreementEsignStep(signatureIdentity) ||
+          isAgreementSignatureLibraryStepId(mapped.stepType));
       const backgroundStepIds =
         kind === "background_check"
-          ? tenantSteps
-              .filter((step) => isBackgroundCheckAuthorizationStep(step))
-              .map((step) => step.id)
+          ? tenantSteps.filter((step) => isBackgroundCheckAuthorizationStep(step)).map((step) => step.id)
           : [];
+      const signatureStepIds = currentIsPreHireSignature
+        ? tenantSteps
+            .filter((step) => {
+              const libraryId = workflowStepIdFromMetadata(step.metadata) || "";
+              return (
+                libraryId === mapped.stepType ||
+                step.step_type === mapped.stepType ||
+                step.step_key === mapped.stepKey ||
+                (Boolean(mapped.title) && step.title === mapped.title)
+              );
+            })
+            .map((step) => step.id)
+        : [];
+      const relatedStepIds = [...new Set([...backgroundStepIds, ...signatureStepIds])];
+      const templateIds = [
+        ...new Set(
+          [
+            asText(recordSettings.firmaRecruiterTemplateId),
+            tenantStep ? getFirmaRecruiterTemplateId(tenantStep) : null,
+            ...tenantSteps
+              .filter((step) => relatedStepIds.includes(step.id))
+              .map((step) => getFirmaRecruiterTemplateId(step)),
+          ].filter((id): id is string => Boolean(id))
+        ),
+      ];
       const sessionColumns =
         "id, onboarding_step_id, firma_status, created_at, updated_at, recruiter_template_id, signing_request_id, firma_workspace_id";
-      if (templateId) {
+      if (relatedStepIds.length) {
+        const { data: byRelatedStep } = await supabase
+          .from("worker_firma_signing_sessions")
+          .select(sessionColumns)
+          .eq("tenant_id", tenantId)
+          .eq("worker_id", workerId)
+          .in("onboarding_step_id", relatedStepIds)
+          .order("created_at", { ascending: false })
+          .limit(1);
+        session = ((byRelatedStep ?? []) as Array<Record<string, unknown>>)[0] ?? null;
+      }
+      if (!session && templateIds.length) {
         const { data: byTemplate } = await supabase
           .from("worker_firma_signing_sessions")
           .select(sessionColumns)
           .eq("tenant_id", tenantId)
           .eq("worker_id", workerId)
-          .eq("recruiter_template_id", templateId)
+          .in("recruiter_template_id", templateIds)
           .order("created_at", { ascending: false })
           .limit(1);
         session = ((byTemplate ?? []) as Array<Record<string, unknown>>)[0] ?? null;
-      }
-      if (!session && backgroundStepIds.length) {
-        const { data: byBackgroundStep } = await supabase
-          .from("worker_firma_signing_sessions")
-          .select(sessionColumns)
-          .eq("tenant_id", tenantId)
-          .eq("worker_id", workerId)
-          .in("onboarding_step_id", backgroundStepIds)
-          .order("created_at", { ascending: false })
-          .limit(1);
-        session = ((byBackgroundStep ?? []) as Array<Record<string, unknown>>)[0] ?? null;
       }
     }
 
     const signingRequestId = asText(session?.signing_request_id) ?? asText(progressData.signing_request_id);
     const firmaStatus = asText(session?.firma_status) ?? asText(progressData.firma_status);
-    const authorizationEsign =
+    const signatureIdentity = {
+      snapshotStepId: mapped.stepType,
+      stepKey: mapped.stepKey,
+      stepType: mapped.stepType,
+      title: mapped.title,
+    };
+    const requiresStoredSignature =
       mapped.phase !== "post_hire" &&
-      isAgreementEsignStep({
-        snapshotStepId: mapped.snapshotStepId,
-        stepKey: mapped.stepKey,
-        stepType: mapped.stepType,
-        title: mapped.title,
-      });
+      (isAuthorizationEsignStep(signatureIdentity) || isAgreementEsignStep(signatureIdentity));
     const storedSignature =
       isFirmaSigningComplete(firmaStatus) ||
       progressData.firma_signed === true ||
       progressData.authorization_agreed === true ||
       Boolean(asText(progressData.signed_document_url) || asText(progressData.download_url));
-    let isSigned = authorizationEsign
+    let isSigned = requiresStoredSignature
       ? storedSignature
       : storedSignature ||
         mapped.displayStatus === "completed" ||
