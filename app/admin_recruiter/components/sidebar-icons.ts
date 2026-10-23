@@ -21,6 +21,8 @@ export type SidebarIconType =
   | "Notifications"
   | "Help & Support"
   | "Settings"
+  | "Time"
+  | "Pay"
   | "Logout";
 
 const DEFAULT_FOLDER = "/icons/sidebar-icons/default-icons";

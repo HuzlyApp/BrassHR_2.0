@@ -261,24 +261,27 @@ export default function FirmaIntegrationPanel() {
           </p>
         </div>
 
-        {showProvisionButton ? (
-          <button
-            type="button"
-            onClick={() => void handleProvisionWorkspace()}
-            disabled={provisioning || saving}
-            className="inline-flex h-10 items-center justify-center rounded-lg bg-teal-700 px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
-          >
-            {provisioning
-              ? `Creating ${E_SIGNATURE_WORKSPACE_LABEL}…`
-              : `Create ${E_SIGNATURE_WORKSPACE_LABEL}`}
-          </button>
-        ) : null}
-
         {provisioningError ? (
           <p className="text-sm text-amber-800">{provisioningError}</p>
         ) : null}
 
-        <AccountSaveButton saving={saving} label={`Save ${E_SIGNATURE_SETTINGS_LABEL}`} />
+        <div className="flex flex-wrap items-center gap-3">
+          {showProvisionButton ? (
+            <button
+              type="button"
+              onClick={() => void handleProvisionWorkspace()}
+              disabled={provisioning || saving}
+              className="inline-flex h-10 items-center justify-center rounded-[6px] border bg-white px-4 text-sm font-medium transition hover:bg-[color:color-mix(in_srgb,var(--brand-secondary)_8%,white)] disabled:opacity-60"
+              style={{ color: "var(--brand-secondary)", borderColor: "var(--brand-secondary)" }}
+            >
+              {provisioning
+                ? `Creating ${E_SIGNATURE_WORKSPACE_LABEL}…`
+                : `Create ${E_SIGNATURE_WORKSPACE_LABEL}`}
+            </button>
+          ) : null}
+
+          <AccountSaveButton saving={saving} label={`Save ${E_SIGNATURE_SETTINGS_LABEL}`} />
+        </div>
       </form>
     </section>
   );

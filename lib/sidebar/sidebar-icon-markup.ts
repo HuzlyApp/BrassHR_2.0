@@ -28,6 +28,8 @@ const ALL_SIDEBAR_ICON_TYPES: SidebarIconType[] = [
   "Notifications",
   "Help & Support",
   "Settings",
+  "Time",
+  "Pay",
   "Logout",
 ];
 
@@ -89,6 +91,7 @@ export async function prefetchSidebarIconMarkups(primaryHex: string): Promise<vo
   const jobs: Promise<string | null>[] = [];
   for (const iconType of ALL_SIDEBAR_ICON_TYPES) {
     jobs.push(ensureTintedSidebarIconMarkup(getSidebarIconSrc(iconType, false), SIDEBAR_NAV_INACTIVE_HEX));
+    jobs.push(ensureTintedSidebarIconMarkup(getSidebarIconSrc(iconType, false), primaryHex));
     jobs.push(ensureTintedSidebarIconMarkup(getSidebarIconSrc(iconType, true), primaryHex));
   }
   await Promise.all(jobs);
