@@ -8,6 +8,13 @@ export const ACCOUNT_TABS = [
 
 export type AccountTabSlug = (typeof ACCOUNT_TABS)[number]["slug"];
 
+/** Company admin tabs. Hidden from recruiter and client roles. */
+const RECRUITER_HIDDEN_ACCOUNT_TAB_SLUGS = new Set<AccountTabSlug>(["business-info", "account-settings"]);
+
+export function isRecruiterHiddenAccountTab(slug: AccountTabSlug): boolean {
+  return RECRUITER_HIDDEN_ACCOUNT_TAB_SLUGS.has(slug);
+}
+
 export function isAccountTabSlug(value: string): value is AccountTabSlug {
   return ACCOUNT_TABS.some((tab) => tab.slug === value);
 }

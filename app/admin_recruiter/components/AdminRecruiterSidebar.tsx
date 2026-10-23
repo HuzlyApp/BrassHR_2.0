@@ -29,12 +29,25 @@ import {
 import { useEffectiveBranding } from "@/lib/admin/hooks/use-effective-branding";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { recruiterLogoutLoginHref } from "@/lib/auth/recruiter-sign-in";
-import {
-  SIDEBAR_NAV_ACTIVE_TEXT_CLASS,
-  SIDEBAR_NAV_INACTIVE_TEXT_CLASS,
-  sidebarNavTextClass,
-  sidebarSubmenuTextClass,
-} from "@/lib/sidebar/sidebar-nav-styles";
+import { SIDEBAR_NAV_ACTIVE_TEXT_CLASS } from "@/lib/sidebar/sidebar-nav-styles";
+
+/** Figma `text/text-brass-navy` — inactive admin sidebar labels. */
+const ADMIN_SIDEBAR_INACTIVE_TEXT_CLASS = "text-[#012352]";
+/** Figma `border/border-lite` — sidebar footer divider. */
+const ADMIN_SIDEBAR_DIVIDER_CLASS = "border-[#ECF1F9]";
+
+function adminNavTextClass(active: boolean): string {
+  return active
+    ? SIDEBAR_NAV_ACTIVE_TEXT_CLASS
+    : `${ADMIN_SIDEBAR_INACTIVE_TEXT_CLASS} hover:text-[color:var(--brand-primary)]`;
+}
+
+/** Disabled (route not built yet) rows keep the Figma navy label, just without hover. */
+function adminSubmenuTextClass(active: boolean, disabled = false): string {
+  const color = active ? SIDEBAR_NAV_ACTIVE_TEXT_CLASS : ADMIN_SIDEBAR_INACTIVE_TEXT_CLASS;
+  const hover = !active && !disabled ? " hover:text-[color:var(--brand-primary)]" : "";
+  return `${color}${hover}`;
+}
 
 const SIDEBAR_EXPANDED_WIDTH = 272;
 const SIDEBAR_COLLAPSED_WIDTH = 80;
@@ -52,14 +65,60 @@ type AdminRecruiterSidebarProps = {
 function getFirstNavigableChildHref(children: SidebarLink[]): string | null {
   for (const child of children) {
     if (child.disabled) continue;
+    if (child.children?.length) {
+      const nested = getFirstNavigableChildHref(child.children);
+      if (nested) return nested;
+      continue;
+    }
     const href = child.href?.trim();
     if (href && href !== "#") return href;
   }
   return null;
 }
 
+function linkOrNestedIsActive(
+  link: SidebarLink,
+  isActive: (link: Pick<SidebarLink, "matchPrefixes" | "matchExact">) => boolean
+): boolean {
+  if (isActive(link)) return true;
+  return link.children?.some((child) => linkOrNestedIsActive(child, isActive)) ?? false;
+}
+
+type RenderedSidebarLink = SidebarLink & {
+  active: boolean;
+  children?: RenderedSidebarLink[];
+};
+
+function decorateSidebarLink(
+  link: SidebarLink,
+  isActive: (link: Pick<SidebarLink, "matchPrefixes" | "matchExact">) => boolean
+): RenderedSidebarLink {
+  const children = link.children?.map((child) => decorateSidebarLink(child, isActive));
+  return {
+    ...link,
+    active: isActive(link) || Boolean(children?.some((child) => child.active)),
+    children,
+  };
+}
+
 const DEFAULT_TENANT_LOGO = BRAAS_PLATFORM_FAVICON;
 const DASHBOARD_HOME_HREF = ADMIN_RECRUITER_HOME_ROUTE;
+const RECRUITER_HIDDEN_SECTIONS = new Set(["Automation", "Templates", "Taskboard"]);
+const RECRUITER_SETTINGS_CHILDREN = new Set(["Profile", "Notifications", "Help & Support", "Reports"]);
+
+function settingsChildrenForRecruiter(children: SidebarLink[]): SidebarLink[] {
+  const visible: SidebarLink[] = [];
+  for (const child of children) {
+    if (child.label === "Personal Settings") {
+      for (const nested of child.children ?? []) {
+        if (RECRUITER_SETTINGS_CHILDREN.has(nested.label)) visible.push(nested);
+      }
+      continue;
+    }
+    if (RECRUITER_SETTINGS_CHILDREN.has(child.label)) visible.push(child);
+  }
+  return visible;
+}
 
 export function AdminRecruiterSidebar({
   isMobileOpen = false,
@@ -81,7 +140,15 @@ export function AdminRecruiterSidebar({
   const sidebarSections = useMemo(() => {
     if (isGodAdmin) return GOD_ADMIN_SIDEBAR_SECTIONS;
     if (isRecruiter) {
-      return CLIENT_SIDEBAR_SECTIONS.filter((section) => section.label !== "Automation");
+      return CLIENT_SIDEBAR_SECTIONS.filter((section) => !RECRUITER_HIDDEN_SECTIONS.has(section.label)).map(
+        (section) => {
+          if (section.label !== "Settings" || !section.children?.length) return section;
+          return {
+            ...section,
+            children: settingsChildrenForRecruiter(section.children),
+          };
+        }
+      );
     }
     return CLIENT_SIDEBAR_SECTIONS;
   }, [isGodAdmin, isRecruiter]);
@@ -118,49 +185,40 @@ export function AdminRecruiterSidebar({
 
   const isPathActive = (prefixes: string[]) => prefixes.some((prefix) => pathname.startsWith(prefix));
 
-  const isParentHrefActive = (href: string) => {
-    if (!href || href === "#") return false;
-    return pathname === href || pathname === `${href}/`;
-  };
-
   const renderedSections = useMemo(
     () =>
       sidebarSections.map((section) => {
-        const childActive = section.children?.some((child) => isLinkActive(child)) ?? false;
+        const childActive =
+          section.children?.some((child) => linkOrNestedIsActive(child, isLinkActive)) ?? false;
         const sectionPathActive = isPathActive(section.matchPrefixes);
         const sectionActive =
           section.controlsActiveState === false ? false : sectionPathActive || childActive;
-        const showIndicator = section.children?.length
-          ? !childActive && isParentHrefActive(section.href)
-          : sectionActive;
 
         return {
           ...section,
           active: sectionActive,
-          showIndicator,
           childActive,
-          children:
-            section.children?.map((child) => ({
-              ...child,
-              active: isLinkActive(child),
-            })) ?? [],
+          children: section.children?.map((child) => decorateSidebarLink(child, isLinkActive)) ?? [],
         };
       }),
     [pathname, sidebarSections]
   );
 
   useEffect(() => {
-    const activeParents = sidebarSections
-      .filter(
-        (section) =>
-          section.children?.some((child) => isLinkActive(child)) ||
-          (section.matchPrefixes.length > 0 && isPathActive(section.matchPrefixes))
-      )
-      .map((section) => section.label);
-    if (activeParents.length === 0) return;
+    const labels: string[] = [];
+    for (const section of sidebarSections) {
+      const sectionOpen =
+        section.children?.some((child) => linkOrNestedIsActive(child, isLinkActive)) ||
+        (section.matchPrefixes.length > 0 && isPathActive(section.matchPrefixes));
+      if (sectionOpen) labels.push(section.label);
+      for (const child of section.children ?? []) {
+        if (child.children?.some((nested) => isLinkActive(nested))) labels.push(child.label);
+      }
+    }
+    if (labels.length === 0) return;
     setOpenSectionLabels((prev) => {
-      if (activeParents.every((label) => prev.includes(label))) return prev;
-      return Array.from(new Set([...prev, ...activeParents]));
+      if (labels.every((label) => prev.includes(label))) return prev;
+      return Array.from(new Set([...prev, ...labels]));
     });
   }, [pathname, sidebarSections]);
 
@@ -208,16 +266,19 @@ export function AdminRecruiterSidebar({
 
   const sidebarWidth = collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_EXPANDED_WIDTH;
 
+  /** Figma rows: 20px content + 24px gap → 44px pitch when expanded. */
   const collapsedRowClass = (isCollapsed: boolean, isMobileRail: boolean) =>
     isCollapsed
       ? isMobileRail
-        ? "w-full justify-center px-0 py-1.5"
-        : "w-full justify-center px-0 py-2"
-      : "gap-3 pl-2 pr-0 py-1";
+        ? "min-h-[36px] w-full justify-center px-0 py-1.5"
+        : "min-h-[36px] w-full justify-center px-0 py-2"
+      : "min-h-[44px] gap-3 pl-0 pr-3";
 
-  const navTextClass = sidebarNavTextClass;
+  const navTextClass = adminNavTextClass;
 
-  const submenuTextClass = sidebarSubmenuTextClass;
+  const submenuTextClass = adminSubmenuTextClass;
+
+  const iconTintHex = branding.primaryHex;
 
   const renderSidebarContent = (
     isCollapsed: boolean,
@@ -234,7 +295,7 @@ export function AdminRecruiterSidebar({
             ? "flex items-center justify-center px-0"
             : isCollapsed
               ? "px-2"
-              : "px-4"
+              : "px-5"
         }`}
       >
         <div
@@ -245,7 +306,7 @@ export function AdminRecruiterSidebar({
                 ? "justify-between gap-3"
                 : isMobileRail
                   ? "justify-center"
-                  : "gap-3"
+                  : "gap-2.5"
           }`}
         >
           <Link
@@ -254,29 +315,29 @@ export function AdminRecruiterSidebar({
             aria-label="Go to home"
             title="Home"
             className={`flex min-w-0 items-center transition hover:opacity-90 ${
-              isCollapsed && !isMobileRail ? "justify-center" : isMobileRail ? "justify-center" : "gap-3"
+              isCollapsed && !isMobileRail ? "justify-center" : isMobileRail ? "justify-center" : "gap-2.5"
             }`}
           >
             <div
-              className={`admin-recruiter-sidebar-logo-frame flex shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white ${
+              className={`admin-recruiter-sidebar-logo-frame flex shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[color:var(--brand-primary)] bg-white ${
                 isMobileRail ? "h-9 w-9" : "h-10 w-10"
               }`}
             >
               <img
                 src={logoSrc}
                 alt={branding.companyName}
-                className={`object-contain ${isMobileRail ? "max-h-[32px] max-w-[32px]" : "max-h-[40px] max-w-[40px]"}`}
-                width={40}
-                height={40}
+                className={`object-contain ${isMobileRail ? "max-h-[26px] max-w-[26px]" : "max-h-[28px] max-w-[28px]"}`}
+                width={28}
+                height={28}
                 onError={() => setLogoSrc(DEFAULT_TENANT_LOGO)}
               />
             </div>
             {!isCollapsed ? (
-              <div className="min-w-0">
-                <p className="truncate text-[18px] leading-[28px] font-semibold text-[#0F3B76]">
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <p className="truncate text-[18px] leading-5 font-semibold text-[#012352]">
                   {sidebarCompanyName || branding.companyName}
                 </p>
-                <p className="text-[10px] leading-[15px] font-light uppercase tracking-normal text-[#94A3B8]">
+                <p className="text-[10px] leading-[12px] font-light uppercase tracking-normal text-[color:var(--brand-primary)]">
                   Dashboard
                 </p>
               </div>
@@ -302,7 +363,7 @@ export function AdminRecruiterSidebar({
             ? "flex flex-col items-center py-2 px-0"
             : isCollapsed
               ? "py-3 px-0"
-              : "py-3 pl-3 pr-0"
+              : "pt-2 pb-7 pl-5 pr-0"
         }`}
       >
         {renderedSections.map((section) => {
@@ -310,21 +371,27 @@ export function AdminRecruiterSidebar({
             (isCollapsed || isMobileRail) && section.children?.length
               ? getFirstNavigableChildHref(section.children)
               : null;
+          const sectionExpandedOpen = !isCollapsed && !isMobileRail && isSectionOpen(section);
+          /** Selected icon and the active line belong to the open page, not a parent that only has a submenu. */
 
           return (
-          <div key={section.label} className={`mb-1 ${isMobileRail || isCollapsed ? "w-full" : ""}`}>
+          <div key={section.label} className={isMobileRail || isCollapsed ? "mb-1 w-full" : ""}>
             {section.children?.length ? (
               collapsedNavHref ? (
                 <Link
                   href={collapsedNavHref}
                   onClick={handleNavClick}
                   title={section.label}
-                  className={`group relative flex min-h-[36px] w-full cursor-pointer items-center overflow-hidden rounded-md transition hover:bg-white ${collapsedRowClass(
+                  className={`group relative flex w-full cursor-pointer items-center overflow-hidden rounded-md transition hover:bg-white ${collapsedRowClass(
                     isCollapsed,
                     isMobileRail
                   )} ${navTextClass(section.childActive)}`}
                 >
-                  <SidebarNavIcon iconType={section.iconType} active={section.childActive} />
+                  <SidebarNavIcon
+                    iconType={section.iconType}
+                    active={section.childActive}
+                    colorHex={iconTintHex}
+                  />
                   {section.childActive ? (
                     <span aria-hidden className="admin-recruiter-sidebar-active-indicator" />
                   ) : null}
@@ -340,10 +407,10 @@ export function AdminRecruiterSidebar({
                   }}
                   onMouseDown={(event) => event.preventDefault()}
                   disabled={isCollapsed || isMobileRail}
-                  className={`group relative flex min-h-[36px] w-full cursor-pointer items-center gap-2 overflow-hidden rounded-md border-0 bg-transparent text-left transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 ${navTextClass(section.childActive)} ${
+                  className={`group relative flex w-full cursor-pointer items-center gap-3 overflow-hidden rounded-md border-0 bg-transparent text-left transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 ${navTextClass(false)} ${
                     isCollapsed || isMobileRail
                       ? collapsedRowClass(isCollapsed, isMobileRail)
-                      : "pl-2 pr-0 py-1"
+                      : "min-h-[44px] pl-0 pr-[6px]"
                   }`}
                   aria-expanded={isSectionOpen(section)}
                   aria-label={`${isSectionOpen(section) ? "Collapse" : "Expand"} ${section.label}`}
@@ -353,7 +420,11 @@ export function AdminRecruiterSidebar({
                       isCollapsed || isMobileRail ? "justify-center" : ""
                     }`}
                   >
-                    <SidebarNavIcon iconType={section.iconType} active={section.childActive} />
+                    <SidebarNavIcon
+                      iconType={section.iconType}
+                      active={false}
+                      colorHex={iconTintHex}
+                    />
                     {!isCollapsed && !isMobileRail ? (
                       <span className="truncate font-normal text-[14px] leading-5 tracking-normal">
                         {section.label}
@@ -361,24 +432,71 @@ export function AdminRecruiterSidebar({
                     ) : null}
                   </div>
                   {!isCollapsed && !isMobileRail ? (
-                    <span
-                      className={`ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${
-                        section.childActive ? SIDEBAR_NAV_ACTIVE_TEXT_CLASS : SIDEBAR_NAV_INACTIVE_TEXT_CLASS
-                      }`}
-                      aria-hidden
-                    >
-                      <SidebarSubmenuToggleIcon open={isSectionOpen(section)} />
+                    <span className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center" aria-hidden>
+                      <SidebarSubmenuToggleIcon
+                        open={isSectionOpen(section)}
+                        size={20}
+                        openDirection="up"
+                      />
                     </span>
                   ) : null}
                 </button>
 
-                {!isCollapsed && !isMobileRail && isSectionOpen(section) ? (
-                  <div className="admin-recruiter-sidebar-submenu space-y-0.5">
-                    {section.children.map((child) =>
-                      child.disabled ? (
+                {sectionExpandedOpen ? (
+                  <div className="admin-recruiter-sidebar-submenu">
+                    {section.children.map((child) => {
+                      if (child.children?.length) {
+                        const groupOpen = openSectionLabels.includes(child.label);
+                        return (
+                          <div key={`${section.label}-${child.label}`}>
+                            <button
+                              type="button"
+                              onClick={(event) => handleSectionToggleClick(child.label, event)}
+                              onMouseDown={(event) => event.preventDefault()}
+                              className={`admin-recruiter-sidebar-submenu-item flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent text-left font-normal text-[14px] leading-5 tracking-normal ${submenuTextClass(false)}`}
+                              aria-expanded={groupOpen}
+                              aria-label={`${groupOpen ? "Collapse" : "Expand"} ${child.label}`}
+                            >
+                              <span className="min-w-0 flex-1 truncate">{child.label}</span>
+                              <SidebarSubmenuToggleIcon open={groupOpen} size={16} openDirection="up" />
+                            </button>
+                            {groupOpen ? (
+                              <div className="admin-recruiter-sidebar-submenu-nested">
+                                {(child.children as RenderedSidebarLink[]).map((nested) =>
+                                  nested.disabled ? (
+                                    <div
+                                      key={`${child.label}-${nested.label}`}
+                                      title={`${nested.label} (Coming soon)`}
+                                      className={`admin-recruiter-sidebar-submenu-item group relative block cursor-default overflow-hidden rounded-md font-normal text-[14px] leading-5 tracking-normal ${submenuTextClass(false, true)}`}
+                                      aria-disabled
+                                    >
+                                      <span>{nested.label}</span>
+                                    </div>
+                                  ) : (
+                                    <Link
+                                      key={`${child.label}-${nested.label}`}
+                                      href={nested.href}
+                                      onClick={handleNavClick}
+                                      className={`admin-recruiter-sidebar-submenu-item group relative block overflow-hidden rounded-md font-normal text-[14px] leading-5 tracking-normal transition-colors hover:text-[color:var(--brand-primary)] ${submenuTextClass(nested.active)}`}
+                                    >
+                                      <span>{nested.label}</span>
+                                      {nested.active ? (
+                                        <span aria-hidden className="admin-recruiter-sidebar-active-indicator" />
+                                      ) : null}
+                                    </Link>
+                                  )
+                                )}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      }
+
+                      return child.disabled ? (
                         <div
                           key={`${section.label}-${child.label}`}
-                          className={`admin-recruiter-sidebar-submenu-item group relative block overflow-hidden rounded-md font-normal text-[14px] leading-5 tracking-normal ${submenuTextClass(false, true)}`}
+                          title={`${child.label} (Coming soon)`}
+                          className={`admin-recruiter-sidebar-submenu-item group relative block cursor-default overflow-hidden rounded-md font-normal text-[14px] leading-5 tracking-normal ${submenuTextClass(false, true)}`}
                           aria-disabled
                         >
                           <span>{child.label}</span>
@@ -395,8 +513,8 @@ export function AdminRecruiterSidebar({
                             <span aria-hidden className="admin-recruiter-sidebar-active-indicator" />
                           ) : null}
                         </Link>
-                      )
-                    )}
+                      );
+                    })}
                   </div>
                 ) : null}
               </>
@@ -404,14 +522,15 @@ export function AdminRecruiterSidebar({
             ) : section.disabled ? (
               <div
                 title={`${section.label} (Coming soon)`}
-                className={`group relative flex min-h-[36px] items-center overflow-hidden rounded-md ${
+                className={`group relative flex items-center overflow-hidden rounded-md ${
                   collapsedRowClass(isCollapsed, isMobileRail)
-                } ${SIDEBAR_NAV_INACTIVE_TEXT_CLASS} opacity-60`}
+                } ${ADMIN_SIDEBAR_INACTIVE_TEXT_CLASS} opacity-60`}
                 aria-disabled
               >
                 <SidebarNavIcon
                   iconType={section.iconType}
                   active={!section.disabled && section.active}
+                  colorHex={iconTintHex}
                 />
                 {!isCollapsed ? (
                   <span className="font-normal text-[14px] leading-5 tracking-normal transition-colors">{section.label}</span>
@@ -422,7 +541,7 @@ export function AdminRecruiterSidebar({
                 href={section.href}
                 onClick={handleNavClick}
                 title={isCollapsed ? section.label : undefined}
-                className={`group relative flex min-h-[36px] items-center overflow-hidden rounded-md transition hover:bg-white ${collapsedRowClass(
+                className={`group relative flex items-center overflow-hidden rounded-md transition hover:bg-white ${collapsedRowClass(
                   isCollapsed,
                   isMobileRail
                 )} ${navTextClass(section.active)}`}
@@ -430,13 +549,14 @@ export function AdminRecruiterSidebar({
                 <SidebarNavIcon
                   iconType={section.iconType}
                   active={!section.disabled && section.active}
+                  colorHex={iconTintHex}
                 />
                 {!isCollapsed ? (
                   <span className="font-normal text-[14px] leading-5 tracking-normal transition-colors">
                     {section.label}
                   </span>
                 ) : null}
-                {section.showIndicator || (isCollapsed && section.active) ? (
+                {section.active ? (
                   <span aria-hidden className="admin-recruiter-sidebar-active-indicator" />
                 ) : null}
               </Link>
@@ -447,17 +567,17 @@ export function AdminRecruiterSidebar({
       </nav>
 
       <div
-        className={`border-t border-[#E2E8F0] ${
+        className={`border-t ${ADMIN_SIDEBAR_DIVIDER_CLASS} ${
           isMobileRail || isCollapsed
             ? "flex justify-center px-0 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]"
-            : "px-4 py-3"
+            : "p-5"
         }`}
       >
         <div
           className={`flex items-center ${
             isCollapsed || isMobileRail
               ? "flex-col items-center justify-center gap-2"
-              : "gap-2.5"
+              : "gap-2"
           }`}
         >
           {!isCollapsed || isMobileRail ? (
@@ -468,24 +588,30 @@ export function AdminRecruiterSidebar({
               aria-label="Open profile"
               className="shrink-0 rounded-full transition hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--brand-primary)]"
             >
-              <StaffProfileAvatar name={profileName} photoUrl={profilePhoto} size="sm" />
+              <StaffProfileAvatar
+                name={profileName}
+                photoUrl={profilePhoto}
+                size="sm"
+                className="text-[14px]!"
+              />
             </Link>
           ) : null}
           {!isCollapsed ? (
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[14px] leading-5 font-semibold text-[#0F2F60]">{profileName}</p>
-              <p className="truncate text-[10px] leading-[15px] font-light text-[#94A3B8]">{profileRole}</p>
+              <p className="truncate text-[14px] leading-5 font-semibold text-[#012352]">{profileName}</p>
+              <p className="truncate text-[10px] leading-[15px] font-normal text-[#94A3B8]">{profileRole}</p>
             </div>
           ) : null}
           <button
             type="button"
             onClick={handleLogout}
             title="Logout"
-            className={`rounded-md p-1 hover:bg-white/80 ${
-              isCollapsed || isMobileRail ? "" : "ml-auto"
+            aria-label="Logout"
+            className={`rounded-md p-1 hover:bg-[#F8FAFC] ${
+              isCollapsed || isMobileRail ? "" : "-mr-1 ml-auto"
             }`}
           >
-            <SidebarNavIcon iconType={SIDEBAR_ICON_TYPES.logout} active={false} />
+            <SidebarNavIcon iconType={SIDEBAR_ICON_TYPES.logout} active colorHex={iconTintHex} />
           </button>
         </div>
       </div>
@@ -497,13 +623,12 @@ export function AdminRecruiterSidebar({
     width: sidebarWidth,
     maxWidth: sidebarWidth,
     minWidth: SIDEBAR_COLLAPSED_WIDTH,
-    boxShadow: "inset 3px 0 0 var(--brand-primary)",
   };
 
   return (
     <>
       <aside
-        className={`admin-recruiter-sidebar fixed inset-y-0 left-0 z-40 hidden h-screen overflow-hidden border-r border-[#E2E8F0] admin-recruiter-chrome-border-r bg-white transition-[width] duration-200 ease-in-out min-[1000px]:block ${sidebarHoverClass}`}
+        className={`admin-recruiter-sidebar fixed inset-y-0 left-0 z-40 hidden h-screen overflow-hidden border-r border-[#ECF1F9] admin-recruiter-chrome-border-r bg-white transition-[width] duration-200 ease-in-out min-[1000px]:block ${sidebarHoverClass}`}
         style={asideStyle}
         data-collapsed={collapsed ? "true" : "false"}
         {...sidebarHoverProps}
@@ -512,7 +637,7 @@ export function AdminRecruiterSidebar({
       </aside>
 
       <aside
-        className={`admin-recruiter-sidebar admin-recruiter-sidebar-mobile-rail fixed inset-y-0 left-0 z-40 h-screen overflow-hidden border-r border-[#E2E8F0] admin-recruiter-chrome-border-r bg-white min-[1000px]:hidden ${sidebarHoverClass} ${
+        className={`admin-recruiter-sidebar admin-recruiter-sidebar-mobile-rail fixed inset-y-0 left-0 z-40 h-screen overflow-hidden border-r border-[#ECF1F9] admin-recruiter-chrome-border-r bg-white min-[1000px]:hidden ${sidebarHoverClass} ${
           isMobileOpen ? "hidden" : "block"
         }`}
         data-collapsed="true"
@@ -529,13 +654,12 @@ export function AdminRecruiterSidebar({
         aria-hidden={!isMobileOpen}
       >
         <aside
-          className={`admin-recruiter-sidebar h-full border-r border-[#E2E8F0] bg-white transition-transform duration-200 ease-in-out ${sidebarHoverClass} ${
+          className={`admin-recruiter-sidebar h-full border-r border-[#ECF1F9] bg-white transition-transform duration-200 ease-in-out ${sidebarHoverClass} ${
             isMobileOpen ? "translate-x-0" : "-translate-x-full"
           }`}
           style={{
             width: SIDEBAR_EXPANDED_WIDTH,
             maxWidth: "min(90vw, 272px)",
-            boxShadow: "inset 3px 0 0 var(--brand-primary)",
           }}
           onClick={(event) => event.stopPropagation()}
           {...sidebarHoverProps}

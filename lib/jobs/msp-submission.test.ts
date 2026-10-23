@@ -484,5 +484,16 @@ describe("planApplicationStatusChange", () => {
         assignedToStage: true,
       }).ok
     ).toBe(true);
+
+    expect(
+      planApplicationStatusChange({
+        sourceType: "MSP",
+        targetName: "Submitted to MSP",
+        currentStatusId: "ready",
+        targetStatusId: "submit",
+        hasMspSubmission: false,
+        assignedToStage: true,
+      }).ok
+    ).toBe(true);
   });
 });

@@ -7,6 +7,9 @@ export type SidebarLink = {
   matchPrefixes: string[];
   matchExact?: boolean;
   disabled?: boolean;
+  /** Set while rendering so the current page can highlight this row. */
+  active?: boolean;
+  children?: SidebarLink[];
 };
 
 export type SidebarSection = {
@@ -43,6 +46,8 @@ const ICON = {
   notifications: "Notifications",
   help: "Help & Support",
   settings: "Settings",
+  time: "Time",
+  pay: "Pay",
   logout: "Logout",
 } as const satisfies Record<string, SidebarIconType>;
 
@@ -124,28 +129,41 @@ const SCHEDULING_CHILDREN: SidebarLink[] = [
   },
 ];
 
-const TASKBOARD_CHILDREN: SidebarLink[] = [
-  // {
-  //   label: "Onboarding",
-  //   href: "#",
-  //   matchPrefixes: [],
-  //   disabled: true,
-  // }, // Hidden for now — keep for future use.
-  {
-    label: "Interviews",
-    href: "/admin_recruiter/calendar",
-    matchPrefixes: ["/admin_recruiter/calendar"],
-    matchExact: true,
-  },
-  // {
-  //   label: "Calls",
-  //   href: "#",
-  //   matchPrefixes: [],
-  //   disabled: true,
-  // }, // Hidden for now — keep for future use.
-];
+// Time and Pay are hidden until those screens are built.
+// const TIME_CHILDREN: SidebarLink[] = [
+//   { label: "Clock-ins", href: "#", matchPrefixes: [], disabled: true },
+//   { label: "Timesheets", href: "#", matchPrefixes: [], disabled: true },
+//   { label: "Approvals", href: "#", matchPrefixes: [], disabled: true },
+// ];
+//
+// const PAY_CHILDREN: SidebarLink[] = [
+//   { label: "Payroll Export", href: "#", matchPrefixes: [], disabled: true },
+//   { label: "Bill / Pay Rates", href: "#", matchPrefixes: [], disabled: true },
+// ];
 
-const TASKBOARD_ACTIVE_PREFIXES: string[] = [];
+// Taskboard is hidden for now. Interviews lives under Candidates.
+// const TASKBOARD_CHILDREN: SidebarLink[] = [
+//   // {
+//   //   label: "Onboarding",
+//   //   href: "#",
+//   //   matchPrefixes: [],
+//   //   disabled: true,
+//   // }, // Hidden for now — keep for future use.
+//   {
+//     label: "Interviews",
+//     href: "/admin_recruiter/calendar",
+//     matchPrefixes: ["/admin_recruiter/calendar"],
+//     matchExact: true,
+//   },
+//   // {
+//   //   label: "Calls",
+//   //   href: "#",
+//   //   matchPrefixes: [],
+//   //   disabled: true,
+//   // }, // Hidden for now — keep for future use.
+// ];
+//
+// const TASKBOARD_ACTIVE_PREFIXES: string[] = [];
 
 const EMAIL_TEMPLATES_ROUTE = "/admin_recruiter/email-templates";
 const TEMPLATE_BUILDER_ROUTE = "/admin_recruiter/template-builder";
@@ -170,6 +188,12 @@ const RECRUITMENT_CHILDREN: SidebarLink[] = [
     label: "Candidates",
     href: "/admin_recruiter/candidates",
     matchPrefixes: CANDIDATE_ROUTE_PREFIXES,
+  },
+  {
+    label: "Interviews",
+    href: "/admin_recruiter/calendar",
+    matchPrefixes: ["/admin_recruiter/calendar"],
+    matchExact: true,
   },
 ];
 
@@ -247,13 +271,13 @@ const FIGMA_PRIMARY_SECTIONS: SidebarSection[] = [
     matchPrefixes: DASHBOARD_ACTIVE_PREFIXES,
     children: DASHBOARD_CHILDREN,
   },
-  {
-    label: "Reports",
-    href: "#",
-    iconType: ICON.reports,
-    matchPrefixes: ["/admin_recruiter/reports"],
-    children: REPORTS_CHILDREN,
-  },
+  // {
+  //   label: "Reports",
+  //   href: "#",
+  //   iconType: ICON.reports,
+  //   matchPrefixes: ["/admin_recruiter/reports"],
+  //   children: REPORTS_CHILDREN,
+  // }, // Moved under Settings.
   {
     label: "Shifts",
     href: "#",
@@ -284,13 +308,13 @@ const EXTRA_TOP_SECTIONS: SidebarSection[] = [
     matchPrefixes: TEMPLATES_ACTIVE_PREFIXES,
     children: TEMPLATES_CHILDREN,
   },
-  {
-    label: "Taskboard",
-    href: "#",
-    iconType: ICON.taskboard,
-    matchPrefixes: TASKBOARD_ACTIVE_PREFIXES,
-    children: TASKBOARD_CHILDREN,
-  },
+  // {
+  //   label: "Taskboard",
+  //   href: "#",
+  //   iconType: ICON.taskboard,
+  //   matchPrefixes: TASKBOARD_ACTIVE_PREFIXES,
+  //   children: TASKBOARD_CHILDREN,
+  // }, // Hidden for now — Interviews moved under Candidates.
   {
     label: "Chat",
     href: "/admin_recruiter/messages",
@@ -307,18 +331,61 @@ const EXTRA_TOP_SECTIONS: SidebarSection[] = [
   },
 ];
 
-const SHARED_FOOTER_SECTIONS: SidebarSection[] = [
+const PROFILE_ROUTE = "/admin_recruiter/account/personal";
+const SETTINGS_ROUTE = "/admin_recruiter/settings";
+const HELP_SUPPORT_ROUTE = "/admin_recruiter/help-support";
+const NOTIFICATIONS_ROUTE = "/admin_recruiter/notifications";
+
+/** Admins see Personal Settings > Profile. Recruiters get Profile as a direct Settings item. */
+const SETTINGS_CHILDREN: SidebarLink[] = [
   {
-    label: "Help & Support",
-    href: "/admin_recruiter/help-support",
-    iconType: ICON.help,
-    matchPrefixes: ["/admin_recruiter/help-support"],
+    label: "Company settings",
+    href: SETTINGS_ROUTE,
+    matchPrefixes: [SETTINGS_ROUTE],
   },
   {
+    label: "Personal Settings",
+    href: "#",
+    matchPrefixes: ["/admin_recruiter/account"],
+    children: [
+      {
+        label: "Profile",
+        href: PROFILE_ROUTE,
+        matchPrefixes: ["/admin_recruiter/account"],
+      },
+    ],
+  },
+  {
+    label: "Notifications",
+    href: NOTIFICATIONS_ROUTE,
+    matchPrefixes: [NOTIFICATIONS_ROUTE],
+  },
+  {
+    label: "Help & Support",
+    href: HELP_SUPPORT_ROUTE,
+    matchPrefixes: [HELP_SUPPORT_ROUTE],
+  },
+  {
+    label: "Reports",
+    href: "#",
+    matchPrefixes: [REPORTS_BASE],
+    children: REPORTS_CHILDREN,
+  },
+];
+
+const SHARED_FOOTER_SECTIONS: SidebarSection[] = [
+  // {
+  //   label: "Help & Support",
+  //   href: "/admin_recruiter/help-support",
+  //   iconType: ICON.help,
+  //   matchPrefixes: ["/admin_recruiter/help-support"],
+  // }, // Moved under Settings.
+  {
     label: "Settings",
-    href: "/admin_recruiter/settings",
+    href: "#",
     iconType: ICON.settings,
-    matchPrefixes: ["/admin_recruiter/settings"],
+    matchPrefixes: [SETTINGS_ROUTE, "/admin_recruiter/account", HELP_SUPPORT_ROUTE, NOTIFICATIONS_ROUTE, REPORTS_BASE],
+    children: SETTINGS_CHILDREN,
   },
 ];
 
@@ -332,14 +399,14 @@ export const CLIENT_SIDEBAR_SECTIONS: SidebarSection[] = [
     children: DASHBOARD_CHILDREN,
   },
   {
-    label: "Recruitment",
+    label: "Hiring",
     href: "#",
     iconType: ICON.candidates,
     matchPrefixes: CANDIDATE_ROUTE_PREFIXES,
     children: RECRUITMENT_CHILDREN,
   },
   {
-    label: "Workforce",
+    label: "People",
     href: "#",
     iconType: ICON.teams,
     matchPrefixes: ["/admin_recruiter/workers", "/admin_recruiter/managers"],
@@ -365,6 +432,20 @@ export const CLIENT_SIDEBAR_SECTIONS: SidebarSection[] = [
     matchPrefixes: ["/admin_recruiter/calendar/shifts", "/admin_recruiter/attendance"],
     children: SCHEDULING_CHILDREN,
   },
+  // {
+  //   label: "Time",
+  //   href: "#",
+  //   iconType: ICON.time,
+  //   matchPrefixes: [],
+  //   children: TIME_CHILDREN,
+  // }, // Hidden for now — routes are not built yet.
+  // {
+  //   label: "Pay",
+  //   href: "#",
+  //   iconType: ICON.pay,
+  //   matchPrefixes: [],
+  //   children: PAY_CHILDREN,
+  // }, // Hidden for now — routes are not built yet.
   {
     label: "Automation",
     href: "#",
@@ -372,13 +453,13 @@ export const CLIENT_SIDEBAR_SECTIONS: SidebarSection[] = [
     matchPrefixes: AUTOMATION_ACTIVE_PREFIXES,
     children: AUTOMATION_CHILDREN,
   },
-  {
-    label: "Reports",
-    href: "#",
-    iconType: ICON.reports,
-    matchPrefixes: ["/admin_recruiter/reports"],
-    children: REPORTS_CHILDREN,
-  },
+  // {
+  //   label: "Reports",
+  //   href: "#",
+  //   iconType: ICON.reports,
+  //   matchPrefixes: ["/admin_recruiter/reports"],
+  //   children: REPORTS_CHILDREN,
+  // }, // Moved under Settings.
   {
     label: "Templates",
     href: "#",
@@ -386,13 +467,13 @@ export const CLIENT_SIDEBAR_SECTIONS: SidebarSection[] = [
     matchPrefixes: TEMPLATES_ACTIVE_PREFIXES,
     children: TEMPLATES_CHILDREN,
   },
-  {
-    label: "Taskboard",
-    href: "#",
-    iconType: ICON.taskboard,
-    matchPrefixes: TASKBOARD_ACTIVE_PREFIXES,
-    children: TASKBOARD_CHILDREN,
-  },
+  // {
+  //   label: "Taskboard",
+  //   href: "#",
+  //   iconType: ICON.taskboard,
+  //   matchPrefixes: TASKBOARD_ACTIVE_PREFIXES,
+  //   children: TASKBOARD_CHILDREN,
+  // }, // Hidden for now — Interviews moved under Candidates.
   {
     label: "Mail",
     href: MAIL_ROUTE,
@@ -405,18 +486,18 @@ export const CLIENT_SIDEBAR_SECTIONS: SidebarSection[] = [
     iconType: ICON.chat,
     matchPrefixes: ["/admin_recruiter/messages"],
   },
-  {
-    label: "Profile",
-    href: "/admin_recruiter/account/personal",
-    iconType: ICON.account,
-    matchPrefixes: ["/admin_recruiter/account"],
-  },
-  {
-    label: "Notifications",
-    href: "/admin_recruiter/notifications",
-    iconType: ICON.notifications,
-    matchPrefixes: ["/admin_recruiter/notifications"],
-  },
+  // {
+  //   label: "Profile",
+  //   href: "/admin_recruiter/account/personal",
+  //   iconType: ICON.account,
+  //   matchPrefixes: ["/admin_recruiter/account"],
+  // }, // Moved under Settings.
+  // {
+  //   label: "Notifications",
+  //   href: "/admin_recruiter/notifications",
+  //   iconType: ICON.notifications,
+  //   matchPrefixes: ["/admin_recruiter/notifications"],
+  // }, // Moved under Settings.
   ...SHARED_FOOTER_SECTIONS,
 ];
 
@@ -424,14 +505,14 @@ export const CLIENT_SIDEBAR_SECTIONS: SidebarSection[] = [
 export const GOD_ADMIN_SIDEBAR_SECTIONS: SidebarSection[] = [
   ...FIGMA_PRIMARY_SECTIONS,
   {
-    label: "Recruitment",
+    label: "Hiring",
     href: "#",
     iconType: ICON.candidates,
     matchPrefixes: CANDIDATE_ROUTE_PREFIXES,
     children: RECRUITMENT_CHILDREN,
   },
   {
-    label: "Workforce",
+    label: "People",
     href: "#",
     iconType: ICON.teams,
     matchPrefixes: ["/admin_recruiter/workers", "/admin_recruiter/managers"],
@@ -469,18 +550,18 @@ export const GOD_ADMIN_SIDEBAR_SECTIONS: SidebarSection[] = [
     children: AUTOMATION_CHILDREN,
   },
   ...EXTRA_TOP_SECTIONS,
-  {
-    label: "Profile",
-    href: "/admin_recruiter/account/personal",
-    iconType: ICON.account,
-    matchPrefixes: ["/admin_recruiter/account"],
-  },
-  {
-    label: "Notifications",
-    href: "/admin_recruiter/notifications",
-    iconType: ICON.notifications,
-    matchPrefixes: ["/admin_recruiter/notifications"],
-  },
+  // {
+  //   label: "Profile",
+  //   href: "/admin_recruiter/account/personal",
+  //   iconType: ICON.account,
+  //   matchPrefixes: ["/admin_recruiter/account"],
+  // }, // Moved under Settings.
+  // {
+  //   label: "Notifications",
+  //   href: "/admin_recruiter/notifications",
+  //   iconType: ICON.notifications,
+  //   matchPrefixes: ["/admin_recruiter/notifications"],
+  // }, // Moved under Settings.
   ...SHARED_FOOTER_SECTIONS,
 ];
 

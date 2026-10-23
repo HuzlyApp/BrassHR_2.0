@@ -1,19 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { ACCOUNT_TABS, type AccountTabSlug } from "../account-tabs";
+import { useAccountData } from "@/app/admin_recruiter/hooks/useAccountData";
+import { appRoleToConsoleRole } from "@/lib/admin/staff-directory-types";
+import { ACCOUNT_TABS, isRecruiterHiddenAccountTab, type AccountTabSlug } from "../account-tabs";
 
 type AccountTabNavProps = {
   activeTab: AccountTabSlug;
 };
 
 export default function AccountTabNav({ activeTab }: AccountTabNavProps) {
+  const { profile, loading } = useAccountData();
+  const hideAdminTabs = loading || appRoleToConsoleRole(profile?.role) === "recruiter";
+  const tabs = hideAdminTabs ? ACCOUNT_TABS.filter((tab) => !isRecruiterHiddenAccountTab(tab.slug)) : ACCOUNT_TABS;
+
   return (
     <nav
       className="mb-4 flex flex-nowrap items-stretch gap-6 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
       aria-label="Account sections"
     >
-      {ACCOUNT_TABS.map((tab) => {
+      {tabs.map((tab) => {
         const isActive = tab.slug === activeTab;
         return (
           <Link

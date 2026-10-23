@@ -108,6 +108,34 @@ const STATUS_TONE: Record<WorkflowStepDisplayStatus, BadgeTone> = {
   blocked: "danger",
 };
 
+function recruiterSignedDocumentHref(input: {
+  directUrl?: string | null;
+  workerId?: string | null;
+  stepId?: string | null;
+  signingRequestId?: string | null;
+  signed: boolean;
+  download: boolean;
+  filename: string;
+}): string | null {
+  const direct = input.directUrl?.trim();
+  if (direct) return direct;
+  if (!input.signed) return null;
+  const signingRequestId = input.signingRequestId?.trim() ?? "";
+  const workerId = input.workerId?.trim() ?? "";
+  const stepId = input.stepId?.trim() ?? "";
+  if (!signingRequestId && !(workerId && stepId)) return null;
+  const params = new URLSearchParams();
+  if (workerId) params.set("workerId", workerId);
+  if (stepId) params.set("stepId", stepId);
+  if (signingRequestId) params.set("signingRequestId", signingRequestId);
+  params.set("redirect", "true");
+  if (input.download) {
+    params.set("download", "true");
+    params.set("filename", input.filename);
+  }
+  return `/api/onboarding/firma-sign/download?${params.toString()}`;
+}
+
 function StatusBadge({
   tone,
   label,
@@ -594,6 +622,31 @@ export default function CandidateWorkflowStepModal({
     Boolean(hireStageName && isPreHireStatusStageName(hireStageName));
   const isWelcomeEmailStep =
     inspection ? isWelcomeEmailWorkflowStep(inspection.step.stepType) : false;
+  const signedDocumentTitle =
+    inspection?.agreement?.documentName.trim() || inspection?.step.title.trim() || "Signed document";
+  const signedDocumentStepId = inspection?.step.tenantStepId ?? stepId;
+  const signedPreviewHref = inspection?.agreement
+    ? recruiterSignedDocumentHref({
+        directUrl: inspection.agreement.completedDocumentUrl,
+        workerId,
+        stepId: signedDocumentStepId,
+        signingRequestId: inspection.agreement.signingRequestId,
+        signed: inspection.agreement.isSigned,
+        download: false,
+        filename: signedDocumentTitle,
+      })
+    : null;
+  const signedDownloadHref = inspection?.agreement
+    ? recruiterSignedDocumentHref({
+        directUrl: inspection.agreement.downloadUrl || inspection.agreement.completedDocumentUrl,
+        workerId,
+        stepId: signedDocumentStepId,
+        signingRequestId: inspection.agreement.signingRequestId,
+        signed: inspection.agreement.isSigned,
+        download: true,
+        filename: signedDocumentTitle,
+      })
+    : null;
   const agreementPendingReview = Boolean(authorizationEsign && !candidateReview?.verified);
   const authorizationOpen = Boolean(authorizationConfirmation && !candidateReview?.verified);
   const canEmailCandidate = Boolean(
@@ -1242,7 +1295,7 @@ export default function CandidateWorkflowStepModal({
                 ) : null}
 
                 {inspection.agreement ? (
-                  <Section title="Signed Agreement & eSignature">
+                  <Section title={signedDocumentTitle}>
                     <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                       <Meta label="Agreement" value={inspection.agreement.documentName} />
                       <div className="min-w-0">
@@ -1288,9 +1341,9 @@ export default function CandidateWorkflowStepModal({
 
                     {/* Action buttons: Preview, Download, and Re-sync Recovery */}
                     <div className="mt-4 flex flex-wrap items-center gap-2.5 pt-3 border-t border-slate-100">
-                      {inspection.agreement.completedDocumentUrl ? (
+                      {signedPreviewHref ? (
                         <a
-                          href={inspection.agreement.completedDocumentUrl}
+                          href={signedPreviewHref}
                           target="_blank"
                           rel="noreferrer"
                           className="inline-flex items-center gap-1.5 rounded-lg border bg-white px-3.5 py-2 text-xs font-semibold shadow-sm transition hover:brightness-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
@@ -1301,16 +1354,16 @@ export default function CandidateWorkflowStepModal({
                           }}
                         >
                           <Eye className="h-3.5 w-3.5" aria-hidden />
-                          Preview Signed Agreement
+                          Preview
                         </a>
                       ) : null}
 
-                      {inspection.agreement.downloadUrl || inspection.agreement.completedDocumentUrl ? (
+                      {signedDownloadHref ? (
                         <a
-                          href={inspection.agreement.downloadUrl || inspection.agreement.completedDocumentUrl!}
+                          href={signedDownloadHref}
                           target="_blank"
                           rel="noreferrer"
-                          download={`${inspection.agreement.documentName || "Signed_Agreement"}.pdf`}
+                          download={`${signedDocumentTitle}.pdf`}
                           className="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold shadow-sm transition hover:brightness-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                           style={{
                             background: "var(--step-modal-cta)",
@@ -1318,7 +1371,7 @@ export default function CandidateWorkflowStepModal({
                           }}
                         >
                           <Download className="h-3.5 w-3.5" aria-hidden />
-                          Download Signed Agreement
+                          Download
                         </a>
                       ) : null}
 
@@ -1464,7 +1517,8 @@ export default function CandidateWorkflowStepModal({
                     Mark as complete
                   </button>
                 ) : null}
-                {canCompleteForCandidate ? (
+                {/* Authorization e-sign already shows Mark as complete above. */}
+                {canCompleteForCandidate && !authorizationOpen ? (
                   <button
                     type="button"
                     onClick={() => {

@@ -25,7 +25,12 @@ export function useApplicantConversationsRealtime(
   useEffect(() => {
     if (!enabled) return;
 
-    const channelName = tenantId ? `applicant-conversations-${tenantId}` : "applicant-conversations-all";
+    // The header and the messages page both listen for the same tenant.
+    // Supabase returns the existing channel for a repeated name, and calling
+    // `.on()` after that channel has already subscribed throws and blanks the page.
+    const channelName = tenantId
+      ? `applicant-conversations-${tenantId}-${crypto.randomUUID()}`
+      : `applicant-conversations-all-${crypto.randomUUID()}`;
     const channel = supabaseBrowser
       .channel(channelName)
       .on(

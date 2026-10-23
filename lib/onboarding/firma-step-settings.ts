@@ -6,6 +6,7 @@ export const FIRMA_ATTACHABLE_WORKFLOW_STEP_IDS = [
   "background-check",
   "welcome-packet-esign",
   "employee-agreement",
+  "authorization-esign",
   "policy-acknowledgment",
   "equipment-badge-acknowledgment",
   "tax-forms",
