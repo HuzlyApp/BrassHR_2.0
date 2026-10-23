@@ -8,6 +8,10 @@ import {
 import { sendStepReadyEmail } from "@/lib/onboarding/step-ready-email";
 import { sendConfiguredStepCompletionEmail, readStepEmailTemplateKey } from "@/lib/onboarding/step-completion-email";
 import {
+  notifyHrFinalApprovalCompleted,
+  unlockPostHireWhenRequiredComplete,
+} from "@/lib/onboarding/unlock-post-hire-when-ready";
+import {
   ASSIGNED_STEP_RECORD_COLUMNS,
   POST_HIRE_NOT_AVAILABLE_CODE,
   POST_HIRE_NOT_AVAILABLE_MESSAGE,
@@ -1033,6 +1037,37 @@ export async function applyStaffWorkflowStepAction(
       stepId: String(ctx.record.id),
       request: params.request,
     });
+  }
+
+  if (
+    nextStatus === "completed" &&
+    ctx.applicationId
+  ) {
+    try {
+      if (action === "complete" && currentStatus !== "completed") {
+        await notifyHrFinalApprovalCompleted(supabase, {
+          tenantId,
+          workerId,
+          origin: params.origin,
+          configuredTemplateKey,
+          step: {
+            snapshotStepId: ctx.mapped.snapshotStepId,
+            stepKey: ctx.mapped.stepKey,
+            stepType: ctx.mapped.stepType,
+            title: ctx.mapped.title,
+          },
+        });
+      }
+      await unlockPostHireWhenRequiredComplete(supabase, {
+        tenantId,
+        workerId,
+        applicationId: ctx.applicationId,
+        workflowInstanceId: asText(ctx.instance.id),
+        origin: params.origin,
+      });
+    } catch (unlockError) {
+      console.error("[staff-workflow-step-review] post-hire unlock failed", unlockError);
+    }
   }
 
   const email =

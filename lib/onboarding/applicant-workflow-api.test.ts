@@ -124,7 +124,7 @@ describe("applicant workflow versioning", () => {
     expect(workflow.steps.map((step) => step.type)).not.toContain("reference_verification");
   });
 
-  it("links new applicant sessions to the latest published workflow after Publish to All", async () => {
+  it("links new applicant sessions to the latest published workflow after Publish Workflow", async () => {
     await seedWorkflow({
       ...publishedWorkflow,
       version: 3,

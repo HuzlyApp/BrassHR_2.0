@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
@@ -48,6 +48,9 @@ export default function PreHireCompletionView({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showStepList, setShowStepList] = useState(false);
+  const [remoteReady, setRemoteReady] = useState<boolean | null>(
+    typeof propResult?.postHireReady === "boolean" ? propResult.postHireReady : null
+  );
 
   // Compute dynamic completion status
   const effectiveResult =
@@ -68,7 +71,36 @@ export default function PreHireCompletionView({
   const postHireSteps = effectiveResult.postHire.steps;
   const hasPostHireSteps = effectiveResult.hasPostHireSteps;
 
+  useEffect(() => {
+    if (typeof propResult?.postHireReady === "boolean") {
+      setRemoteReady(propResult.postHireReady);
+      return;
+    }
+    if (!applicantId) return;
+    let cancelled = false;
+    const params = new URLSearchParams({ applicantId });
+    if (slug) params.set("tenant", slug);
+    if (onboarding?.applicationId) params.set("applicationId", onboarding.applicationId);
+    const jobToken =
+      typeof window !== "undefined" ? localStorage.getItem("applicationJobToken")?.trim() : "";
+    if (jobToken) params.set("job_token", jobToken);
+    void fetch(`/api/onboarding/completion-status?${params.toString()}`, { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { postHireReady?: boolean } | null) => {
+        if (!cancelled) setRemoteReady(data?.postHireReady === true);
+      })
+      .catch(() => {
+        if (!cancelled) setRemoteReady(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [applicantId, slug, onboarding?.applicationId, propResult?.postHireReady]);
+
+  const postHireReady = remoteReady === true;
+
   const handleContinue = async () => {
+    if (!postHireReady) return;
     if (onContinuePostHire) {
       onContinuePostHire();
       return;
@@ -92,13 +124,18 @@ export default function PreHireCompletionView({
           }),
         });
 
-        if (res.ok) {
-          const data = (await res.json()) as { nextRoute?: string };
-          await onboarding?.refresh?.();
-          if (data.nextRoute) {
-            router.push(data.nextRoute);
-            return;
-          }
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          setError(
+            data.error || "Post-Hire stays locked until every required Pre-Hire step is complete."
+          );
+          return;
+        }
+        const data = (await res.json()) as { nextRoute?: string };
+        await onboarding?.refresh?.();
+        if (data.nextRoute) {
+          router.push(data.nextRoute);
+          return;
         }
       }
 
@@ -150,7 +187,7 @@ export default function PreHireCompletionView({
         {/* Phase Pill */}
         <div className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3.5 py-1 text-xs font-semibold text-emerald-800">
           <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-          <span>Pre-Hire Phase Complete</span>
+          <span>{postHireReady ? "Pre-Hire Phase Complete" : "Pre-Hire still in progress"}</span>
         </div>
 
         {/* User's Exact Requested Messages */}
@@ -159,13 +196,17 @@ export default function PreHireCompletionView({
         </h1>
 
         <p className="mt-2 text-lg font-medium text-slate-800 sm:text-xl">
-          Your all Pre hire steps are completed
+          {postHireReady
+            ? "Your all Pre hire steps are completed"
+            : "Required Pre-Hire steps are still in progress"}
         </p>
 
         <p className="mt-1 text-base text-slate-600">
-          {hasPostHireSteps
+          {postHireReady && hasPostHireSteps
             ? "You continue with Post hire steps"
-            : "No further action is needed. Your recruiter will contact you with next steps."}
+            : hasPostHireSteps
+              ? "Post-Hire opens after every required Pre-Hire step is complete."
+              : "No further action is needed. Your recruiter will contact you with next steps."}
         </p>
 
         {error ? (
@@ -210,7 +251,7 @@ export default function PreHireCompletionView({
           </div>
 
           {/* Post-Hire Preview Card */}
-          {hasPostHireSteps ? (
+          {postHireReady && hasPostHireSteps ? (
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -247,7 +288,7 @@ export default function PreHireCompletionView({
         </div>
 
         {/* Primary Action Button (Required by user) */}
-        {hasPostHireSteps ? (
+        {postHireReady && hasPostHireSteps ? (
         <div className="mt-7 flex w-full flex-col sm:flex-row items-center justify-center gap-3">
           <button
             type="button"
