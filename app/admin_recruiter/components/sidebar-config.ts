@@ -129,18 +129,17 @@ const SCHEDULING_CHILDREN: SidebarLink[] = [
   },
 ];
 
-/** Routes not built yet — rows render without navigation. */
-const TIME_CHILDREN: SidebarLink[] = [
-  { label: "Clock-ins", href: "#", matchPrefixes: [], disabled: true },
-  { label: "Timesheets", href: "#", matchPrefixes: [], disabled: true },
-  { label: "Approvals", href: "#", matchPrefixes: [], disabled: true },
-];
-
-/** Routes not built yet — rows render without navigation. */
-const PAY_CHILDREN: SidebarLink[] = [
-  { label: "Payroll Export", href: "#", matchPrefixes: [], disabled: true },
-  { label: "Bill / Pay Rates", href: "#", matchPrefixes: [], disabled: true },
-];
+// Time and Pay are hidden until those screens are built.
+// const TIME_CHILDREN: SidebarLink[] = [
+//   { label: "Clock-ins", href: "#", matchPrefixes: [], disabled: true },
+//   { label: "Timesheets", href: "#", matchPrefixes: [], disabled: true },
+//   { label: "Approvals", href: "#", matchPrefixes: [], disabled: true },
+// ];
+//
+// const PAY_CHILDREN: SidebarLink[] = [
+//   { label: "Payroll Export", href: "#", matchPrefixes: [], disabled: true },
+//   { label: "Bill / Pay Rates", href: "#", matchPrefixes: [], disabled: true },
+// ];
 
 // Taskboard is hidden for now. Interviews lives under Candidates.
 // const TASKBOARD_CHILDREN: SidebarLink[] = [
@@ -433,20 +432,20 @@ export const CLIENT_SIDEBAR_SECTIONS: SidebarSection[] = [
     matchPrefixes: ["/admin_recruiter/calendar/shifts", "/admin_recruiter/attendance"],
     children: SCHEDULING_CHILDREN,
   },
-  {
-    label: "Time",
-    href: "#",
-    iconType: ICON.time,
-    matchPrefixes: [],
-    children: TIME_CHILDREN,
-  },
-  {
-    label: "Pay",
-    href: "#",
-    iconType: ICON.pay,
-    matchPrefixes: [],
-    children: PAY_CHILDREN,
-  },
+  // {
+  //   label: "Time",
+  //   href: "#",
+  //   iconType: ICON.time,
+  //   matchPrefixes: [],
+  //   children: TIME_CHILDREN,
+  // }, // Hidden for now — routes are not built yet.
+  // {
+  //   label: "Pay",
+  //   href: "#",
+  //   iconType: ICON.pay,
+  //   matchPrefixes: [],
+  //   children: PAY_CHILDREN,
+  // }, // Hidden for now — routes are not built yet.
   {
     label: "Automation",
     href: "#",

@@ -372,8 +372,7 @@ export function AdminRecruiterSidebar({
               ? getFirstNavigableChildHref(section.children)
               : null;
           const sectionExpandedOpen = !isCollapsed && !isMobileRail && isSectionOpen(section);
-          /** Figma: an open parent uses the selected icon + brand label, same as an active child. */
-          const parentHighlighted = section.childActive || sectionExpandedOpen;
+          /** Selected icon and the active line belong to the open page, not a parent that only has a submenu. */
 
           return (
           <div key={section.label} className={isMobileRail || isCollapsed ? "mb-1 w-full" : ""}>
@@ -408,7 +407,7 @@ export function AdminRecruiterSidebar({
                   }}
                   onMouseDown={(event) => event.preventDefault()}
                   disabled={isCollapsed || isMobileRail}
-                  className={`group relative flex w-full cursor-pointer items-center gap-3 overflow-hidden rounded-md border-0 bg-transparent text-left transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 ${navTextClass(parentHighlighted)} ${
+                  className={`group relative flex w-full cursor-pointer items-center gap-3 overflow-hidden rounded-md border-0 bg-transparent text-left transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 ${navTextClass(false)} ${
                     isCollapsed || isMobileRail
                       ? collapsedRowClass(isCollapsed, isMobileRail)
                       : "min-h-[44px] pl-0 pr-[6px]"
@@ -423,7 +422,7 @@ export function AdminRecruiterSidebar({
                   >
                     <SidebarNavIcon
                       iconType={section.iconType}
-                      active={parentHighlighted}
+                      active={false}
                       colorHex={iconTintHex}
                     />
                     {!isCollapsed && !isMobileRail ? (
@@ -557,7 +556,7 @@ export function AdminRecruiterSidebar({
                     {section.label}
                   </span>
                 ) : null}
-                {isCollapsed && section.active ? (
+                {section.active ? (
                   <span aria-hidden className="admin-recruiter-sidebar-active-indicator" />
                 ) : null}
               </Link>
