@@ -10,6 +10,11 @@ import BrandedFileTypeIcon from "../../../components/BrandedFileTypeIcon";
 import DocumentReviewActions from "../../../components/DocumentReviewActions";
 import { useWorkerDocumentReview } from "../../../hooks/useWorkerDocumentReview";
 import {
+  PROFESSION_DOCUMENT_KINDS,
+  professionDocumentKindLabel,
+  type ProfessionDocumentKind,
+} from "@/lib/professions/profession-documents";
+import {
   Briefcase,
   Calendar,
   Download,
@@ -54,7 +59,7 @@ type AttachmentRequirement = {
   phase?: "pre_hire" | "post_hire";
   step_title?: string;
   is_required?: boolean;
-  document_kind?: "certificate" | "license" | null;
+  document_kind?: ProfessionDocumentKind | null;
   has_expiration?: boolean;
   issued_date?: string | null;
   expiry_date?: string | null;
@@ -74,7 +79,7 @@ type WorkerProfileResponse = {
 type SettingsDocument = {
   id: string;
   name: string;
-  documentKind: "certificate" | "license";
+  documentKind: ProfessionDocumentKind;
   isRequired: boolean;
   hasExpiration: boolean;
 };
@@ -107,7 +112,7 @@ type AttachmentRow = {
   phase: "pre_hire" | "post_hire";
   stepTitle: string;
   isRequired: boolean;
-  documentKind: "certificate" | "license" | null;
+  documentKind: ProfessionDocumentKind | null;
   hasExpiration: boolean;
   issuedDate: string | null;
   expiryDate: string | null;
@@ -162,7 +167,7 @@ export default function NewApplicantAttachmentsFilledPage() {
     Record<string, { issuedDate: string; expiryDate: string }>
   >({});
   const [newDocumentName, setNewDocumentName] = useState("");
-  const [newDocumentKind, setNewDocumentKind] = useState<"certificate" | "license">("certificate");
+  const [newDocumentKind, setNewDocumentKind] = useState<ProfessionDocumentKind>("certificate");
   const [newDocumentRequired, setNewDocumentRequired] = useState(true);
   const [newDocumentHasExpiration, setNewDocumentHasExpiration] = useState(true);
   const [savingDocuments, setSavingDocuments] = useState(false);
@@ -223,7 +228,7 @@ export default function NewApplicantAttachmentsFilledPage() {
     documents: Array<{
       id?: string;
       name: string;
-      documentKind: "certificate" | "license";
+      documentKind: ProfessionDocumentKind;
       isRequired: boolean;
       hasExpiration: boolean;
     }>
@@ -827,7 +832,7 @@ export default function NewApplicantAttachmentsFilledPage() {
                               </span>
                               {r.documentKind ? (
                                 <span className="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
-                                  {r.documentKind === "license" ? "License" : "Certificate"}
+                                  {professionDocumentKindLabel(r.documentKind)}
                                 </span>
                               ) : null}
                               {r.documentKind ? (
@@ -1067,11 +1072,14 @@ export default function NewApplicantAttachmentsFilledPage() {
                       />
                       <select
                         value={newDocumentKind}
-                        onChange={(event) => setNewDocumentKind(event.target.value as "certificate" | "license")}
+                        onChange={(event) => setNewDocumentKind(event.target.value as ProfessionDocumentKind)}
                         className="h-9 w-full rounded-lg border border-[#CBD5E1] bg-white px-3 text-sm"
                       >
-                        <option value="certificate">Certificate</option>
-                        <option value="license">License</option>
+                        {PROFESSION_DOCUMENT_KINDS.map((kind) => (
+                          <option key={kind} value={kind}>
+                            {professionDocumentKindLabel(kind)}
+                          </option>
+                        ))}
                       </select>
                       <label className="inline-flex items-center gap-2 text-sm text-[#0F172A]">
                         <input

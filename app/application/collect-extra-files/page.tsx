@@ -17,6 +17,10 @@ import OnboardingLayout from "@/app/components/OnboardingLayout";
 import OnboardingStepper from "@/app/components/OnboardingStepper";
 import { useTenantBranding } from "@/app/components/tenant/TenantBrandingContext";
 import { brandingToCssVars, hexToRgba } from "@/lib/tenant/tenant-branding";
+import {
+  professionDocumentKindLabel,
+  type ProfessionDocumentKind,
+} from "@/lib/professions/profession-documents";
 import { useOnboardingConfigOptional } from "@/app/components/onboarding/OnboardingConfigProvider";
 import { readStepKeyFromSearch } from "@/lib/onboarding/find-applicant-step";
 import { resolveApplicantId, uploadRequiredOnboardingFile } from "@/lib/onboarding/upload-required-file-client";
@@ -43,7 +47,7 @@ type ChecklistFile = { id: string; name: string };
 type ChecklistItem = {
   id: string;
   name: string;
-  documentKind: "license" | "certificate";
+  documentKind: ProfessionDocumentKind;
   isRequired: boolean;
   hasExpiration: boolean;
   collected: boolean;
@@ -610,7 +614,7 @@ function ChecklistRow({
             </p>
             <p className="text-[11px] leading-4 text-slate-500">
               {item.isRequired ? "Required" : "Optional"}
-              {item.documentKind === "license" ? " · License" : " · Certificate"}
+              {` · ${professionDocumentKindLabel(item.documentKind)}`}
               {item.collectedOnIdentityStep ? " · Already provided" : ""}
             </p>
           </div>

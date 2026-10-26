@@ -1,10 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type SelectHTMLAttributes } from "react";
+import { Children, isValidElement, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown, FileBadge, Plus, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
+import {
+  PROFESSION_DOCUMENT_KINDS,
+  professionDocumentKindLabel,
+  type ProfessionDocumentKind,
+} from "@/lib/professions/profession-documents";
 
-type DocumentKind = "certificate" | "license";
+type DocumentKind = ProfessionDocumentKind;
 
 type DocumentDraft = {
   id: string;
@@ -38,25 +43,108 @@ type CatalogPayload = {
 };
 
 const fieldClassName =
-  "h-9 w-full appearance-none rounded-lg border border-[#CBD5E1] bg-white pl-3 pr-8 text-sm text-[#0F172A] outline-none focus-visible:ring-2 focus-visible:ring-[color:color-mix(in_srgb,var(--brand-secondary)_35%,transparent)] disabled:bg-[#F1F5F9]";
+  "h-9 w-full cursor-pointer appearance-none rounded-lg border border-[#CBD5E1] bg-white pl-3 pr-8 text-sm text-[#0F172A] outline-none focus-visible:ring-2 focus-visible:ring-[color:color-mix(in_srgb,var(--brand-secondary)_35%,transparent)] disabled:cursor-not-allowed disabled:bg-[#F1F5F9]";
+
+function readSelectOptions(children: ReactNode): Array<{ value: string; label: string }> {
+  return Children.toArray(children).flatMap((child) => {
+    if (!isValidElement<{ value?: string | number; children?: ReactNode }>(child)) return [];
+    const label = child.props.children;
+    return [
+      {
+        value: child.props.value == null ? "" : String(child.props.value),
+        label: typeof label === "string" || typeof label === "number" ? String(label) : "",
+      },
+    ];
+  });
+}
 
 function SelectField({
   label,
   className,
   children,
-  ...selectProps
-}: SelectHTMLAttributes<HTMLSelectElement> & { label: string; className?: string }) {
+  value,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  className?: string;
+  children: ReactNode;
+  value?: string;
+  disabled?: boolean;
+  onChange?: (event: { target: { value: string } }) => void;
+}) {
+  const options = readSelectOptions(children);
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const listId = useId();
+  const currentValue = value ?? "";
+  const display = options.find((option) => option.value === currentValue)?.label ?? "";
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
   return (
-    <label className={`relative block ${className ?? ""}`}>
-      <span className="sr-only">{label}</span>
-      <select {...selectProps} className={fieldClassName}>
-        {children}
-      </select>
+    <div ref={rootRef} className={`relative ${className ?? ""}`}>
+      <button
+        type="button"
+        aria-label={label}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={listId}
+        disabled={disabled}
+        onClick={() => setOpen((current) => !current)}
+        className={`${fieldClassName} flex items-center text-left`}
+      >
+        <span className="truncate">{display}</span>
+      </button>
       <ChevronDown
         className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-[#64748B]"
         aria-hidden
       />
-    </label>
+      {open ? (
+        <ul
+          id={listId}
+          role="listbox"
+          aria-label={label}
+          className="absolute z-30 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-[#E5E7EB] bg-white py-1 shadow-lg"
+        >
+          {options.map((option) => {
+            const selected = option.value === currentValue;
+            return (
+              <li key={option.value || "__empty"} role="presentation">
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onClick={() => {
+                    onChange?.({ target: { value: option.value } });
+                    setOpen(false);
+                  }}
+                  className={`flex w-full cursor-pointer px-3 py-2 text-left text-sm hover:bg-[#EFF6FF] ${
+                    selected ? "bg-[#DBEAFE] font-medium text-[#0F172A]" : "text-[#0F172A]"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 
@@ -347,7 +435,7 @@ export default function ProfessionDocumentsPanel() {
                   {documents.map((doc) => (
                     <li
                       key={doc.id}
-                      className="grid gap-2 rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] p-3 sm:grid-cols-[minmax(0,1fr)_140px_auto_auto_auto] sm:items-center"
+                      className="grid gap-2 rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] p-3 sm:grid-cols-[minmax(0,1fr)_168px_auto_auto_auto] sm:items-center"
                     >
                       <label className="block">
                         <span className="sr-only">Document name</span>
@@ -367,8 +455,11 @@ export default function ProfessionDocumentsPanel() {
                           updateDocument(doc.id, { documentKind: event.target.value as DocumentKind })
                         }
                       >
-                        <option value="certificate">Certificate</option>
-                        <option value="license">License</option>
+                        {PROFESSION_DOCUMENT_KINDS.map((kind) => (
+                          <option key={kind} value={kind}>
+                            {professionDocumentKindLabel(kind)}
+                          </option>
+                        ))}
                       </SelectField>
                       <label className="inline-flex items-center gap-2 text-sm text-[#0F172A]">
                         <RequiredCheckbox
