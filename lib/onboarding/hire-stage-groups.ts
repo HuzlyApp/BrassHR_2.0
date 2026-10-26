@@ -5,6 +5,7 @@ import {
   hireStageForStepKey,
   POST_HIRE_FIGMA_STAGES,
   PRE_HIRE_FIGMA_STAGES,
+  PRE_HIRE_STAGE_STEP_ORDER,
   type HireLifecycle,
 } from "@/lib/onboarding/hire-stage-catalog";
 import { isInterviewStep } from "@/lib/onboarding/interview-step";
@@ -45,25 +46,34 @@ const PRE_HIRE_LIBRARY_STAGE: Record<string, (typeof PRE_HIRE_FIGMA_STAGES)[numb
   "skill-qualification-assessment": "Screening",
   "reference-verification": "Screening",
   "interview-qualification": "Interview",
+  "follow-up-interview": "Interview",
   "internal-select": "Interview",
+  "client-review": "Interview",
   "candidate-selection": "Interview",
+  "submit-to-msp": "Submission",
+  "submit-to-client": "Submission",
+  "manager-facility-approval": "Submission",
   "release-to-client": "Submission",
+  "authorization-esign": "Compliance",
   "background-check": "Compliance",
   "drug-test-screening": "Compliance",
   "oig-exclusion-check": "Compliance",
   "credential-license-verification": "Compliance",
   "ssn-identity-verification": "Compliance",
   "adverse-action-process": "Compliance",
-  "pay-and-start-date": "Offer & Agreement",
   "pay-rate-hire-date": "Offer & Agreement",
+  "pay-and-start-date": "Offer & Agreement",
+  "offer-prep": "Offer & Agreement",
+  "manager-approval": "Offer & Agreement",
   "offer-acceptance": "Offer & Agreement",
   "offer-accepted": "Offer & Agreement",
   "pay-rate-accepted": "Offer & Agreement",
   "employee-agreement": "Offer & Agreement",
   "agreement-esign": "Offer & Agreement",
+  "i9-right-to-work-verification": "Offer & Agreement",
   "i9-section-1": "Offer & Agreement",
-  "manager-facility-approval": "Approvals",
   "hr-final-approval": "Approvals",
+  "pre-hire-completion-milestone": "Approvals",
   "completion-milestone": "Approvals",
 };
 
@@ -150,6 +160,7 @@ const PRE_HIRE_RULES: Array<{ stage: (typeof PRE_HIRE_FIGMA_STAGES)[number]; pat
       /pay.?rate/,
       /hire.?date/,
       /i-?9.?section.?1/,
+      /pre.?hire.?completion/,
     ],
   },
   {
@@ -252,17 +263,36 @@ const POST_HIRE_STAGE_ALIASES: Record<string, (typeof POST_HIRE_FIGMA_STAGES)[nu
   kickoff: "Welcome & Complete",
   paperwork: "Payroll & Tax",
   "payroll & pay": "Payroll & Tax",
+  "payroll & compliance": "Payroll & Tax",
+  "payroll and tax": "Payroll & Tax",
   policies: "Training & Policy",
   "access & equipment": "Access & Systems",
+  "access and systems": "Access & Systems",
   training: "Training & Policy",
+  "training and policy": "Training & Policy",
   "day one ready": "Welcome & Complete",
+  complete: "Welcome & Complete",
+  "onboarding complete": "Welcome & Complete",
+  welcome: "Welcome & Complete",
+  completion: "Welcome & Complete",
+};
+
+/**
+ * Workflows sometimes stamp the first Pre-Hire steps as "Application".
+ * That name is Intake on the board, and it has to sort with Intake (first), not after the known stages.
+ */
+const PRE_HIRE_STAGE_ALIASES: Record<string, (typeof PRE_HIRE_FIGMA_STAGES)[number]> = {
+  application: "Intake",
+  "application & profile": "Intake",
+  "application and profile": "Intake",
+  "offer and agreement": "Offer & Agreement",
 };
 
 /** Maps a stage name onto the board for this lifecycle; null when it belongs to the other board. */
 function boardStageName(name: string | null, lifecycle: HireStageLifecycle): string | null {
   if (!name || !hireStageFitsLifecycle(name, lifecycle)) return null;
   if (lifecycle === "post_hire") return POST_HIRE_STAGE_ALIASES[name.toLowerCase()] ?? name;
-  return name;
+  return PRE_HIRE_STAGE_ALIASES[name.toLowerCase()] ?? name;
 }
 
 /** Board stage for a published step, as shown to the candidate above the step title. */
@@ -332,6 +362,52 @@ function stageSortIndex(name: string, lifecycle: HireStageLifecycle): number {
   return idx >= 0 ? idx : canonical.length + 1;
 }
 
+function stepKeysForRank(step: CandidateWorkflowStepView): string[] {
+  return [step.stepKey, step.stepType, step.snapshotStepId]
+    .map((value) => String(value ?? "").trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/** Rank inside a stage group from Steps Library order; unknown keys stay last. */
+function stageStepRank(step: CandidateWorkflowStepView, stageName: string): number {
+  const order =
+    PRE_HIRE_STAGE_STEP_ORDER[stageName as keyof typeof PRE_HIRE_STAGE_STEP_ORDER] ?? [];
+  if (!order.length) return Number.MAX_SAFE_INTEGER;
+  const keys = stepKeysForRank(step);
+  let best = Number.MAX_SAFE_INTEGER;
+  for (const key of keys) {
+    const idx = order.indexOf(key);
+    if (idx >= 0 && idx < best) best = idx;
+  }
+  return best;
+}
+
+/**
+ * Keep steps that belong to a stage group in that group's library sequence
+ * (e.g. Screening: Recruiter Screening → Skill → Reference Verification).
+ */
+function sortStepsForHireStage(
+  steps: CandidateWorkflowStepView[],
+  stageName: string,
+  lifecycle: HireStageLifecycle
+): CandidateWorkflowStepView[] {
+  if (lifecycle !== "pre_hire" || steps.length < 2) return steps;
+  return [...steps]
+    .map((step, index) => ({ step, index, rank: stageStepRank(step, stageName) }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((entry) => entry.step);
+}
+
+/** "2 Completed", "1 Submitted": Submitted steps count as done but still await recruiter review. */
+function doneLabels(steps: CandidateWorkflowStepView[], completedCount: number): string[] {
+  const submitted = steps.filter((step) => step.displayStatus === "submitted").length;
+  const completed = completedCount - submitted;
+  return [
+    completed ? `${completed} Completed` : null,
+    submitted ? `${submitted} Submitted` : null,
+  ].filter((label): label is string => Boolean(label));
+}
+
 function summarizeStage(steps: CandidateWorkflowStepView[]): {
   completedCount: number;
   inProgressCount: number;
@@ -346,8 +422,7 @@ function summarizeStage(steps: CandidateWorkflowStepView[]): {
     else if (isInProgressStatus(step.displayStatus)) inProgressCount += 1;
     else pendingCount += 1;
   }
-  const parts: string[] = [];
-  if (completedCount) parts.push(`${completedCount} Completed`);
+  const parts: string[] = [...doneLabels(steps, completedCount)];
   if (inProgressCount) parts.push(`${inProgressCount} In Progress`);
   if (pendingCount && !completedCount && !inProgressCount) parts.push(`${pendingCount} Pending`);
   else if (pendingCount && (completedCount || inProgressCount)) parts.push(`${pendingCount} Upcoming`);
@@ -385,7 +460,7 @@ export function groupStepsIntoHireStages(
   });
 
   const groups: HireStageGroup[] = orderedNames.map((name, index) => {
-    const stageSteps = buckets.get(name) ?? [];
+    const stageSteps = sortStepsForHireStage(buckets.get(name) ?? [], name, lifecycle);
     const stats = summarizeStage(stageSteps);
     return {
       id: `stage-${index}-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
@@ -407,7 +482,7 @@ export function groupStepsIntoHireStages(
     if (requiredDone && (optionalOpen === 0 || !foundCurrent)) {
       group.status = "completed";
       group.summaryLabel = [
-        group.completedCount ? `${group.completedCount} Completed` : null,
+        ...doneLabels(group.steps, group.completedCount),
         optionalOpen ? `${optionalOpen} Optional` : null,
       ]
         .filter(Boolean)
@@ -419,7 +494,7 @@ export function groupStepsIntoHireStages(
       group.status = group.inProgressCount > 0 ? "current" : "current";
       if (group.inProgressCount > 0) {
         group.summaryLabel = [
-          group.completedCount ? `${group.completedCount} Completed` : null,
+          ...doneLabels(group.steps, group.completedCount),
           `${group.inProgressCount} In Progress`,
           "Current Step",
         ]
@@ -437,11 +512,7 @@ export function groupStepsIntoHireStages(
   return groups;
 }
 
-const SCREENING_SUBSTEP_ORDER = [
-  RECRUITER_SCREENING_STEP_TYPE,
-  "skill-qualification-assessment",
-  "reference-verification",
-] as const;
+const SCREENING_SUBSTEP_ORDER = PRE_HIRE_STAGE_STEP_ORDER.Screening;
 
 function stepLibraryKeys(step: CandidateWorkflowStepView): string[] {
   return [step.stepType, step.stepKey, step.snapshotStepId]
@@ -543,4 +614,13 @@ export function shouldShowInterviewScheduleAction(
   if (stage.status !== "current" && stage.status !== "in_progress") return false;
   if (step.interview?.latest) return false;
   return isInterviewScheduleStep(step);
+}
+
+/** Current Pre-Hire board stage name (for status catalog actions), or null when unknown. */
+export function currentPreHireStatusStageName(stages: readonly HireStageGroup[]): string | null {
+  const current = stages.find(
+    (stage) => stage.status === "current" || stage.status === "in_progress"
+  );
+  const name = current?.name?.trim() ?? "";
+  return name || null;
 }

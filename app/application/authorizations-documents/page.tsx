@@ -391,7 +391,7 @@ export default function DocumentsPage() {
           firma_signed: requiresFirmaSigning ? agreementSigned : undefined,
         })
       }
-      if (nav.nextRoute) router.push(nav.nextRoute)
+      nav.goNext()
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Save failed"
       setError(message)
@@ -402,14 +402,11 @@ export default function DocumentsPage() {
 
   const handleSkipForNow = () => {
     localStorage.setItem("step4Skipped", "1")
-    const nextRoute = nav.nextRoute
     void skipOnboardingStep({
       step: activeStep,
       updateStepStatus: onboarding?.updateStepStatus,
       completingRef,
-      onNavigate: () => {
-        if (nextRoute) router.push(nextRoute)
-      },
+      onNavigate: () => nav.goNext("skipped"),
     })
   }
 

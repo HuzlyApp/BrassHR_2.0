@@ -31,6 +31,11 @@ function optimizedFixture(overrides?: Partial<SubmissionResume>): SubmissionResu
     location: "Prosper, TX",
     linkedin: "",
     summary: "IT project coordinator with Agile delivery experience.",
+    summaryHeading: "",
+    skillsHeading: "",
+    experienceHeading: "",
+    educationHeading: "",
+    licensesHeading: "",
     skills: [
       "Agile",
       "Scrum",

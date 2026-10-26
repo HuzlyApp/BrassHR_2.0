@@ -10,6 +10,7 @@ import { SidebarSubmenuToggleIcon } from "@/app/components/sidebar/SidebarSubmen
 import { useTenantBranding } from "@/app/components/tenant/TenantBrandingContext";
 import { BRAAS_PLATFORM_FAVICON } from "@/lib/tenant/tenant-branding";
 import { useAccountData } from "@/app/admin_recruiter/hooks/useAccountData";
+import { appRoleToConsoleRole } from "@/lib/admin/staff-directory-types";
 import {
   ADMIN_RECRUITER_HOME_ROUTE,
   CLIENT_SIDEBAR_SECTIONS,
@@ -64,14 +65,60 @@ type AdminRecruiterSidebarProps = {
 function getFirstNavigableChildHref(children: SidebarLink[]): string | null {
   for (const child of children) {
     if (child.disabled) continue;
+    if (child.children?.length) {
+      const nested = getFirstNavigableChildHref(child.children);
+      if (nested) return nested;
+      continue;
+    }
     const href = child.href?.trim();
     if (href && href !== "#") return href;
   }
   return null;
 }
 
+function linkOrNestedIsActive(
+  link: SidebarLink,
+  isActive: (link: Pick<SidebarLink, "matchPrefixes" | "matchExact">) => boolean
+): boolean {
+  if (isActive(link)) return true;
+  return link.children?.some((child) => linkOrNestedIsActive(child, isActive)) ?? false;
+}
+
+type RenderedSidebarLink = SidebarLink & {
+  active: boolean;
+  children?: RenderedSidebarLink[];
+};
+
+function decorateSidebarLink(
+  link: SidebarLink,
+  isActive: (link: Pick<SidebarLink, "matchPrefixes" | "matchExact">) => boolean
+): RenderedSidebarLink {
+  const children = link.children?.map((child) => decorateSidebarLink(child, isActive));
+  return {
+    ...link,
+    active: isActive(link) || Boolean(children?.some((child) => child.active)),
+    children,
+  };
+}
+
 const DEFAULT_TENANT_LOGO = BRAAS_PLATFORM_FAVICON;
 const DASHBOARD_HOME_HREF = ADMIN_RECRUITER_HOME_ROUTE;
+const RECRUITER_HIDDEN_SECTIONS = new Set(["Automation", "Templates", "Taskboard"]);
+const RECRUITER_SETTINGS_CHILDREN = new Set(["Profile", "Notifications", "Help & Support", "Reports"]);
+
+function settingsChildrenForRecruiter(children: SidebarLink[]): SidebarLink[] {
+  const visible: SidebarLink[] = [];
+  for (const child of children) {
+    if (child.label === "Personal Settings") {
+      for (const nested of child.children ?? []) {
+        if (RECRUITER_SETTINGS_CHILDREN.has(nested.label)) visible.push(nested);
+      }
+      continue;
+    }
+    if (RECRUITER_SETTINGS_CHILDREN.has(child.label)) visible.push(child);
+  }
+  return visible;
+}
 
 export function AdminRecruiterSidebar({
   isMobileOpen = false,
@@ -86,10 +133,25 @@ export function AdminRecruiterSidebar({
   const [openSectionLabels, setOpenSectionLabels] = useState<string[]>([]);
   const { viewer } = useEffectiveBranding();
   const isGodAdmin = viewer?.godAdmin === true;
+  const isRecruiter = appRoleToConsoleRole(profile?.role) === "recruiter";
   const [sidebarHovered, setSidebarHovered] = useState(false);
   const navRef = useRef<HTMLElement>(null);
 
-  const sidebarSections = isGodAdmin ? GOD_ADMIN_SIDEBAR_SECTIONS : CLIENT_SIDEBAR_SECTIONS;
+  const sidebarSections = useMemo(() => {
+    if (isGodAdmin) return GOD_ADMIN_SIDEBAR_SECTIONS;
+    if (isRecruiter) {
+      return CLIENT_SIDEBAR_SECTIONS.filter((section) => !RECRUITER_HIDDEN_SECTIONS.has(section.label)).map(
+        (section) => {
+          if (section.label !== "Settings" || !section.children?.length) return section;
+          return {
+            ...section,
+            children: settingsChildrenForRecruiter(section.children),
+          };
+        }
+      );
+    }
+    return CLIENT_SIDEBAR_SECTIONS;
+  }, [isGodAdmin, isRecruiter]);
 
   const handleNavClick = () => {
     onMobileClose?.();
@@ -126,7 +188,8 @@ export function AdminRecruiterSidebar({
   const renderedSections = useMemo(
     () =>
       sidebarSections.map((section) => {
-        const childActive = section.children?.some((child) => isLinkActive(child)) ?? false;
+        const childActive =
+          section.children?.some((child) => linkOrNestedIsActive(child, isLinkActive)) ?? false;
         const sectionPathActive = isPathActive(section.matchPrefixes);
         const sectionActive =
           section.controlsActiveState === false ? false : sectionPathActive || childActive;
@@ -135,26 +198,28 @@ export function AdminRecruiterSidebar({
           ...section,
           active: sectionActive,
           childActive,
-          children:
-            section.children?.map((child) => ({
-              ...child,
-              active: isLinkActive(child),
-            })) ?? [],
+          children: section.children?.map((child) => decorateSidebarLink(child, isLinkActive)) ?? [],
         };
       }),
     [pathname, sidebarSections]
   );
 
   useEffect(() => {
-    const activeParents = sidebarSections
-      .filter(
-        (section) =>
-          section.children?.some((child) => isLinkActive(child)) ||
-          (section.matchPrefixes.length > 0 && isPathActive(section.matchPrefixes))
-      )
-      .map((section) => section.label);
-    if (activeParents.length === 0) return;
-    setOpenSectionLabels((prev) => Array.from(new Set([...prev, ...activeParents])));
+    const labels: string[] = [];
+    for (const section of sidebarSections) {
+      const sectionOpen =
+        section.children?.some((child) => linkOrNestedIsActive(child, isLinkActive)) ||
+        (section.matchPrefixes.length > 0 && isPathActive(section.matchPrefixes));
+      if (sectionOpen) labels.push(section.label);
+      for (const child of section.children ?? []) {
+        if (child.children?.some((nested) => isLinkActive(nested))) labels.push(child.label);
+      }
+    }
+    if (labels.length === 0) return;
+    setOpenSectionLabels((prev) => {
+      if (labels.every((label) => prev.includes(label))) return prev;
+      return Array.from(new Set([...prev, ...labels]));
+    });
   }, [pathname, sidebarSections]);
 
   useEffect(() => {
@@ -380,8 +445,55 @@ export function AdminRecruiterSidebar({
 
                 {sectionExpandedOpen ? (
                   <div className="admin-recruiter-sidebar-submenu">
-                    {section.children.map((child) =>
-                      child.disabled ? (
+                    {section.children.map((child) => {
+                      if (child.children?.length) {
+                        const groupOpen = openSectionLabels.includes(child.label);
+                        return (
+                          <div key={`${section.label}-${child.label}`}>
+                            <button
+                              type="button"
+                              onClick={(event) => handleSectionToggleClick(child.label, event)}
+                              onMouseDown={(event) => event.preventDefault()}
+                              className={`admin-recruiter-sidebar-submenu-item flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent text-left font-normal text-[14px] leading-5 tracking-normal ${submenuTextClass(false)}`}
+                              aria-expanded={groupOpen}
+                              aria-label={`${groupOpen ? "Collapse" : "Expand"} ${child.label}`}
+                            >
+                              <span className="min-w-0 flex-1 truncate">{child.label}</span>
+                              <SidebarSubmenuToggleIcon open={groupOpen} size={16} openDirection="up" />
+                            </button>
+                            {groupOpen ? (
+                              <div className="admin-recruiter-sidebar-submenu-nested">
+                                {(child.children as RenderedSidebarLink[]).map((nested) =>
+                                  nested.disabled ? (
+                                    <div
+                                      key={`${child.label}-${nested.label}`}
+                                      title={`${nested.label} (Coming soon)`}
+                                      className={`admin-recruiter-sidebar-submenu-item group relative block cursor-default overflow-hidden rounded-md font-normal text-[14px] leading-5 tracking-normal ${submenuTextClass(false, true)}`}
+                                      aria-disabled
+                                    >
+                                      <span>{nested.label}</span>
+                                    </div>
+                                  ) : (
+                                    <Link
+                                      key={`${child.label}-${nested.label}`}
+                                      href={nested.href}
+                                      onClick={handleNavClick}
+                                      className={`admin-recruiter-sidebar-submenu-item group relative block overflow-hidden rounded-md font-normal text-[14px] leading-5 tracking-normal transition-colors hover:text-[color:var(--brand-primary)] ${submenuTextClass(nested.active)}`}
+                                    >
+                                      <span>{nested.label}</span>
+                                      {nested.active ? (
+                                        <span aria-hidden className="admin-recruiter-sidebar-active-indicator" />
+                                      ) : null}
+                                    </Link>
+                                  )
+                                )}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      }
+
+                      return child.disabled ? (
                         <div
                           key={`${section.label}-${child.label}`}
                           title={`${child.label} (Coming soon)`}
@@ -402,8 +514,8 @@ export function AdminRecruiterSidebar({
                             <span aria-hidden className="admin-recruiter-sidebar-active-indicator" />
                           ) : null}
                         </Link>
-                      )
-                    )}
+                      );
+                    })}
                   </div>
                 ) : null}
               </>

@@ -5,6 +5,7 @@
  */
 
 import { stripNullBytes } from "@/lib/resume/sanitize-postgres-text";
+import { normalizeResumeBulletGlyphs } from "@/lib/resume/resume-glyphs";
 
 const MULTILINE_WS = /\r\n?/g;
 
@@ -26,8 +27,12 @@ const DOB_RE =
 const AGE_RE =
   /\b(?:Age|Years?\s*old)\s*[:\-]?\s*\d{1,3}\b|\b\d{1,3}\s*(?:years?\s*old|yo)\b/gi;
 
+/**
+ * Redact a marital-status field or a line that is only a status word.
+ * Do not treat "single item" or "single line" as marital status.
+ */
 const MARITAL_RE =
-  /\b(?:Marital\s*Status|Married|Single|Divorced|Widowed|Separated)\s*[:\-]?\s*[A-Za-z]*\b/gi;
+  /\bMarital\s*Status\s*[:\-]?\s*(?:Married|Single|Divorced|Widowed|Separated|Unmarried)?\b|(?:^|\n)\s*(?:Married|Single|Divorced|Widowed|Separated|Unmarried)\s*(?=\n|$)/gi;
 
 const PHOTO_RE =
   /\b(?:photo|photograph|headshot|profile\s*picture|passport\s*photo)\b[^\n]{0,80}/gi;
@@ -37,7 +42,7 @@ const STREET_ADDRESS_RE =
   /\b\d{1,6}\s+[A-Za-z0-9.'\-]+\s+(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Ln|Lane|Dr|Drive|Ct|Court|Way|Pl|Place|Ter|Terrace|Hwy|Highway|Pkwy|Parkway)\.?(?:\s*(?:Apt|Unit|#)\s*[A-Za-z0-9\-]+)?\b/gi;
 
 export function sanitizeResumeForMatchAnalysis(raw: string): string {
-  let text = normalizeResumeWhitespace(raw);
+  let text = normalizeResumeWhitespace(normalizeResumeBulletGlyphs(raw));
   text = text
     .replace(SSN_RE, "[REDACTED_SSN]")
     .replace(DOB_RE, "[REDACTED_DOB]")

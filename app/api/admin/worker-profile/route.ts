@@ -1091,22 +1091,7 @@ async function upsertPrimaryLicenseRecord(
     return { id: String(existing.id) }
   }
 
-  const licenseType = patch.license_type ?? "nursing_license"
-  const { data: inserted, error } = await supabase
-    .from("worker_license_records")
-    .insert({
-      worker_id: workerId,
-      tenant_id: tenantId,
-      license_type: licenseType,
-      expires_at: patch.expires_at ?? null,
-      status: "under_review",
-    } as never)
-    .select("id")
-    .maybeSingle()
-
-  if (error) throw error
-  const insertedRow = inserted as { id?: string | number | null } | null
-  return { id: insertedRow?.id != null ? String(insertedRow.id) : null }
+  return { id: null }
 }
 
 export async function PATCH(req: NextRequest) {

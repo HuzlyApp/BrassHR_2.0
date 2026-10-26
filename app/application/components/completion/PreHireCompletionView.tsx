@@ -1,15 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
   ArrowRight,
-  Sparkles,
   ClipboardCheck,
   FileCheck,
-  ChevronDown,
-  ChevronUp,
   Loader2,
   ShieldCheck,
 } from "lucide-react";
@@ -25,6 +22,9 @@ import {
   APPLICANT_SHELL_TALL_CLASS,
   APPLICANT_TITLE_CLASS,
 } from "@/app/application/applicant-onboarding-responsive";
+import { CompletionDetailsToggle } from "@/app/application/components/completion/CompletionDetailsToggle";
+import { CompletionStepStatusRow } from "@/app/application/components/completion/CompletionStepStatusRow";
+import { useMarkPhaseCompletionStep } from "@/app/application/components/completion/useMarkPhaseCompletionStep";
 
 type Props = {
   completionResult?: WorkflowCompletionResult | null;
@@ -43,10 +43,14 @@ export default function PreHireCompletionView({
   const branding = useTenantBranding();
   const { slug } = useOnboardingTenant();
   const onboarding = useOnboardingConfigOptional();
+  useMarkPhaseCompletionStep("pre_hire");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showStepList, setShowStepList] = useState(false);
+  const [remoteReady, setRemoteReady] = useState<boolean | null>(
+    typeof propResult?.postHireReady === "boolean" ? propResult.postHireReady : null
+  );
 
   // Compute dynamic completion status
   const effectiveResult =
@@ -67,7 +71,36 @@ export default function PreHireCompletionView({
   const postHireSteps = effectiveResult.postHire.steps;
   const hasPostHireSteps = effectiveResult.hasPostHireSteps;
 
+  useEffect(() => {
+    if (typeof propResult?.postHireReady === "boolean") {
+      setRemoteReady(propResult.postHireReady);
+      return;
+    }
+    if (!applicantId) return;
+    let cancelled = false;
+    const params = new URLSearchParams({ applicantId });
+    if (slug) params.set("tenant", slug);
+    if (onboarding?.applicationId) params.set("applicationId", onboarding.applicationId);
+    const jobToken =
+      typeof window !== "undefined" ? localStorage.getItem("applicationJobToken")?.trim() : "";
+    if (jobToken) params.set("job_token", jobToken);
+    void fetch(`/api/onboarding/completion-status?${params.toString()}`, { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { postHireReady?: boolean } | null) => {
+        if (!cancelled) setRemoteReady(data?.postHireReady === true);
+      })
+      .catch(() => {
+        if (!cancelled) setRemoteReady(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [applicantId, slug, onboarding?.applicationId, propResult?.postHireReady]);
+
+  const postHireReady = remoteReady === true;
+
   const handleContinue = async () => {
+    if (!postHireReady) return;
     if (onContinuePostHire) {
       onContinuePostHire();
       return;
@@ -91,13 +124,18 @@ export default function PreHireCompletionView({
           }),
         });
 
-        if (res.ok) {
-          const data = (await res.json()) as { nextRoute?: string };
-          await onboarding?.refresh?.();
-          if (data.nextRoute) {
-            router.push(data.nextRoute);
-            return;
-          }
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          setError(
+            data.error || "Post-Hire stays locked until every required Pre-Hire step is complete."
+          );
+          return;
+        }
+        const data = (await res.json()) as { nextRoute?: string };
+        await onboarding?.refresh?.();
+        if (data.nextRoute) {
+          router.push(data.nextRoute);
+          return;
         }
       }
 
@@ -144,15 +182,12 @@ export default function PreHireCompletionView({
           >
             <CheckCircle2 className="h-10 w-10" strokeWidth={2.5} />
           </div>
-          <div className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-amber-400 text-white shadow">
-            <Sparkles className="h-4 w-4" />
-          </div>
         </div>
 
         {/* Phase Pill */}
         <div className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3.5 py-1 text-xs font-semibold text-emerald-800">
           <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-          <span>Pre-Hire Phase Complete</span>
+          <span>{postHireReady ? "Pre-Hire Phase Complete" : "Pre-Hire still in progress"}</span>
         </div>
 
         {/* User's Exact Requested Messages */}
@@ -161,11 +196,17 @@ export default function PreHireCompletionView({
         </h1>
 
         <p className="mt-2 text-lg font-medium text-slate-800 sm:text-xl">
-          Your all Pre hire steps are completed
+          {postHireReady
+            ? "Your all Pre hire steps are completed"
+            : "Required Pre-Hire steps are still in progress"}
         </p>
 
         <p className="mt-1 text-base text-slate-600">
-          You continue with Post hire steps
+          {postHireReady && hasPostHireSteps
+            ? "You continue with Post hire steps"
+            : hasPostHireSteps
+              ? "Post-Hire opens after every required Pre-Hire step is complete."
+              : "No further action is needed. Your recruiter will contact you with next steps."}
         </p>
 
         {error ? (
@@ -186,21 +227,16 @@ export default function PreHireCompletionView({
                 <div>
                   <h3 className="text-sm font-semibold text-emerald-950">Pre-Hire Steps</h3>
                   <p className="text-xs text-emerald-700">
-                    {effectiveResult.preHire.completedCount} of {effectiveResult.preHire.total} steps completed (100%)
+                    {`${effectiveResult.preHire.completedCount} of ${effectiveResult.preHire.total} steps completed (${effectiveResult.preHire.percent}%)`}
                   </p>
                 </div>
               </div>
 
               {preHireSteps.length > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => setShowStepList(!showStepList)}
-                  className="inline-flex items-center gap-1 text-xs font-medium text-emerald-800 hover:text-emerald-950"
-                  aria-expanded={showStepList}
-                >
-                  <span>{showStepList ? "Hide details" : "View steps"}</span>
-                  {showStepList ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                </button>
+                <CompletionDetailsToggle
+                  expanded={showStepList}
+                  onToggle={() => setShowStepList(!showStepList)}
+                />
               ) : null}
             </div>
 
@@ -208,19 +244,14 @@ export default function PreHireCompletionView({
             {showStepList && preHireSteps.length > 0 ? (
               <div className="mt-3.5 pt-3 border-t border-emerald-200/80 space-y-2">
                 {preHireSteps.map((item, idx) => (
-                  <div key={item.id || idx} className="flex items-center justify-between text-xs text-slate-700">
-                    <span className="flex items-center gap-2">
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                      <span className="font-medium">{item.title}</span>
-                    </span>
-                    <span className="font-semibold text-emerald-700 uppercase text-[10px]">Completed</span>
-                  </div>
+                  <CompletionStepStatusRow key={item.id || idx} item={item} />
                 ))}
               </div>
             ) : null}
           </div>
 
           {/* Post-Hire Preview Card */}
+          {postHireReady && hasPostHireSteps ? (
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -233,9 +264,9 @@ export default function PreHireCompletionView({
                 <div>
                   <h3 className="text-sm font-semibold text-slate-900">Post-Hire Steps</h3>
                   <p className="text-xs text-slate-500">
-                    {hasPostHireSteps
-                      ? `${effectiveResult.postHire.total} steps ready to complete (I-9, Direct Deposit, Tax & Policies)`
-                      : "Ready to complete final onboarding setup"}
+                    {`${effectiveResult.postHire.total} ${
+                      effectiveResult.postHire.total === 1 ? "step" : "steps"
+                    } ready to complete`}
                   </p>
                 </div>
               </div>
@@ -244,20 +275,20 @@ export default function PreHireCompletionView({
               </span>
             </div>
 
-            {hasPostHireSteps ? (
-              <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-600">
-                {postHireSteps.slice(0, 4).map((step, idx) => (
-                  <div key={step.id || idx} className="flex items-center gap-2 truncate">
-                    <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
-                    <span className="truncate">{step.title}</span>
-                  </div>
-                ))}
-              </div>
-            ) : null}
+            <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-600">
+              {postHireSteps.slice(0, 4).map((step, idx) => (
+                <div key={step.id || idx} className="flex items-center gap-2 truncate">
+                  <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                  <span className="truncate">{step.title}</span>
+                </div>
+              ))}
+            </div>
           </div>
+          ) : null}
         </div>
 
         {/* Primary Action Button (Required by user) */}
+        {postHireReady && hasPostHireSteps ? (
         <div className="mt-7 flex w-full flex-col sm:flex-row items-center justify-center gap-3">
           <button
             type="button"
@@ -273,13 +304,13 @@ export default function PreHireCompletionView({
               </>
             ) : (
               <>
-                <span>Complete Post Hire</span>
+                <span>Continue with post hire</span>
                 <ArrowRight className="h-4 w-4" />
               </>
             )}
           </button>
 
-          <button
+          {/* <button
             type="button"
             onClick={() =>
               router.push(
@@ -291,8 +322,9 @@ export default function PreHireCompletionView({
             className="inline-flex h-12 w-full sm:w-auto items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
             View Application Status
-          </button>
+          </button> */}
         </div>
+        ) : null}
       </div>
     </div>
   );

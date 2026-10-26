@@ -10,11 +10,17 @@ import {
   type EnrollmentDecision,
 } from "@/lib/onboarding/enrollment-decision-step";
 import { workflowStepIdToOnboardingType } from "@/lib/onboarding/workflow-step-mapping";
+import { storedCheckboxQuestions, isI9CheckboxStep, I9_SECTION_1_CHECKBOX_LABEL } from "@/lib/onboarding/candidate-checkbox-steps";
 import {
   postHireScreenKindForStepId,
   readPostHireSubmission,
 } from "@/lib/onboarding/post-hire-step-screens";
 import type { OnboardingStepStatus } from "@/lib/onboarding/types";
+import { notifyExpiredProfessionDocuments } from "@/lib/onboarding/notify-expired-profession-documents";
+import {
+  stepShowsProfessionDocuments,
+  withProfessionDocumentSlots,
+} from "@/lib/onboarding/profession-step-uploads";
 import {
   ASSIGNED_STEP_RECORD_COLUMNS,
   ASSESSMENT_COMPLETED_WITHOUT_ANSWERS_MESSAGE,
@@ -23,6 +29,7 @@ import {
   POST_HIRE_NOT_AVAILABLE_MESSAGE,
   SSN_IDENTITY_STEP_TYPE,
   STEP_COMPLETED_WITHOUT_DOCUMENT_MESSAGE,
+  candidateReviewDisplayStatus,
   displayStatusLabel,
   enrichAssignedStepsDisplayFromEvidence,
   hasRequiredIdentityDocuments,
@@ -51,6 +58,16 @@ import {
   mapInstanceStepRecord,
   resolveStaffStepEligibility,
 } from "@/lib/onboarding/staff-workflow-step-review";
+import {
+  IDENTITY_UPLOAD_SLOTS,
+  buildStepDocumentUploads,
+  identityDocumentId,
+  loadIdentityDocumentRow,
+  loadStepSubmittedDocuments,
+  staffUploaderIdFromPath,
+  stepUploadRequirements,
+  type StepDocumentUploads,
+} from "@/lib/onboarding/staff-step-documents";
 import { filterResumesForApplication } from "@/lib/jobs/match-analysis/pick-resume-for-application";
 import { classifyResumeUploaderRole } from "@/lib/resume/resume-upload-limit";
 import { staffRoleLabel, type StaffConsoleRole } from "@/lib/admin/staff-directory-types";
@@ -93,10 +110,14 @@ import {
   getFirmaRecruiterTemplateId,
   isFirmaAttachableWorkflowStepId,
   isFirmaSigningComplete,
+  workflowStepIdFromMetadata,
 } from "@/lib/onboarding/firma-step-settings";
 import { tryGetFirmaSigningRequestDownload } from "@/lib/firma/client";
 import { resolveTenantFirmaWorkspaceId } from "@/lib/firma/resolve-tenant-workspace";
+import { isBackgroundCheckAuthorizationStep } from "@/lib/onboarding/authorizations-documents-step";
 import { isAgreementOrSignatureStep } from "@/lib/onboarding/is-agreement-step";
+import { isAgreementSignatureLibraryStepId } from "@/lib/onboarding/agreement-signature-step";
+import { isAgreementEsignStep, isAuthorizationEsignStep } from "@/lib/onboarding/lock-post-hire";
 import {
   interviewStepStatus,
   isInterviewStep,
@@ -124,8 +145,20 @@ export type WorkflowStepInspectionError = {
   error: string;
 };
 
+export type InspectableExtraFile = {
+  id: string;
+  fileName: string;
+  fileSize: number | null;
+  uploadedAt: string | null;
+  previewUrl: string | null;
+  downloadUrl: string | null;
+  fileUnavailable: boolean;
+};
+
 export type InspectableDocument = {
   id: string;
+  /** Requirement or slot the file was uploaded for, e.g. "Nursing License". */
+  documentName: string | null;
   originalFileName: string | null;
   documentType: string | null;
   fileSize: number | null;
@@ -139,6 +172,19 @@ export type InspectableDocument = {
   reviewedBy: string | null;
   reviewNotes: string | null;
 };
+
+export type CandidateStepReview = {
+  verified: boolean;
+  verifiedAt: string | null;
+  verifiedBy: string | null;
+  /** The candidate submitted the step and no recruiter has marked it complete yet. */
+  canVerify: boolean;
+  /** The candidate hasn't completed the step, so a recruiter can complete it on their behalf. */
+  canComplete: boolean;
+};
+
+export const CANDIDATE_STEP_AWAITING_REVIEW_MESSAGE =
+  "The candidate submitted this step. Review their submission below, then click Mark as complete to verify it.";
 
 export type WorkflowStepInspection = {
   ok: true;
@@ -163,9 +209,15 @@ export type WorkflowStepInspection = {
   /** Whether staff can complete / reject / reopen this step from the drawer. */
   staffAction: StaffStepActionEligibility;
   staffReview: StaffStepReview | null;
+  /** Recruiter verification of a candidate step's submission. Null on recruiter steps. */
+  candidateReview: CandidateStepReview | null;
   /** Compliance check / facility approval result for those step types. */
   checkResult: StepCheckResult | null;
   documents: InspectableDocument[];
+  /** Upload fields on this step; staff can fill them for the candidate. Null when the step has none. */
+  documentUploads: StepDocumentUploads | null;
+  /** Optional other documents from the candidate's collect-documents step. Null on other steps. */
+  extraFiles: InspectableExtraFile[] | null;
   form: {
     questions: Array<{
       label: string;
@@ -242,6 +294,10 @@ function asText(value: unknown): string | null {
   return text || null;
 }
 
+function isManualHrTask(stepType: string | null | undefined): boolean {
+  return String(stepType ?? "").trim().toLowerCase() === "manual-task-hr-action";
+}
+
 export function inspectionKindForStep(params: {
   stepType: string;
   onboardingType: string;
@@ -263,9 +319,16 @@ export function inspectionKindForStep(params: {
   ) {
     return "upload";
   }
-  if (onboardingType === "skill_assessment" || stepType === "skill-qualification-assessment") {
-    return "assessment";
-  }
+  // Training Modules Quiz is persisted as onboarding type skill_assessment, but its
+  // answers are the post-hire confirmation — not the pre-hire skill ratings.
+  const isSkillAssessmentStep =
+    stepType === "skill-qualification-assessment" ||
+    stepType === "skill_assessment" ||
+    (onboardingType === "skill_assessment" &&
+      (stepType === "" ||
+        stepType === "skill_assessment" ||
+        stepType === "skill-qualification-assessment"));
+  if (isSkillAssessmentStep) return "assessment";
   if (onboardingType === "references" || stepType.includes("reference")) return "references";
   if (
     onboardingType === "authorizations" ||
@@ -311,7 +374,16 @@ export function candidateWaitingMessage(
     status === "in_progress"
       ? "The candidate has opened this step but hasn't finished it yet."
       : "Waiting for the candidate.";
-  return `${progress} This is a candidate step: the candidate ${where} in their application portal once they reach it, so there's nothing for staff to mark here. Their response will appear here when they submit it.`;
+  return `${progress} This is a candidate step: the candidate ${where} in their application portal once they reach it, and their response will appear here when they submit it. Use Send Email to remind them, or Mark as complete to complete it on their behalf.`;
+}
+
+/** Candidate upload step with nothing submitted yet: staff can also upload the files themselves. */
+export function candidateUploadWaitingMessage(status: OnboardingStepStatus): string {
+  const progress =
+    status === "in_progress"
+      ? "The candidate has opened this step but hasn't finished it yet."
+      : "Waiting for the candidate.";
+  return `${progress} The candidate can upload these documents in their application portal, or you can upload them below for the candidate (for example, files they sent you by email) and mark the step complete.`;
 }
 
 /** Filters post-hire direct deposit submission fields so recruiter view only sees the authorization confirmation checkbox. */
@@ -331,11 +403,25 @@ function signatureStatusLabel(raw: string | null): string {
   const value = String(raw ?? "").trim().toLowerCase();
   if (value === "completed" || value === "signed") return "Signed";
   if (value === "viewed") return "Viewed";
-  if (value === "sent" || value === "pending") return "Sent";
+  if (value === "sent") return "Sent";
+  if (value === "pending" || value === "draft") return "Not started";
   if (value === "declined") return "Declined";
   if (value === "expired") return "Expired";
   if (!value) return "Not started";
   return value.replaceAll("_", " ");
+}
+
+/** Recruiter signature panel only when this step actually has a signature template or request. */
+export function esignInspectionHasSignatureFields(params: {
+  firmaTemplateId?: string | null;
+  sessionTemplateId?: string | null;
+  signingRequestId?: string | null;
+}): boolean {
+  return Boolean(
+    params.firmaTemplateId?.trim() ||
+      params.sessionTemplateId?.trim() ||
+      params.signingRequestId?.trim()
+  );
 }
 
 export type StaffMember = { name: string; role: StaffConsoleRole };
@@ -433,12 +519,42 @@ async function signedOrUnavailable(
   return { url, unavailable: !url };
 }
 
-const IDENTITY_DOCUMENT_SLOTS = [
-  { column: "ssn_url", label: "SSN card (front)" },
-  { column: "ssn_back_url", label: "SSN card (back)" },
-  { column: "drivers_license_url", label: "Driver's license (front)" },
-  { column: "drivers_license_back_url", label: "Driver's license (back)" },
-] as const;
+async function loadInspectableExtraFiles(
+  supabase: SupabaseClient,
+  tenantId: string,
+  workerId: string
+): Promise<InspectableExtraFile[]> {
+  const { data, error } = await supabase
+    .from("worker_extra_files")
+    .select("id, original_file_name, file_size_bytes, storage_path, created_at")
+    .eq("tenant_id", tenantId)
+    .eq("worker_id", workerId)
+    .order("created_at", { ascending: false });
+  if (error) {
+    const text = `${error.code ?? ""} ${error.message ?? ""}`;
+    const missing =
+      /42P01|PGRST205/i.test(text) ||
+      (/worker_extra_files/i.test(text) && /does not exist|schema cache|could not find/i.test(text));
+    if (missing) return [];
+    throw error;
+  }
+
+  return Promise.all(
+    ((data ?? []) as Array<Record<string, unknown>>).map(async (row) => {
+      const signed = await signedOrUnavailable(supabase, asText(row.storage_path), WORKER_REQUIRED_FILES_BUCKET);
+      const size = Number(row.file_size_bytes);
+      return {
+        id: String(row.id),
+        fileName: asText(row.original_file_name) || "Uploaded file",
+        fileSize: Number.isFinite(size) ? size : null,
+        uploadedAt: asText(row.created_at),
+        previewUrl: signed.url,
+        downloadUrl: signed.url,
+        fileUnavailable: signed.unavailable,
+      };
+    })
+  );
+}
 
 const UPLOAD_NAME_PREFIX_RE =
   /^\d+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-/i;
@@ -455,37 +571,47 @@ export function storedFileName(stored: string): string {
   return name.replace(UPLOAD_NAME_PREFIX_RE, "") || name;
 }
 
+/** "Name (Admin|Recruiter)" when staff uploaded the file for the candidate, else "Name (Applicant)". */
+function documentUploaderLabel(
+  staffUserId: string | null,
+  candidateName: string,
+  staffById: Map<string, StaffMember>
+): string {
+  if (!staffUserId) return candidateUploaderLabel(candidateName);
+  const staff = staffById.get(staffUserId);
+  return staff ? staffMemberLabel(staff) : "Team member (Staff)";
+}
+
 /** SSN / ID uploads live on the worker's `worker_documents` row, not per required document. */
-async function loadIdentityDocuments(
+async function identityDocuments(
   supabase: SupabaseClient,
-  params: { tenantId: string; workerId: string; uploadedBy: string }
+  params: {
+    row: Record<string, unknown> | null;
+    workerId: string;
+    candidateName: string;
+    uploaderById: Map<string, StaffMember>;
+  }
 ): Promise<{ documents: InspectableDocument[]; complete: boolean }> {
-  const { data, error } = await supabase
-    .from("worker_documents")
-    .select("*")
-    .eq("worker_id", params.workerId)
-    .limit(1);
-  if (error) {
-    console.error("[candidate-workflow-step-inspection] identity documents unavailable", error);
-    return { documents: [], complete: false };
-  }
-  const row = ((data ?? []) as Array<Record<string, unknown>>)[0];
-  if (!row || (asText(row.tenant_id) && asText(row.tenant_id) !== params.tenantId)) {
-    return { documents: [], complete: false };
-  }
+  const { row } = params;
+  if (!row) return { documents: [], complete: false };
 
   const documents: InspectableDocument[] = [];
-  for (const slot of IDENTITY_DOCUMENT_SLOTS) {
+  for (const slot of IDENTITY_UPLOAD_SLOTS) {
     const stored = asText(row[slot.column]);
     if (!stored) continue;
     const signed = await signedOrUnavailable(supabase, stored, WORKER_REQUIRED_FILES_BUCKET);
     documents.push({
-      id: `${String(row.id ?? params.workerId)}:${slot.column}`,
+      id: identityDocumentId(row, params.workerId, slot.column),
+      documentName: slot.title,
       originalFileName: storedFileName(stored),
-      documentType: slot.label,
+      documentType: slot.title,
       fileSize: null,
       uploadedAt: asText(row.updated_at),
-      uploadedBy: params.uploadedBy,
+      uploadedBy: documentUploaderLabel(
+        staffUploaderIdFromPath(stored),
+        params.candidateName,
+        params.uploaderById
+      ),
       verificationStatus: null,
       previewUrl: signed.url,
       downloadUrl: signed.url,
@@ -641,34 +767,37 @@ export async function loadCandidateWorkflowStepInspection(
     usesESign,
   });
 
-  const requiredDocIds = [
-    ...new Set(
-      (config?.requiredDocuments ?? [])
-        .filter((doc) => doc.onboarding_step_id === mappedTenantStepId)
-        .map((doc) => doc.id)
-    ),
-  ];
+  const requiredDocTitleById = new Map(
+    (config?.requiredDocuments ?? [])
+      .filter((doc) => doc.onboarding_step_id === mappedTenantStepId)
+      .map((doc) => [doc.id, doc.title])
+  );
+  const uploadRequirements = stepUploadRequirements(config, mappedTenantStepId);
+  const isIdentityStep = mapped.stepType === SSN_IDENTITY_STEP_TYPE;
 
-  const submittedRows =
-    requiredDocIds.length > 0
-      ? (
-          await supabase
-            .from("worker_submitted_documents")
-            .select(
-              "id, required_document_id, file_url, original_file_name, file_type, file_size, status, uploaded_at, reviewed_at, reviewed_by, review_notes"
-            )
-            .eq("tenant_id", tenantId)
-            .eq("worker_id", workerId)
-            .in("required_document_id", requiredDocIds)
-            .order("uploaded_at", { ascending: false })
-        ).data ?? []
-      : [];
+  const [submittedRows, identityRow] = await Promise.all([
+    loadStepSubmittedDocuments(supabase, {
+      tenantId,
+      workerId,
+      requiredDocumentIds: [...requiredDocTitleById.keys()],
+    }),
+    isIdentityStep
+      ? loadIdentityDocumentRow(supabase, { tenantId, workerId }).catch((error) => {
+          console.error("[candidate-workflow-step-inspection] identity documents unavailable", error);
+          return null;
+        })
+      : Promise.resolve(null),
+  ]);
 
   const candidateName = [asText(worker.first_name), asText(worker.last_name)]
     .filter(Boolean)
     .join(" ");
+  const uploaderById = await loadStaffMembers(supabase, tenantId, [
+    ...submittedRows.map((row) => asText(row.uploaded_by_user_id) ?? ""),
+    ...IDENTITY_UPLOAD_SLOTS.map((slot) => staffUploaderIdFromPath(asText(identityRow?.[slot.column])) ?? ""),
+  ]);
   const documents: InspectableDocument[] = [];
-  for (const row of submittedRows as Array<Record<string, unknown>>) {
+  for (const row of submittedRows) {
     const signed = await signedOrUnavailable(
       supabase,
       asText(row.file_url),
@@ -676,11 +805,12 @@ export async function loadCandidateWorkflowStepInspection(
     );
     documents.push({
       id: String(row.id),
+      documentName: requiredDocTitleById.get(String(row.required_document_id)) ?? null,
       originalFileName: asText(row.original_file_name),
       documentType: asText(row.file_type),
       fileSize: typeof row.file_size === "number" ? row.file_size : null,
       uploadedAt: asText(row.uploaded_at),
-      uploadedBy: candidateUploaderLabel(candidateName),
+      uploadedBy: documentUploaderLabel(asText(row.uploaded_by_user_id), candidateName, uploaderById),
       verificationStatus: asText(row.status),
       previewUrl: signed.url,
       downloadUrl: signed.url,
@@ -718,6 +848,7 @@ export async function loadCandidateWorkflowStepInspection(
       const signed = await signedOrUnavailable(supabase, stored, WORKER_RESUMES_BUCKET);
       documents.push({
         id: String(row.id),
+        documentName: "Resume",
         originalFileName: asText(row.original_file_name) ?? asText(row.file_name),
         documentType: asText(row.file_type) ?? "resume",
         fileSize: typeof row.file_size_bytes === "number" ? row.file_size_bytes : null,
@@ -754,17 +885,120 @@ export async function loadCandidateWorkflowStepInspection(
   }
 
   // Identity uploads have no review status of their own; they only lift an untouched step to Submitted.
-  if (mapped.stepType === SSN_IDENTITY_STEP_TYPE) {
-    const identity = await loadIdentityDocuments(supabase, {
-      tenantId,
+  if (isIdentityStep) {
+    const identity = await identityDocuments(supabase, {
+      row: identityRow,
       workerId,
-      uploadedBy: candidateUploaderLabel(candidateName),
+      candidateName,
+      uploaderById,
     });
     documents.push(...identity.documents);
     mapped.displayStatus = enrichAssignedStepsDisplayFromEvidence({
       steps: [mapped],
       hasIdentityDocuments: identity.complete,
     })[0].displayStatus;
+  }
+  mapped.displayStatus = candidateReviewDisplayStatus(mapped);
+
+  const i9CheckboxStep = isI9CheckboxStep({
+    stepKey: mapped.stepKey,
+    stepType: mapped.stepType,
+    snapshotStepId: mapped.snapshotStepId,
+    title: mapped.title,
+    metadata: tenantStep?.metadata ?? { workflow_step_id: mapped.stepType },
+  });
+
+  const documentUploadsBase = buildStepDocumentUploads({
+    workerId,
+    stepType: mapped.stepType,
+    requirements: uploadRequirements,
+    submittedRows: submittedRows.map((row) => ({
+      id: String(row.id),
+      required_document_id: asText(row.required_document_id),
+      status: asText(row.status),
+    })),
+    identityRow,
+    candidateOwned: !staffAction.allowed && Boolean(mappedTenantStepId),
+    stepStatus: mapped.status,
+  });
+  const professionUploads = await withProfessionDocumentSlots(supabase, {
+    tenantId,
+    workerId,
+    stepType: mapped.stepType,
+    stepKey: mapped.stepKey,
+    workflowStepId:
+      asText(tenantStep?.metadata?.workflow_step_id) ?? asText(record.step_type),
+    stepStatus: mapped.status,
+    uploadsClosed: mapped.displayStatus === "completed" || Boolean(mapped.verifiedAt),
+    candidateOwned: !staffAction.allowed && Boolean(mappedTenantStepId),
+    uploads: documentUploadsBase,
+  });
+  const documentUploads = i9CheckboxStep
+    ? { ...professionUploads.uploads, slots: [], missingRequired: [], canUpload: false, canCompleteForCandidate: false }
+    : professionUploads.uploads;
+  if (professionUploads.files.length) {
+    const extraStaff = await loadStaffMembers(
+      supabase,
+      tenantId,
+      professionUploads.files.map((file) => staffUploaderIdFromPath(file.fileUrl) ?? "")
+    );
+    for (const [id, member] of extraStaff) uploaderById.set(id, member);
+    for (const file of professionUploads.files) {
+      if (documents.some((document) => document.id === file.id)) continue;
+      const signed = await signedOrUnavailable(supabase, file.fileUrl, WORKER_REQUIRED_FILES_BUCKET);
+      const slot = documentUploads.slots.find((candidate) => candidate.documentId === file.id);
+      documents.push({
+        id: file.id,
+        documentName: slot?.title ?? null,
+        originalFileName: file.fileName,
+        documentType: file.fileType,
+        fileSize: file.fileSize,
+        uploadedAt: file.uploadedAt,
+        uploadedBy: documentUploaderLabel(
+          staffUploaderIdFromPath(file.fileUrl),
+          candidateName,
+          uploaderById
+        ),
+        verificationStatus: file.status,
+        previewUrl: signed.url,
+        downloadUrl: signed.url,
+        fileUnavailable: signed.unavailable,
+        approvedOrRejectedAt: null,
+        reviewedBy: null,
+        reviewNotes: null,
+      });
+    }
+    const expiredNotices = documentUploads.slots.flatMap((slot) =>
+      slot.expired && slot.documentId && slot.expiryDate
+        ? [
+            {
+              uploadId: slot.documentId,
+              tenantId,
+              workerId,
+              title: slot.title,
+              expiryDate: slot.expiryDate,
+              candidateName,
+            },
+          ]
+        : []
+    );
+    if (expiredNotices.length) {
+      await notifyExpiredProfessionDocuments(supabase, expiredNotices).catch((error) => {
+        console.warn("[profession-document-expired] notify", error);
+      });
+    }
+  }
+
+  let extraFiles: InspectableExtraFile[] | null = null;
+  if (
+    !i9CheckboxStep &&
+    stepShowsProfessionDocuments({
+      stepType: mapped.stepType,
+      stepKey: mapped.stepKey,
+      workflowStepId: asText(tenantStep?.metadata?.workflow_step_id) ?? asText(record.step_type),
+    })
+  ) {
+    extraFiles = await loadInspectableExtraFiles(supabase, tenantId, workerId);
   }
 
   let enrollment: WorkflowStepInspection["enrollment"] = null;
@@ -807,9 +1041,11 @@ export async function loadCandidateWorkflowStepInspection(
     };
   }
 
+  const responseSubmittedAt = asText(progress?.updated_at) ?? asText(progress?.completed_at);
+  const checkboxQuestions = storedCheckboxQuestions(progressData, responseSubmittedAt);
   const postHireSubmission = enrollment ? null : readPostHireSubmission(progressData);
-  if (postHireSubmission) {
-    const submittedAt = postHireSubmission.submittedAt ?? asText(progress?.completed_at);
+  if (postHireSubmission && postHireSubmission.fields.length > 0) {
+    const submittedAt = postHireSubmission.submittedAt ?? responseSubmittedAt;
     let fields = postHireSubmission.fields;
     if (postHireSubmission.kind === "direct_deposit") {
       fields = filterDirectDepositInspectionFields(fields);
@@ -822,6 +1058,20 @@ export async function loadCandidateWorkflowStepInspection(
         submittedAt,
         reviewResult: null,
       })),
+    };
+  } else if (checkboxQuestions) {
+    form = { questions: checkboxQuestions };
+  } else if (i9CheckboxStep && (mapped.status === "completed" || progress?.completed_at != null)) {
+    form = {
+      questions: [
+        {
+          label: asText(progressData.checkbox_label) || I9_SECTION_1_CHECKBOX_LABEL,
+          fieldType: "checkbox",
+          answer: "Confirmed",
+          submittedAt: responseSubmittedAt,
+          reviewResult: null,
+        },
+      ],
     };
   } else if (!form && phase === "post_hire" && progressData && Object.keys(progressData).length > 0) {
     const IGNORED_KEYS = new Set([
@@ -859,14 +1109,16 @@ export async function loadCandidateWorkflowStepInspection(
     }
 
     if (dynamicQuestions.length > 0) {
-      if (postHireScreenKindForStepId(mapped.stepType) === "direct_deposit") {
+      const screenKind = postHireScreenKindForStepId(mapped.stepType);
+      if (screenKind === "direct_deposit" || screenKind === "confirmation") {
+        const message = asText(progressData.checkbox_label) || asText(progressData.response);
         form = {
           questions: [
             {
-              label: "Deposit authorization",
+              label: message || mapped.title || "Confirmation",
               fieldType: "checkbox",
-              answer: "Authorized",
-              submittedAt: asText(progress?.updated_at) ?? asText(progress?.completed_at),
+              answer: "Confirmed",
+              submittedAt: responseSubmittedAt,
               reviewResult: null,
             },
           ],
@@ -880,16 +1132,18 @@ export async function loadCandidateWorkflowStepInspection(
   if (
     !form &&
     hasPostHireScreen &&
-    postHireScreenKindForStepId(mapped.stepType) === "direct_deposit" &&
+    (postHireScreenKindForStepId(mapped.stepType) === "direct_deposit" ||
+      postHireScreenKindForStepId(mapped.stepType) === "confirmation") &&
     (mapped.status === "completed" || progress?.completed_at != null)
   ) {
+    const message = asText(progressData.checkbox_label) || asText(progressData.response);
     form = {
       questions: [
         {
-          label: "Deposit authorization",
+          label: message || mapped.title || "Confirmation",
           fieldType: "checkbox",
-          answer: "Authorized",
-          submittedAt: asText(progress?.updated_at) ?? asText(progress?.completed_at),
+          answer: "Confirmed",
+          submittedAt: responseSubmittedAt,
           reviewResult: null,
         },
       ],
@@ -974,7 +1228,7 @@ export async function loadCandidateWorkflowStepInspection(
     (id): id is string => Boolean(id)
   );
 
-  if (isAgreementStep || (kind === "background_check" && sessionStepIds.length)) {
+  if (!i9CheckboxStep && (isAgreementStep || (kind === "background_check" && sessionStepIds.length))) {
     let query = supabase
       .from("worker_firma_signing_sessions")
       .select(
@@ -1004,14 +1258,96 @@ export async function loadCandidateWorkflowStepInspection(
       if (byRequestId) session = byRequestId;
     }
 
+    // A signature can be stored on the published step when the assigned record points elsewhere.
+    if (!session) {
+      const signatureIdentity = {
+        snapshotStepId: mapped.stepType,
+        stepKey: mapped.stepKey,
+        stepType: mapped.stepType,
+        title: mapped.title,
+      };
+      const currentIsPreHireSignature =
+        mapped.phase !== "post_hire" &&
+        (isAuthorizationEsignStep(signatureIdentity) ||
+          isAgreementEsignStep(signatureIdentity) ||
+          isAgreementSignatureLibraryStepId(mapped.stepType));
+      const backgroundStepIds =
+        kind === "background_check"
+          ? tenantSteps.filter((step) => isBackgroundCheckAuthorizationStep(step)).map((step) => step.id)
+          : [];
+      const signatureStepIds = currentIsPreHireSignature
+        ? tenantSteps
+            .filter((step) => {
+              const libraryId = workflowStepIdFromMetadata(step.metadata) || "";
+              return (
+                libraryId === signatureIdentity.stepType ||
+                step.step_type === signatureIdentity.stepType ||
+                step.step_key === signatureIdentity.stepKey ||
+                (Boolean(signatureIdentity.title) && step.title === signatureIdentity.title)
+              );
+            })
+            .map((step) => step.id)
+        : [];
+      const relatedStepIds = [...new Set([...backgroundStepIds, ...signatureStepIds])];
+      const templateIds = [
+        ...new Set(
+          [
+            asText(recordSettings.firmaRecruiterTemplateId),
+            tenantStep ? getFirmaRecruiterTemplateId(tenantStep) : null,
+            ...tenantSteps
+              .filter((step) => relatedStepIds.includes(step.id))
+              .map((step) => getFirmaRecruiterTemplateId(step)),
+          ].filter((id): id is string => Boolean(id))
+        ),
+      ];
+      const sessionColumns =
+        "id, onboarding_step_id, firma_status, created_at, updated_at, recruiter_template_id, signing_request_id, firma_workspace_id";
+      if (relatedStepIds.length) {
+        const { data: byRelatedStep } = await supabase
+          .from("worker_firma_signing_sessions")
+          .select(sessionColumns)
+          .eq("tenant_id", tenantId)
+          .eq("worker_id", workerId)
+          .in("onboarding_step_id", relatedStepIds)
+          .order("created_at", { ascending: false })
+          .limit(1);
+        session = ((byRelatedStep ?? []) as Array<Record<string, unknown>>)[0] ?? null;
+      }
+      if (!session && templateIds.length) {
+        const { data: byTemplate } = await supabase
+          .from("worker_firma_signing_sessions")
+          .select(sessionColumns)
+          .eq("tenant_id", tenantId)
+          .eq("worker_id", workerId)
+          .in("recruiter_template_id", templateIds)
+          .order("created_at", { ascending: false })
+          .limit(1);
+        session = ((byTemplate ?? []) as Array<Record<string, unknown>>)[0] ?? null;
+      }
+    }
+
     const signingRequestId = asText(session?.signing_request_id) ?? asText(progressData.signing_request_id);
     const firmaStatus = asText(session?.firma_status) ?? asText(progressData.firma_status);
-    const isSigned =
+    const signatureIdentity = {
+      snapshotStepId: mapped.stepType,
+      stepKey: mapped.stepKey,
+      stepType: mapped.stepType,
+      title: mapped.title,
+    };
+    const requiresStoredSignature =
+      mapped.phase !== "post_hire" &&
+      (isAuthorizationEsignStep(signatureIdentity) || isAgreementEsignStep(signatureIdentity));
+    const storedSignature =
       isFirmaSigningComplete(firmaStatus) ||
-      mapped.displayStatus === "completed" ||
-      mapped.displayStatus === "approved" ||
       progressData.firma_signed === true ||
-      progressData.authorization_agreed === true;
+      progressData.authorization_agreed === true ||
+      Boolean(asText(progressData.signed_document_url) || asText(progressData.download_url));
+    let isSigned = requiresStoredSignature
+      ? storedSignature
+      : storedSignature ||
+        mapped.displayStatus === "completed" ||
+        mapped.displayStatus === "approved" ||
+        (mapped.displayStatus === "submitted" && mapped.status === "completed");
 
     const completedDoc = documents.find((doc) => doc.verificationStatus === "approved") ?? documents[0] ?? null;
     let resolvedDownloadUrl =
@@ -1033,10 +1369,19 @@ export async function loadCandidateWorkflowStepInspection(
       }
     }
 
-    if (session || signingRequestId || isAgreementStep) {
+    const firmaTemplateId =
+      asText(recordSettings.firmaRecruiterTemplateId) ??
+      (tenantStep ? getFirmaRecruiterTemplateId(tenantStep) : null);
+    const hasSignatureFields = esignInspectionHasSignatureFields({
+      firmaTemplateId,
+      sessionTemplateId: asText(session?.recruiter_template_id),
+      signingRequestId,
+    });
+
+    if (hasSignatureFields) {
       agreement = {
         documentName: mapped.title,
-        signatureStatus: signatureStatusLabel(firmaStatus ?? (isSigned ? "completed" : "pending")),
+        signatureStatus: signatureStatusLabel(firmaStatus ?? (isSigned ? "completed" : null)),
         sentAt: asText(session?.created_at) ?? asText(mapped.assignedAt),
         viewedAt: null,
         signedAt: isSigned
@@ -1051,7 +1396,7 @@ export async function loadCandidateWorkflowStepInspection(
         isSigned,
         auditHistory: [
           {
-            status: signatureStatusLabel(firmaStatus ?? (isSigned ? "completed" : "pending")),
+            status: signatureStatusLabel(firmaStatus ?? (isSigned ? "completed" : null)),
             at: asText(session?.updated_at) ?? asText(progress?.completed_at) ?? asText(session?.created_at),
           },
         ],
@@ -1200,6 +1545,11 @@ export async function loadCandidateWorkflowStepInspection(
     } else if (mapped.status === "in_progress") {
       emptyState = "References are marked as needing review. This doesn't block the candidate's next stage.";
     }
+  } else if (staffAction.allowed && isManualHrTask(mapped.stepType)) {
+    if (mapped.status === "pending" || mapped.status === "in_progress") {
+      emptyState =
+        "This is a recruiter step. Add a note if you need to, then mark it complete. The candidate does not complete this step.";
+    }
   } else if (staffAction.allowed && !mapped.required) {
     if (mapped.status === "pending" || mapped.status === "in_progress") {
       emptyState = `Waiting for ${staffAction.ownerLabel ?? "the internal team"} to complete this step. It's optional, so it doesn't block the candidate's next stage.`;
@@ -1227,7 +1577,9 @@ export async function loadCandidateWorkflowStepInspection(
     !candidateHasSubmitted &&
     (mapped.status === "pending" || mapped.status === "in_progress")
   ) {
-    emptyState = candidateWaitingMessage(kind, mapped.status, hasPostHireScreen ? mapped.title : null);
+    emptyState = documentUploads.canUpload
+      ? candidateUploadWaitingMessage(mapped.status)
+      : candidateWaitingMessage(kind, mapped.status, hasPostHireScreen ? mapped.title : null);
   } else if (!progress && documents.length === 0 && mapped.status === "pending") {
     emptyState = "No submission received for this step.";
   } else if (mapped.status === "completed" && documents.length === 0 && !form && !assessment && !agreement) {
@@ -1242,6 +1594,35 @@ export async function loadCandidateWorkflowStepInspection(
     emptyState = ASSESSMENT_COMPLETED_WITHOUT_ANSWERS_MESSAGE;
   }
 
+  const candidateStep = !staffAction.allowed && mapped.candidateOwned === true;
+  const authorizationEsign =
+    phase !== "post_hire" &&
+    isAgreementEsignStep({
+      snapshotStepId: mapped.snapshotStepId,
+      stepKey: mapped.stepKey,
+      stepType: mapped.stepType,
+      title: mapped.title,
+    });
+  const authorizationConfirmation =
+    phase !== "post_hire" &&
+    isAuthorizationEsignStep({
+      snapshotStepId: mapped.snapshotStepId,
+      stepKey: mapped.stepKey,
+      stepType: mapped.stepType,
+      title: mapped.title,
+    });
+  const signatureStored = agreement?.isSigned === true;
+  const canVerify =
+    candidateStep &&
+    mapped.status === "completed" &&
+    !mapped.verifiedAt &&
+    mapped.displayStatus === "submitted" &&
+    (authorizationConfirmation || !authorizationEsign || signatureStored);
+  if (canVerify && (emptyState == null || emptyState === STEP_COMPLETED_WITHOUT_DOCUMENT_MESSAGE)) {
+    emptyState = CANDIDATE_STEP_AWAITING_REVIEW_MESSAGE;
+  }
+
+  const verifiedByUserId = mapped.verifiedAt ? asText(record.status_changed_by) : null;
   const reviewable = kind !== "resume";
   const reviewerById = await loadStaffMembers(
     supabase,
@@ -1249,6 +1630,7 @@ export async function loadCandidateWorkflowStepInspection(
     [
       ...documents.map((doc) => doc.reviewedBy ?? ""),
       staffDecision?.reviewedByUserId ?? "",
+      verifiedByUserId ?? "",
     ]
   );
   for (const doc of documents) {
@@ -1257,6 +1639,25 @@ export async function loadCandidateWorkflowStepInspection(
   const staffDecisionBy = staffDecision
     ? reviewerLabel(staffDecision.reviewedByUserId, staffDecision.reviewedByName, reviewerById)
     : null;
+  const candidateReview: CandidateStepReview | null = candidateStep
+    ? {
+        verified: Boolean(mapped.verifiedAt),
+        verifiedAt: mapped.verifiedAt ?? null,
+        verifiedBy: mapped.verifiedAt
+          ? reviewerLabel(verifiedByUserId, mapped.verifiedByName, reviewerById)
+          : null,
+        canVerify,
+        canComplete:
+          authorizationConfirmation || !authorizationEsign
+            ? mapped.status !== "completed" && !mapped.verifiedAt
+            : false,
+      }
+    : null;
+  // A recruiter verifying a candidate step doesn't make them its completer; completing it
+  // on the candidate's behalf (recorded on the progress row too) does.
+  const completedByStaff = staffAction.allowed
+    ? staffDecision?.decision === "complete"
+    : progressReview?.decision === "complete";
 
   return {
     ok: true,
@@ -1272,7 +1673,7 @@ export async function loadCandidateWorkflowStepInspection(
     completedAt: mapped.completedAt,
     approvedOrRejectedAt: latestDoc?.approvedOrRejectedAt ?? staffDecision?.reviewedAt ?? null,
     completedBy:
-      staffDecision?.decision === "complete"
+      completedByStaff
         ? staffDecisionBy ?? staffAction.ownerLabel
         : staffAction.allowed
           ? null
@@ -1288,8 +1689,11 @@ export async function loadCandidateWorkflowStepInspection(
     emptyState,
     staffAction,
     staffReview,
+    candidateReview,
     checkResult,
     documents,
+    documentUploads: documentUploads.slots.length ? documentUploads : null,
+    extraFiles,
     form,
     assessment,
     references,

@@ -69,5 +69,26 @@ export async function loadOnboardingStepLibrary(
     }
   }
 
-  return Array.from(byCategory.values());
+  const categoryOrder = (category: WorkflowStepLibraryCategory) => {
+    const values = rows
+      .filter(
+        (entry) =>
+          entry.category_id === category.id &&
+          (entry.tenant_id === null || entry.tenant_id === tenantId)
+      )
+      .map((entry) => Number(entry.default_settings?.categoryOrder))
+      .filter((value) => Number.isFinite(value));
+    return values.length > 0 ? Math.min(...values) : 1000;
+  };
+
+  return Array.from(byCategory.values())
+    .map((category) => ({
+      ...category,
+      steps: [...category.steps].sort((a, b) => {
+        const aOrder = rows.find((entry) => entry.step_key === a.id)?.sort_order ?? 0;
+        const bOrder = rows.find((entry) => entry.step_key === b.id)?.sort_order ?? 0;
+        return aOrder - bOrder;
+      }),
+    }))
+    .sort((a, b) => categoryOrder(a) - categoryOrder(b) || a.label.localeCompare(b.label));
 }

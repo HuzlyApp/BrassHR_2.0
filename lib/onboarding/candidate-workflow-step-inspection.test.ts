@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  esignInspectionHasSignatureFields,
   inspectionKindForStep,
   resumeUploaderLabel,
   reviewerLabel,
@@ -10,6 +11,23 @@ import {
   LEGACY_UNMATCHED_STEP_MESSAGE,
   STEP_COMPLETED_WITHOUT_DOCUMENT_MESSAGE,
 } from "@/lib/onboarding/assigned-workflow-steps";
+
+describe("esign inspection signature fields", () => {
+  it("hides the signature panel when Authorization e-sign has no signature template", () => {
+    expect(
+      esignInspectionHasSignatureFields({
+        firmaTemplateId: null,
+        sessionTemplateId: null,
+        signingRequestId: null,
+      })
+    ).toBe(false);
+  });
+
+  it("shows the signature panel when a template or signing request exists", () => {
+    expect(esignInspectionHasSignatureFields({ firmaTemplateId: "tmpl-1" })).toBe(true);
+    expect(esignInspectionHasSignatureFields({ signingRequestId: "req-1" })).toBe(true);
+  });
+});
 
 describe("workflow step inspection kinds", () => {
   it("opens the resume, license, assessment, reference, agreement, form, and final review kinds", () => {
@@ -43,6 +61,21 @@ describe("workflow step inspection kinds", () => {
     expect(inspectionKindForStep({ stepType: "background-check", onboardingType: "custom_question" })).toBe(
       "background_check"
     );
+  });
+
+  it("keeps skill assessment results off post-hire training steps", () => {
+    expect(
+      inspectionKindForStep({
+        stepType: "training-modules-quiz",
+        onboardingType: "skill_assessment",
+      })
+    ).not.toBe("assessment");
+    expect(
+      inspectionKindForStep({
+        stepType: "skill-qualification-assessment",
+        onboardingType: "skill_assessment",
+      })
+    ).toBe("assessment");
   });
 
   it("explains completed steps with no document and unmatched legacy records", () => {

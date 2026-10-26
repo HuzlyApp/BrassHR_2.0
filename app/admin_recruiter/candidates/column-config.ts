@@ -94,14 +94,19 @@ export const DEFAULT_CANDIDATE_COLUMNS: CandidateColumnId[] = [
   "contact",
   "clientName",
   "matchJob",
-  "progressStatus",
   "fit",
   "currentStage",
   "createdDate",
 ]
 
-const STORAGE_KEY = "nexus-candidates-list-columns-v8"
+const STORAGE_KEY = "nexus-candidates-list-columns-v9"
+const PREVIOUS_STORAGE_KEY = "nexus-candidates-list-columns-v8"
 const LEGACY_STORAGE_KEY = "nexus-candidates-list-columns-v7"
+
+/** Progress Status left the default candidates table; older saved layouts still listed it. */
+export function withoutRetiredProgressStatusColumn(order: CandidateColumnId[]): CandidateColumnId[] {
+  return order.filter((id) => id !== "progressStatus")
+}
 
 /** v7 layouts defaulted to Match Score; carry them over with Fit in that slot instead. */
 function readLegacyColumnOrder(): unknown {
@@ -127,26 +132,43 @@ function ensureDefaultCandidateColumns(order: CandidateColumnId[]): CandidateCol
   insertAfter("name", "contact")
   insertAfter("contact", "clientName")
   insertAfter("clientName", "matchJob")
-  insertAfter("matchJob", "progressStatus")
-  // Match Score is optional — not force-added; recruiters can enable it via Edit Columns.
-  insertAfter("progressStatus", "fit")
+  // Match Score and Progress Status are optional — not force-added; recruiters can enable them via Edit Columns.
+  insertAfter("matchJob", "fit")
   insertAfter("fit", "currentStage")
   insertAfter("currentStage", "createdDate")
 
   return next
 }
 
+function parseStoredColumnOrder(parsed: unknown): CandidateColumnId[] | null {
+  if (!Array.isArray(parsed) || parsed.length === 0) return null
+  const allowed = new Set(CANDIDATE_COLUMN_OPTIONS.map((c) => c.id))
+  const cleaned = parsed.filter(
+    (id): id is CandidateColumnId => typeof id === "string" && allowed.has(id as CandidateColumnId)
+  )
+  return cleaned.length ? cleaned : null
+}
+
+function readStoredColumnOrder(key: string): CandidateColumnId[] | null {
+  const raw = localStorage.getItem(key)
+  if (!raw) return null
+  return parseStoredColumnOrder(JSON.parse(raw) as unknown)
+}
+
 export function loadColumnOrder(): CandidateColumnId[] {
   if (typeof window === "undefined") return [...DEFAULT_CANDIDATE_COLUMNS]
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    const parsed = raw ? (JSON.parse(raw) as unknown) : readLegacyColumnOrder()
-    if (parsed == null) return [...DEFAULT_CANDIDATE_COLUMNS]
-    if (!Array.isArray(parsed) || parsed.length === 0) return [...DEFAULT_CANDIDATE_COLUMNS]
-    const allowed = new Set(CANDIDATE_COLUMN_OPTIONS.map((c) => c.id))
-    const cleaned = parsed.filter((id): id is CandidateColumnId => typeof id === "string" && allowed.has(id as CandidateColumnId))
-    const order = cleaned.length ? cleaned : [...DEFAULT_CANDIDATE_COLUMNS]
-    return ensureDefaultCandidateColumns(order)
+    const current = readStoredColumnOrder(STORAGE_KEY)
+    if (current) return ensureDefaultCandidateColumns(current)
+
+    const previous = readStoredColumnOrder(PREVIOUS_STORAGE_KEY)
+    if (previous) {
+      return ensureDefaultCandidateColumns(withoutRetiredProgressStatusColumn(previous))
+    }
+
+    const legacy = parseStoredColumnOrder(readLegacyColumnOrder())
+    if (!legacy) return [...DEFAULT_CANDIDATE_COLUMNS]
+    return ensureDefaultCandidateColumns(withoutRetiredProgressStatusColumn(legacy))
   } catch {
     return [...DEFAULT_CANDIDATE_COLUMNS]
   }

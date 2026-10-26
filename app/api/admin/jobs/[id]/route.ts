@@ -8,6 +8,7 @@ import {
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { buildPublicJobSharePath } from "@/lib/jobs/public-job-share";
 import { isOpenJobRequisitionStatus, normalizeJobRequisitionStatus } from "@/lib/jobs/job-status";
+import { loadVisibleJobApplications } from "@/lib/jobs/pipeline-summary-api";
 import {
   jobDetailsStatsFromPipelineSummary,
   tallyJobPipelineSummary,
@@ -97,7 +98,7 @@ export async function GET(
     const [
       { data: job, error: jobError },
       { data: tenant, error: tenantError },
-      { data: applications, error: appsError },
+      applications,
       screeningQuestionRows,
     ] = await Promise.all([
       supabase
@@ -111,11 +112,7 @@ export async function GET(
         .select("id, slug, subdomain, name")
         .eq("id", tenantId)
         .maybeSingle(),
-      supabase
-        .from("job_applications")
-        .select("id, status, status_id, application_statuses!status_id(system_key, name)")
-        .eq("job_requisition_id", id)
-        .eq("tenant_id", tenantId),
+      loadVisibleJobApplications(supabase, tenantId, id),
       detailsView
         ? Promise.resolve([])
         : loadJobScreeningQuestions(supabase, tenantId, id),
@@ -123,7 +120,6 @@ export async function GET(
 
     if (jobError) throw jobError;
     if (tenantError) throw tenantError;
-    if (appsError) throw appsError;
     if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
     const jobRow = job as unknown as JobRequisitionRow & Record<string, unknown>;
 

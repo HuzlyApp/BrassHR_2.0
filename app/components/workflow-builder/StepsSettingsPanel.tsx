@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, FileText, PanelRightClose } from "lucide-react";
+import { AlertTriangle, ChevronDown, FileText, PanelRightClose } from "lucide-react";
 import type { Node } from "@xyflow/react";
 import {
   BRAND_CTA_GRADIENT,
@@ -15,7 +15,20 @@ import {
   WORKFLOW_PROVIDER_OPTIONS,
 } from "@/lib/onboarding/normalize-workflow-settings";
 import { isFirmaAttachableWorkflowStepId } from "@/lib/onboarding/firma-step-settings";
+import {
+  COMPLETION_OWNER_OPTIONS,
+  isInternalLibraryStepId,
+  resolveCompletionOwner,
+} from "@/lib/onboarding/workflow-settings";
+import { isCandidateCheckboxStep } from "@/lib/onboarding/candidate-checkbox-steps";
 import { postHireScreenKindForStepId } from "@/lib/onboarding/post-hire-step-screens";
+import {
+  ALIEN_STAGE_WARNING,
+  alienStageWarningForStep,
+  foreignStagePlacements,
+} from "@/lib/onboarding/validate-workflow-step-stages";
+import { isStepNode } from "./types";
+import { EmailTemplateSelect } from "@/app/components/onboarding/EmailTemplateSelect";
 import { FirmaTemplateSelect } from "@/app/components/onboarding/FirmaTemplateSelect";
 import { resolveHireLibraryIconPath } from "./hire-library-icons";
 import { resolveCanvasStepThemeColor } from "./library-category-theme";
@@ -137,6 +150,7 @@ export default function StepsSettingsPanel({
             <SettingsBody
               key={node.id}
               node={node}
+              workflowState={workflowState}
               onUpdate={onUpdate}
               onSaveStep={onSaveStep}
               onCloneWorkflow={onCloneWorkflow}
@@ -161,27 +175,59 @@ export default function StepsSettingsPanel({
 
 type SettingsBodyProps = {
   node: NonNullable<StepsSettingsPanelProps["node"]>;
+  workflowState: WorkflowState;
   onUpdate: StepsSettingsPanelProps["onUpdate"];
   onSaveStep?: StepsSettingsPanelProps["onSaveStep"];
   onCloneWorkflow?: StepsSettingsPanelProps["onCloneWorkflow"];
   readOnly?: boolean;
 };
 
-function SettingsBody({ node, onUpdate, onSaveStep, onCloneWorkflow, readOnly = false }: SettingsBodyProps) {
+function SettingsBody({
+  node,
+  workflowState,
+  onUpdate,
+  onSaveStep,
+  onCloneWorkflow,
+  readOnly = false,
+}: SettingsBodyProps) {
   const { settings } = node.data;
   const integrationEnabled = settings.useBraasPartner;
   const providerOptions = integrationEnabled
     ? [...WORKFLOW_PROVIDER_OPTIONS]
     : (["Manual", "Third-party API"] as const);
   const showFirmaTemplatePicker = isFirmaAttachableWorkflowStepId(node.data.stepId);
+  const checkboxConfirmationStep = isCandidateCheckboxStep({
+    metadata: { workflow_step_id: node.data.stepId },
+    title: node.data.label,
+  });
   const candidateScreenKind =
-    settings.phase === "post_hire" ? postHireScreenKindForStepId(node.data.stepId) : null;
+    settings.phase === "post_hire"
+      ? postHireScreenKindForStepId(node.data.stepId) ?? (checkboxConfirmationStep ? "confirmation" : null)
+      : checkboxConfirmationStep
+        ? "confirmation"
+        : null;
+  const ownerLocked = isInternalLibraryStepId(node.data.stepId) || checkboxConfirmationStep;
   const stageName =
     typeof (settings as { stageName?: unknown }).stageName === "string"
       ? (settings as { stageName?: string }).stageName
       : null;
   const themeColor = resolveCanvasStepThemeColor(node.data.stepId, stageName);
   const iconPath = resolveHireLibraryIconPath(node.data.stepId);
+  const insideForeignStage = foreignStagePlacements(
+    workflowState.nodes.filter(isStepNode).map((step) => ({
+      id: step.id,
+      stepId: step.data.stepId,
+      phase: step.data.settings.phase,
+      y: step.position.y,
+    })),
+    workflowState.edges
+  ).some((placement) => placement.id === node.id);
+  const alienStageWarning =
+    alienStageWarningForStep({
+      stepId: node.data.stepId,
+      phase: settings.phase,
+      stageName,
+    }) ?? (insideForeignStage ? ALIEN_STAGE_WARNING : null);
 
   const patchSettings = (patch: Partial<StepSettings>, options?: { skipHistory?: boolean }) => {
     onUpdate(node.id, { settings: { ...settings, ...patch } }, options);
@@ -219,6 +265,15 @@ function SettingsBody({ node, onUpdate, onSaveStep, onCloneWorkflow, readOnly = 
       </div>
 
       <div className={`flex flex-col gap-3 px-5 pb-4 ${readOnly ? "pointer-events-none opacity-60" : ""}`}>
+        {alienStageWarning ? (
+          <div
+            className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900"
+            role="alert"
+          >
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" strokeWidth={2.5} aria-hidden />
+            <span>{alienStageWarning}</span>
+          </div>
+        ) : null}
         <TextField
           label="Step title"
           value={node.data.label}
@@ -258,6 +313,23 @@ function SettingsBody({ node, onUpdate, onSaveStep, onCloneWorkflow, readOnly = 
             />
           </div>
         ) : null}
+        <div
+          className="rounded-xl border p-3"
+          style={{ borderColor: CARD_BORDER, backgroundColor: "rgba(255, 255, 255, 0.7)" }}
+          data-testid="email-template-settings"
+        >
+          <EmailTemplateSelect
+            value={settings.emailTemplateKey ?? ""}
+            templateName={settings.emailTemplateName}
+            disabled={readOnly}
+            onChange={({ key, name }) =>
+              patchSettings({
+                emailTemplateKey: key,
+                emailTemplateName: name,
+              })
+            }
+          />
+        </div>
         {candidateScreenKind ? (
           <div
             className="flex flex-col gap-3 rounded-xl border p-3"
@@ -300,7 +372,9 @@ function SettingsBody({ node, onUpdate, onSaveStep, onCloneWorkflow, readOnly = 
                   ? "Completion statement"
                   : candidateScreenKind === "direct_deposit"
                     ? "Deposit authorization statement"
-                    : "Acknowledgment / attestation statement"
+                    : candidateScreenKind === "confirmation"
+                      ? "Confirmation message"
+                      : "Acknowledgment / attestation statement"
               }
               value={settings.acknowledgmentText ?? ""}
               onChange={(v) => patchSettings({ acknowledgmentText: v }, { skipHistory: true })}
@@ -314,34 +388,21 @@ function SettingsBody({ node, onUpdate, onSaveStep, onCloneWorkflow, readOnly = 
           onChange={(v) => onUpdate(node.id, { required: v })}
         />
         <SelectField
-          label="Phase"
-          value={settings.phase === "transition" ? "pre_hire" : settings.phase}
-          options={["pre_hire", "post_hire"]}
-          optionLabels={{ pre_hire: "Pre-Hire", post_hire: "Post-Hire" }}
-          hint="Approval is a step type. Pre-Hire is candidate evaluation; Post-Hire is onboarding after acceptance."
-          onChange={(v) => {
-            const next = (v as StepSettings["phase"]) ?? "pre_hire";
-            const current = settings.phase === "transition" ? "pre_hire" : settings.phase;
-            if (
-              current !== next &&
-              typeof window !== "undefined" &&
-              !window.confirm(
-                "Moving this step between Pre-Hire and Post-Hire can affect existing candidate progress and document associations. Continue?"
-              )
-            ) {
-              return;
-            }
-            patchSettings({
-              phase: next,
-              phaseOrder: next === "post_hire" ? 3 : 1,
-            });
-          }}
-        />
-        <TextField
           label="Completion owner"
-          value={settings.completionOwner ?? ""}
-          onChange={(v) => patchSettings({ completionOwner: v }, { skipHistory: true })}
-          onCommit={(v) => patchSettings({ completionOwner: v })}
+          value={resolveCompletionOwner(settings.completionOwner, node.data.stepId)}
+          options={COMPLETION_OWNER_OPTIONS.map((option) => option.value)}
+          optionLabels={Object.fromEntries(
+            COMPLETION_OWNER_OPTIONS.map((option) => [option.value, option.label])
+          )}
+          disabled={ownerLocked}
+          hint={
+            checkboxConfirmationStep
+              ? "The candidate checks a confirmation message. Their answer is saved on this step."
+              : ownerLocked
+                ? "This step is always completed by the recruiter."
+                : "Candidate steps appear in the candidate portal. Recruiter steps appear only for staff."
+          }
+          onChange={(v) => patchSettings({ completionOwner: v })}
         />
         <ToggleRow
           label="Conditional step"

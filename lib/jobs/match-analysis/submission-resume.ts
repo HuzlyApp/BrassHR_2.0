@@ -4,6 +4,7 @@ import {
   sanitizeResumeNamePart,
 } from "@/lib/resume/worker-resume-file-name";
 import { normalizeResumeWhitespace } from "./sanitize-resume";
+import { normalizeResumeBulletGlyphs, stripLeadingListMarker } from "@/lib/resume/resume-glyphs";
 import type { MatchAnalysisResponse } from "./schema";
 
 export { isSubmissionResumeFileName };
@@ -31,17 +32,23 @@ export const submissionResumeSchema = z.object({
   phone: clipped(40).default(""),
   location: clipped(200).default(""),
   linkedin: clipped(300).default(""),
-  summary: clipped(2400).default(""),
-  skills: cappedList(clipped(80), 40).default([]),
+  summary: clipped(4000).default(""),
+  summaryHeading: clipped(80).default(""),
+  skillsHeading: clipped(80).default(""),
+  experienceHeading: clipped(80).default(""),
+  educationHeading: clipped(80).default(""),
+  licensesHeading: clipped(80).default(""),
+  /** Skill lines can be a full labeled group from the source résumé, not only a short keyword. */
+  skills: cappedList(clipped(500), 48).default([]),
   experience: cappedList(
     z.object({
       title: clipped(160).default(""),
       company: clipped(160).default(""),
       location: clipped(160).default(""),
       dates: clipped(80).default(""),
-      bullets: cappedList(clipped(800), 20).default([]),
+      bullets: cappedList(clipped(1800), 48).default([]),
     }),
-    24
+    40
   ).default([]),
   education: cappedList(
     z.object({
@@ -195,6 +202,11 @@ export function mergeSubmissionResume(
     location: preferred.location || fallback.location,
     linkedin: preferred.linkedin || fallback.linkedin,
     summary: preferred.summary || fallback.summary,
+    summaryHeading: preferred.summaryHeading || fallback.summaryHeading,
+    skillsHeading: preferred.skillsHeading || fallback.skillsHeading,
+    experienceHeading: preferred.experienceHeading || fallback.experienceHeading,
+    educationHeading: preferred.educationHeading || fallback.educationHeading,
+    licensesHeading: preferred.licensesHeading || fallback.licensesHeading,
     skills: preferred.skills.length ? preferred.skills : fallback.skills,
     experience: preferred.experience.length ? preferred.experience : fallback.experience,
     education: preferred.education.length ? preferred.education : fallback.education,
@@ -237,19 +249,74 @@ export function buildFallbackSubmissionResume(args: {
   });
 }
 
+export const SUBMISSION_SECTION_DEFAULTS = {
+  summary: "Professional summary",
+  skills: "Core qualifications",
+  experience: "Professional experience",
+  education: "Education",
+  licenses: "Licenses & certifications",
+} as const;
+
+/** The generated packet always uses these titles. Source résumé titles are not copied. */
+export function submissionSectionHeading(_custom: string | undefined, fallback: string): string {
+  return fallback;
+}
+
+/**
+ * Short keyword lists stay on one line. Labeled or long source lines stay separate
+ * so a skills section is not flattened.
+ */
+/** Keep the model headline. If it is empty, use the target job title. */
+export function presentSubmissionResume(resume: SubmissionResume, jobTitle?: string): SubmissionResume {
+  const headline = resume.headline.replace(/\s+/g, " ").trim() || String(jobTitle ?? "").replace(/\s+/g, " ").trim();
+  return {
+    ...resume,
+    headline,
+    summaryHeading: "",
+    skillsHeading: "",
+    experienceHeading: "",
+    educationHeading: "",
+    licensesHeading: "",
+    summary: normalizeResumeBulletGlyphs(resume.summary),
+    skills: resume.skills.map((skill) => stripLeadingListMarker(skill)).filter(Boolean),
+    experience: resume.experience.map((job) => ({
+      ...job,
+      bullets: job.bullets.map((bullet) => stripLeadingListMarker(bullet)).filter(Boolean),
+    })),
+  };
+}
+
+export function submissionSkillParagraphs(skills: string[]): string[] {
+  const clean = skills.map((item) => stripLeadingListMarker(item)).filter(Boolean);
+  if (!clean.length) return [];
+  const separate = clean.some((item) => item.length > 60 || item.includes(":"));
+  return separate ? clean : [clean.join("  ·  ")];
+}
+
 export function submissionResumeToPlainText(resume: SubmissionResume): string {
   const lines: string[] = [resume.fullName];
   if (resume.headline) lines.push(resume.headline);
   const contact = [resume.location, resume.email, resume.phone, resume.linkedin].filter(Boolean).join("  |  ");
   if (contact) lines.push(contact);
   if (resume.summary) {
-    lines.push("", "PROFESSIONAL SUMMARY", resume.summary);
+    lines.push(
+      "",
+      submissionSectionHeading(resume.summaryHeading, SUBMISSION_SECTION_DEFAULTS.summary),
+      resume.summary
+    );
   }
   if (resume.skills.length) {
-    lines.push("", "CORE QUALIFICATIONS", resume.skills.map((item) => `• ${item}`).join("\n"));
+    lines.push(
+      "",
+      submissionSectionHeading(resume.skillsHeading, SUBMISSION_SECTION_DEFAULTS.skills),
+      resume.skills.map((item) => `• ${item}`).join("\n")
+    );
   }
   if (resume.experience.length) {
-    lines.push("", "PROFESSIONAL EXPERIENCE");
+    lines.push(
+      "",
+      submissionSectionHeading(resume.experienceHeading, SUBMISSION_SECTION_DEFAULTS.experience)
+    );
     for (const job of resume.experience) {
       lines.push([job.title, job.company].filter(Boolean).join(" — "));
       const meta = [job.location, job.dates].filter(Boolean).join("  |  ");
@@ -258,13 +325,13 @@ export function submissionResumeToPlainText(resume: SubmissionResume): string {
     }
   }
   if (resume.education.length) {
-    lines.push("", "EDUCATION");
+    lines.push("", submissionSectionHeading(resume.educationHeading, SUBMISSION_SECTION_DEFAULTS.education));
     for (const item of resume.education) {
       lines.push([item.credential, item.school, item.year].filter(Boolean).join(" — "));
     }
   }
   if (resume.licenses.length) {
-    lines.push("", "LICENSES & CERTIFICATIONS");
+    lines.push("", submissionSectionHeading(resume.licensesHeading, SUBMISSION_SECTION_DEFAULTS.licenses));
     for (const item of resume.licenses) lines.push(`• ${item}`);
   }
   return lines.join("\n");

@@ -256,6 +256,8 @@ async function storeResumeFromFile(
       jobApplicationId: options?.jobApplicationId ?? null,
       uploadedByUserId: userId,
       uploaderRole: "worker",
+      workerId: applicant.id,
+      tenantId: applicant.tenant_id,
     },
     mode === "update"
       ? { mode: "update", resumeId: options?.resumeId }

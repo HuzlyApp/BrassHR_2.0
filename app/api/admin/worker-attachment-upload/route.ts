@@ -4,128 +4,126 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import { requireApiSession } from "@/lib/auth/api-session"
 import { isStaffRole } from "@/lib/auth/app-role"
 import { canAccessWorkerRecord } from "@/lib/auth/worker-record-access"
+import {
+  resolveDocumentField,
+  sanitizeFileName,
+  saveStaffLegacyDocumentUpload,
+  saveStaffRequiredDocumentUpload,
+  type StaffUploadResult,
+} from "@/lib/admin/staff-document-upload"
+import { isAcceptedDocumentFileType } from "@/lib/document-upload-helpers"
 import { persistWorkerResumePath } from "@/lib/onboarding/persist-worker-resume-path"
 import { getSupabaseUrl } from "@/lib/supabase-env"
-import {
-  WORKER_REQUIRED_FILES_BUCKET,
-  WORKER_RESUMES_BUCKET,
-} from "@/lib/supabase-storage-buckets"
+import { WORKER_REQUIRED_FILES_BUCKET, WORKER_RESUMES_BUCKET } from "@/lib/supabase-storage-buckets"
 import { enforceRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { parseRequiredUuid } from "@/lib/validation/uuid"
-import { isAcceptedDocumentFileType } from "@/lib/document-upload-helpers"
 
 export const runtime = "nodejs"
 
 const MAX_RESUME_BYTES = Number(process.env.MAX_RESUME_UPLOAD_BYTES ?? 10 * 1024 * 1024)
-const MAX_DOC_BYTES = Number(process.env.MAX_REQUIRED_FILE_UPLOAD_BYTES ?? 10 * 1024 * 1024)
 const ALLOWED_RESUME_MIME = new Set([
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ])
-const ALLOWED_DOC_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"]
 
-function sanitizeFileName(name: string): string {
-  return name.replace(/[/\\?%*:|"<>]/g, "_").slice(0, 200)
+function uploadResponse(result: StaffUploadResult) {
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
+  return NextResponse.json({ ok: true, path: result.path, bucket: result.bucket })
 }
 
-type LegacyDocColumn =
-  | "nursing_license_url"
-  | "tb_test_url"
-  | "cpr_certification_url"
-  | "ssn_url"
-  | "ssn_back_url"
-  | "drivers_license_url"
-  | "drivers_license_back_url"
-  | "document_url"
-  | "agreement_w2_url"
-  | "agreement_i9_url"
-
-const DOCUMENT_FIELD_ALIASES: Record<string, LegacyDocColumn> = {
-  authorization: "document_url",
-  agreement_w2: "agreement_w2_url",
-  agreement_i9: "agreement_i9_url",
-  ssn_front: "ssn_url",
-  ssn_back: "ssn_back_url",
-  dl_front: "drivers_license_url",
-  dl_back: "drivers_license_back_url",
+type ProfessionDocumentExpiryRow = {
+  id: string
+  has_expiration: boolean | null
 }
 
-function legacyColumnForTitle(title: string): LegacyDocColumn | null {
-  const t = title.trim().toLowerCase()
-  if (t.includes("i9") || t.includes("i-9")) return "agreement_i9_url"
-  if (t.includes("w2") || t.includes("employee agreement") || t.includes("employment agreement")) {
-    return "agreement_w2_url"
-  }
-  if (t.includes("authorization") || t.includes("agreement")) {
-    return "document_url"
-  }
-  if (t.includes("nursing") && t.includes("license")) return "nursing_license_url"
-  if (t.includes("tb") || t.includes("tuberculosis")) return "tb_test_url"
-  if (t.includes("cpr") || t.includes("bls")) return "cpr_certification_url"
-  if (t.includes("ssn") || t.includes("social security")) {
-    return t.includes("back") ? "ssn_back_url" : "ssn_url"
-  }
-  if (t.includes("driver") && t.includes("license")) {
-    return t.includes("back") ? "drivers_license_back_url" : "drivers_license_url"
-  }
-  if (t.includes("license")) return "nursing_license_url"
-  return null
-}
-
-function resolveDocumentField(raw: string, title: string): LegacyDocColumn | null {
-  const key = raw.trim().toLowerCase()
-  if (key && DOCUMENT_FIELD_ALIASES[key]) return DOCUMENT_FIELD_ALIASES[key]
-  return legacyColumnForTitle(title)
-}
-
-async function upsertLegacyWorkerDocumentUrl(
+async function saveProfessionDocumentUpload(
   supabase: SupabaseClient,
-  workerId: string,
-  tenantId: string,
-  column: LegacyDocColumn,
-  publicUrl: string,
-  extra?: { document_name?: string }
-): Promise<void> {
-  const { data: existingRows, error: selErr } = await supabase
-    .from("worker_documents")
-    .select("id")
-    .eq("worker_id", workerId)
-    .limit(1)
+  input: {
+    tenantId: string
+    workerId: string
+    professionDocumentId: string
+    file: File
+    issuedDate?: string
+    expiryDate?: string
+  }
+): Promise<StaffUploadResult | null> {
+  const { data, error } = await supabase
+    .from("tenant_profession_documents")
+    .select("id, has_expiration")
+    .eq("id", input.professionDocumentId)
+    .eq("tenant_id", input.tenantId)
+    .eq("is_active", true)
+    .maybeSingle()
+  if (error) throw error
+  const professionDoc = data as ProfessionDocumentExpiryRow | null
+  if (!professionDoc) return null
 
-  if (selErr) throw selErr
+  if (!isAcceptedDocumentFileType(input.file, ["pdf", "png", "jpg", "jpeg", "webp"])) {
+    return { ok: false, status: 400, error: "File type not allowed. Upload a PNG, JPG, WebP, or PDF." }
+  }
+  if (input.file.size > 10 * 1024 * 1024) {
+    return { ok: false, status: 400, error: "File exceeds 10MB limit" }
+  }
 
-  const existing = existingRows?.[0] as { id?: string } | undefined
-  const updated_at = new Date().toISOString()
+  const { validateCredentialDates } = await import("@/lib/professions/catalog")
+  const {
+    countWorkerProfessionDocumentFiles,
+    MAX_PROFESSION_DOCUMENT_FILES,
+  } = await import("@/lib/professions/profession-documents")
 
-  if (existing?.id) {
-    const updatePayload: Record<string, unknown> = {
-      updated_at,
-      [column]: publicUrl,
-      ...(column === "document_url" && extra?.document_name
-        ? { document_name: extra.document_name }
-        : column === "agreement_w2_url" && extra?.document_name
-          ? { document_name: extra.document_name }
-          : {}),
+  const hasExpiration = professionDoc.has_expiration === true
+  const dateError = validateCredentialDates({
+    hasExpiration,
+    issuedDate: input.issuedDate ?? null,
+    expiryDate: input.expiryDate ?? null,
+  })
+  if (dateError) {
+    return { ok: false, status: 400, error: dateError }
+  }
+
+  const existingCount = await countWorkerProfessionDocumentFiles(
+    supabase,
+    input.tenantId,
+    input.workerId,
+    input.professionDocumentId
+  )
+  if (existingCount >= MAX_PROFESSION_DOCUMENT_FILES) {
+    return {
+      ok: false,
+      status: 400,
+      error: `You can upload at most ${MAX_PROFESSION_DOCUMENT_FILES} files for this document.`,
     }
-    const { error } = await supabase
-      .from("worker_documents")
-      .update(updatePayload)
-      .eq("id", existing.id)
-    if (error) throw error
-    return
   }
 
-  const insertPayload: Record<string, unknown> = {
-    tenant_id: tenantId,
-    worker_id: workerId,
-    updated_at,
-    [column]: publicUrl,
-    ...((column === "document_url" || column === "agreement_w2_url") && extra?.document_name
-      ? { document_name: extra.document_name }
-      : {}),
+  const buffer = Buffer.from(await input.file.arrayBuffer())
+  const objectPath = `${input.tenantId}/${input.workerId}/${input.professionDocumentId}/${randomUUID()}-${sanitizeFileName(input.file.name)}`
+  const { error: uploadError } = await supabase.storage
+    .from(WORKER_REQUIRED_FILES_BUCKET)
+    .upload(objectPath, buffer, {
+      contentType: input.file.type || "application/octet-stream",
+      upsert: true,
+    })
+  if (uploadError) return { ok: false, status: 500, error: uploadError.message || "Upload failed" }
+
+  const row = {
+    tenant_id: input.tenantId,
+    worker_id: input.workerId,
+    profession_document_id: input.professionDocumentId,
+    file_url: objectPath,
+    original_file_name: input.file.name,
+    file_type: input.file.type || null,
+    file_size: input.file.size,
+    status: "uploaded",
+    issued_date: hasExpiration ? input.issuedDate || null : null,
+    expiry_date: hasExpiration ? input.expiryDate || null : null,
+    uploaded_at: new Date().toISOString(),
   }
-  const { error: insErr } = await supabase.from("worker_documents").insert(insertPayload)
-  if (insErr) throw insErr
+  const { error: writeError } = await supabase
+    .from("worker_profession_document_uploads")
+    .insert(row as Record<string, unknown>)
+  if (writeError) throw writeError
+
+  return { ok: true, path: objectPath, bucket: WORKER_REQUIRED_FILES_BUCKET }
 }
 
 export async function POST(req: NextRequest) {
@@ -227,179 +225,48 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, path: objectPath, bucket: WORKER_RESUMES_BUCKET })
     }
 
-    const directDocumentField = resolveDocumentField(documentFieldRaw, documentTitle)
     if (!requiredDocumentId) {
+      const directDocumentField = resolveDocumentField(documentFieldRaw, documentTitle)
       if (!directDocumentField) {
         return NextResponse.json(
           { error: "Missing requiredDocumentId or documentField" },
           { status: 400 }
         )
       }
-
-      if (file.size > MAX_DOC_BYTES) {
-        return NextResponse.json({ error: "File is too large" }, { status: 400 })
-      }
-      if (!isAcceptedDocumentFileType(file, ALLOWED_DOC_TYPES)) {
-        return NextResponse.json(
-          { error: "File type not allowed. Upload a PNG, JPG, WebP, or PDF." },
-          { status: 400 }
-        )
-      }
-
-      const buffer = Buffer.from(await file.arrayBuffer())
-      const objectPath = `${tenantId}/${workerId}/admin/${auth.userId}/${directDocumentField}/${randomUUID()}-${sanitizeFileName(file.name)}`
-
-      const { error: uploadError } = await supabase.storage
-        .from(WORKER_REQUIRED_FILES_BUCKET)
-        .upload(objectPath, buffer, {
-          contentType: file.type || "application/octet-stream",
-          upsert: true,
+      return uploadResponse(
+        await saveStaffLegacyDocumentUpload(supabase, {
+          tenantId,
+          workerId,
+          actorUserId: auth.userId,
+          column: directDocumentField,
+          file,
+          documentTitle,
         })
+      )
+    }
 
-      if (uploadError) {
-        return NextResponse.json({ error: uploadError.message || "Upload failed" }, { status: 500 })
-      }
-
-      await upsertLegacyWorkerDocumentUrl(
-        supabase,
-        workerId,
+    const saved = await saveStaffRequiredDocumentUpload(supabase, {
+      tenantId,
+      workerId,
+      actorUserId: auth.userId,
+      uploadedByUserId: auth.devBypass ? null : auth.userId,
+      requiredDocumentId,
+      file,
+      documentTitle,
+      documentField: documentFieldRaw,
+    })
+    if (!saved.ok && saved.status === 404) {
+      const professionSaved = await saveProfessionDocumentUpload(supabase, {
         tenantId,
-        directDocumentField,
-        objectPath,
-        directDocumentField === "document_url" || directDocumentField === "agreement_w2_url"
-          ? { document_name: file.name }
-          : undefined
-      )
-
-      const portalTitle =
-        documentTitle ||
-        (directDocumentField === "drivers_license_url"
-          ? "Driver's license"
-          : directDocumentField === "nursing_license_url"
-            ? "Nursing license"
-            : directDocumentField === "tb_test_url"
-              ? "TB test"
-              : directDocumentField === "cpr_certification_url"
-                ? "CPR certification"
-                : file.name)
-
-      const { error: portalErr } = await supabase.from("worker_portal_documents").insert({
-        worker_id: workerId,
-        tenant_id: tenantId,
-        title: portalTitle,
-        document_type: "other",
-        file_url: objectPath,
-        storage_path: objectPath,
-        original_file_name: file.name,
-        file_type: file.type || null,
-        file_size: file.size,
-        status: "under_review",
-      })
-      if (portalErr) {
-        console.warn("[admin/worker-attachment-upload] portal document", portalErr)
-      }
-
-      return NextResponse.json({ ok: true, path: objectPath, bucket: WORKER_REQUIRED_FILES_BUCKET })
-    }
-
-    if (file.size > MAX_DOC_BYTES) {
-      return NextResponse.json({ error: "File is too large" }, { status: 400 })
-    }
-    if (!isAcceptedDocumentFileType(file, ALLOWED_DOC_TYPES)) {
-      return NextResponse.json(
-        { error: "File type not allowed. Upload a PNG, JPG, WebP, or PDF." },
-        { status: 400 }
-      )
-    }
-
-    const { data: reqDoc, error: docErr } = await supabase
-      .from("tenant_required_documents")
-      .select("id, tenant_id, max_file_size_mb, accepted_file_types, title")
-      .eq("id", requiredDocumentId)
-      .eq("tenant_id", tenantId)
-      .maybeSingle()
-
-    if (docErr) throw docErr
-    if (!reqDoc) {
-      return NextResponse.json({ error: "Document requirement not found" }, { status: 404 })
-    }
-
-    const maxMb = Number(reqDoc.max_file_size_mb) || 10
-    const maxBytes = maxMb * 1024 * 1024
-    if (file.size > maxBytes) {
-      return NextResponse.json({ error: `File exceeds ${maxMb}MB limit` }, { status: 400 })
-    }
-
-    const accepted = Array.isArray(reqDoc.accepted_file_types)
-      ? (reqDoc.accepted_file_types as string[])
-      : []
-    if (!isAcceptedDocumentFileType(file, accepted)) {
-      return NextResponse.json(
-        { error: "File type not allowed for this requirement. Upload a PNG, JPG, WebP, or PDF." },
-        { status: 400 }
-      )
-    }
-
-    const buffer = Buffer.from(await file.arrayBuffer())
-    const objectPath = `${tenantId}/${workerId}/admin/${auth.userId}/${requiredDocumentId}/${randomUUID()}-${sanitizeFileName(file.name)}`
-
-    const { error: uploadError } = await supabase.storage
-      .from(WORKER_REQUIRED_FILES_BUCKET)
-      .upload(objectPath, buffer, {
-        contentType: file.type || "application/octet-stream",
-        upsert: true,
-      })
-
-    if (uploadError) {
-      return NextResponse.json({ error: uploadError.message || "Upload failed" }, { status: 500 })
-    }
-
-    const row = {
-      worker_id: workerId,
-      tenant_id: tenantId,
-      required_document_id: requiredDocumentId,
-      file_url: objectPath,
-      original_file_name: file.name,
-      file_type: file.type || null,
-      file_size: file.size,
-      status: "uploaded",
-      uploaded_at: new Date().toISOString(),
-    }
-
-    const { data: existing } = await supabase
-      .from("worker_submitted_documents")
-      .select("id")
-      .eq("worker_id", workerId)
-      .eq("required_document_id", requiredDocumentId)
-      .maybeSingle()
-
-    if (existing?.id) {
-      const { error } = await supabase
-        .from("worker_submitted_documents")
-        .update(row)
-        .eq("id", existing.id)
-      if (error) throw error
-    } else {
-      const { error } = await supabase.from("worker_submitted_documents").insert(row)
-      if (error) throw error
-    }
-
-    const title = documentTitle || String(reqDoc.title ?? "")
-    const legacyColumn = resolveDocumentField(documentFieldRaw, title)
-    if (legacyColumn) {
-      await upsertLegacyWorkerDocumentUrl(
-        supabase,
         workerId,
-        tenantId,
-        legacyColumn,
-        objectPath,
-        legacyColumn === "document_url" || legacyColumn === "agreement_w2_url"
-          ? { document_name: file.name }
-          : undefined
-      )
+        professionDocumentId: requiredDocumentId,
+        file,
+        issuedDate: String(formData.get("issuedDate") ?? "").trim() || undefined,
+        expiryDate: String(formData.get("expiryDate") ?? "").trim() || undefined,
+      })
+      if (professionSaved) return uploadResponse(professionSaved)
     }
-
-    return NextResponse.json({ ok: true, path: objectPath, bucket: WORKER_REQUIRED_FILES_BUCKET })
+    return uploadResponse(saved)
   } catch (err: unknown) {
     console.error("[admin/worker-attachment-upload]", err)
     const msg = err instanceof Error ? err.message : "Unexpected error"

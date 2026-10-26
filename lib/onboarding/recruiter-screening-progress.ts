@@ -5,6 +5,19 @@ import type { WorkflowStepDisplayStatus } from "@/lib/onboarding/assigned-workfl
 export const RECRUITER_SCREENING_STEP_TYPE = "recruiter-screening";
 
 /**
+ * The hire-journey AI Analysis embed belongs on the Recruiter Screening step.
+ * A renamed step (for example Contact History) can still be stored as
+ * `recruiter-screening` and must not show that response.
+ */
+export function isNamedRecruiterScreeningStep(step: {
+  stepType?: string | null;
+  title?: string | null;
+}): boolean {
+  if (String(step.stepType ?? "").trim().toLowerCase() !== RECRUITER_SCREENING_STEP_TYPE) return false;
+  return String(step.title ?? "").trim().toLowerCase() === "recruiter screening";
+}
+
+/**
  * Recruiter Screening is under way once AI Quick Match has analyzed the application.
  * Only the displayed status moves; the stored progress row stays pending until staff completes it.
  */

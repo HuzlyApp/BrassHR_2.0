@@ -61,9 +61,7 @@ import { applicationAiAnalysisHref } from "./CandidateAiAnalysisButton";
 // import { CandidateAnalysisWorkspace } from "./CandidateAnalysisWorkspace";
 import { CandidateActivityTimeline } from "./CandidateActivityTimeline";
 import { MspSubmissionPanel } from "./MspSubmissionPanel";
-import { filterApplicationStatusesForSource } from "@/lib/jobs/msp-submission";
 import { readStatusGroupFields } from "@/lib/jobs/application-statuses/groups";
-import { GroupedStatusMenuList } from "@/app/admin_recruiter/components/GroupedStatusMenu";
 import { ReplaceResumeConfirmModal } from "./ReplaceResumeConfirmModal";
 import { ResumeHistoryModal, type ResumeHistoryItem } from "./ResumeHistoryModal";
 import { candidateApplicantProfileHref } from "@/app/admin_recruiter/candidates/candidate-links";
@@ -213,7 +211,6 @@ export default function JobCandidateReviewClient() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const jobMenuRef = useRef<HTMLDivElement>(null);
-  const statusMenuRef = useRef<HTMLDivElement>(null);
 
   const jobId = searchParams.get("jobId")?.trim() ?? "";
   const applicationId = searchParams.get("applicationId")?.trim() ?? "";
@@ -221,7 +218,6 @@ export default function JobCandidateReviewClient() {
   const [rows, setRows] = useState<ApplicationRow[]>([]);
   const [jobOptions, setJobOptions] = useState<JobOption[]>([]);
   const [jobMenuOpen, setJobMenuOpen] = useState(false);
-  const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [statusBusy, setStatusBusy] = useState(false);
@@ -347,10 +343,6 @@ export default function JobCandidateReviewClient() {
     ? normalizeApplicationStatus(selected.status)
     : "new";
   const jobSourceType = String(one(selected?.job_requisitions ?? null).source_type ?? "").trim();
-  const visibleStatusOptions = useMemo(
-    () => filterApplicationStatusesForSource(statusOptions, jobSourceType, selected?.status_id),
-    [jobSourceType, selected?.status_id, statusOptions]
-  );
 
   const secondaryColor = branding.secondaryHex || "#012352";
 
@@ -397,15 +389,14 @@ export default function JobCandidateReviewClient() {
   );
 
   useEffect(() => {
-    if (!jobMenuOpen && !statusMenuOpen) return;
+    if (!jobMenuOpen) return;
     function onPointerDown(event: MouseEvent) {
       const target = event.target as Node;
-      if (jobMenuOpen && !jobMenuRef.current?.contains(target)) setJobMenuOpen(false);
-      if (statusMenuOpen && !statusMenuRef.current?.contains(target)) setStatusMenuOpen(false);
+      if (!jobMenuRef.current?.contains(target)) setJobMenuOpen(false);
     }
     document.addEventListener("mousedown", onPointerDown);
     return () => document.removeEventListener("mousedown", onPointerDown);
-  }, [jobMenuOpen, statusMenuOpen]);
+  }, [jobMenuOpen]);
 
   useEffect(() => {
     void (async () => {
@@ -897,12 +888,7 @@ export default function JobCandidateReviewClient() {
   }, [selected?.id, loadStatusHistory]);
 
   function beginStatusChange(option: StatusOption) {
-    if (!selected) return;
-    if (option.id === selected.status_id) {
-      setStatusMenuOpen(false);
-      return;
-    }
-    setStatusMenuOpen(false);
+    if (!selected || option.id === selected.status_id) return;
     setPendingStatus(option);
     setStatusChangeNote("");
   }
@@ -1782,53 +1768,14 @@ export default function JobCandidateReviewClient() {
           </section>
 
           {/* Right — Figma notes panel (compact card, not full-height) */}
-          <aside
-            className="order-3 flex h-fit w-full min-w-0 flex-col gap-4 self-start rounded-[16px] border border-[#E2E8F0] bg-[#F8FAFC] p-3 sm:p-4 xl:order-none"
-            ref={statusMenuRef}
-          >
-            <div className="relative">
-              <button
-                type="button"
-                disabled={!selected || statusBusy}
-                onClick={() => setStatusMenuOpen((open) => !open)}
-                className="inline-flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-[#CBD5E1] bg-white px-3 text-sm text-[#334155] disabled:opacity-50"
-              >
-                <span className="min-w-0 truncate text-left">
-                  Status:{" "}
-                  <span className="font-semibold">{currentStatusLabel}</span>
-                </span>
-                <ChevronDown
-                  className={`h-4 w-4 shrink-0 text-[#94A3B8] ${statusMenuOpen ? "rotate-180" : ""}`}
-                />
-              </button>
-              {selected ? (
-                <p className="mt-2 text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">
-                  {selected.workflow_phase === "post_hire" || selected.workflow_phase === "completed"
-                    ? "Post-Hire in progress"
-                    : "Pre-Hire"}
-                </p>
-              ) : null}
-              {statusMenuOpen ? (
-                <div className="absolute left-0 right-0 z-20 mt-1 max-h-80 overflow-y-auto rounded-xl border border-[#E5E7EB] bg-white py-1 shadow-lg">
-                  <GroupedStatusMenuList
-                    options={visibleStatusOptions}
-                    renderOption={(option) => (
-                      <button
-                        type="button"
-                        onClick={() => beginStatusChange(option)}
-                        className="flex min-h-10 w-full items-center justify-between px-3 py-2 text-left text-sm text-[#334155] hover:bg-[#F8FAFC]"
-                      >
-                        {option.name}
-                        {selected?.status_id === option.id ||
-                        (!selected?.status_id && option.systemKey === currentStatusKey) ? (
-                          <Check className="h-4 w-4" style={{ color: branding.primaryHex }} />
-                        ) : null}
-                      </button>
-                    )}
-                  />
-                </div>
-              ) : null}
-            </div>
+          <aside className="order-3 flex h-fit w-full min-w-0 flex-col gap-4 self-start rounded-[16px] border border-[#E2E8F0] bg-[#F8FAFC] p-3 sm:p-4 xl:order-none">
+            {selected ? (
+              <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">
+                {selected.workflow_phase === "post_hire" || selected.workflow_phase === "completed"
+                  ? "Post-Hire in progress"
+                  : "Pre-Hire"}
+              </p>
+            ) : null}
 
             {selected && jobSourceType.toLowerCase() === "msp" ? (
               <MspSubmissionPanel

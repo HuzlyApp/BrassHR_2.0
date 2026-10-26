@@ -91,7 +91,7 @@ describe("workflow phase helpers", () => {
     ).toBe(true);
     expect(
       applicantMayActOnStep({ activePhase: "post_hire", stepPhase: "post_hire", isHired: false })
-    ).toBe(false);
+    ).toBe(true);
     expect(
       applicantMayActOnStep({ activePhase: "post_hire", stepPhase: "pre_hire" })
     ).toBe(true);
@@ -182,7 +182,13 @@ describe("workflow phase helpers", () => {
       readStepLifecyclePhase(
         step("doc-rtw", "I-9 / Right to Work Verification", "post_hire")
       )
-    ).toBe("pre_hire");
+    ).toBe("post_hire");
+
+    expect(
+      readStepLifecyclePhase(
+        step("welcome-packet-esign", "Welcome Packet & eSign", "post_hire")
+      )
+    ).toBe("post_hire");
 
     expect(
       readStepLifecyclePhase(

@@ -150,6 +150,88 @@ describe("resolveApplicantOnboardingRoute", () => {
     }
   });
 
+  it("shows the completion screen once every step is done, even without a Review & Submit step", () => {
+    const config = legacyZipstaffConfig();
+    const enabled = resolveApplicantOnboardingSteps(config);
+    const allDone = progressWithCompletedThrough(enabled, enabled.length);
+
+    expect(
+      resolveApplicantOnboardingRoute(
+        baseInput({
+          pathname: APPLICATION_ROUTES.applicationStatus,
+          search: "?completion=pre_hire&tenant=zipstaff",
+          progress: allDone,
+        })
+      )
+    ).toEqual({ status: "allow" });
+
+    const fromUnknown = resolveApplicantOnboardingRoute(
+      baseInput({
+        pathname: "/application/not-a-real-step",
+        search: "?tenant=zipstaff&job_token=job-1",
+        progress: allDone,
+      })
+    );
+    expect(fromUnknown.status).toBe("redirect");
+    if (fromUnknown.status === "redirect") {
+      expect(fromUnknown.href).toContain(APPLICATION_ROUTES.applicationStatus);
+      expect(fromUnknown.href).toContain("completion=pre_hire");
+      expect(fromUnknown.href).toContain("job_token=job-1");
+    }
+  });
+
+  it("sends hired applicants to the completion screen when the workflow has no post-hire steps", () => {
+    const config = { ...legacyZipstaffConfig(), steps: [] };
+    const progress: WorkerOnboardingProgressPayload = {
+      progressId: "prog-1",
+      status: "in_progress",
+      steps: [],
+      workflowPhase: "post_hire",
+    };
+
+    const fromStep = resolveApplicantOnboardingRoute(
+      baseInput({
+        config,
+        progress,
+        pathname: APPLICATION_ROUTES.agreementSignature,
+        search: "?stepKey=authorizations&tenant=zipstaff&job_token=job-1",
+      })
+    );
+    expect(fromStep.status).toBe("redirect");
+    if (fromStep.status === "redirect") {
+      expect(fromStep.href).toContain(APPLICATION_ROUTES.applicationStatus);
+      expect(fromStep.href).toContain("completion=pre_hire");
+      expect(fromStep.href).toContain("job_token=job-1");
+    }
+
+    expect(
+      resolveApplicantOnboardingRoute(
+        baseInput({
+          config,
+          progress,
+          pathname: APPLICATION_ROUTES.applicationStatus,
+          search: "?completion=pre_hire&tenant=zipstaff",
+        })
+      )
+    ).toEqual({ status: "allow" });
+  });
+
+  it("keeps sending applicants with unfinished steps away from the completion screen", () => {
+    const config = legacyZipstaffConfig();
+    const enabled = resolveApplicantOnboardingSteps(config);
+    const decision = resolveApplicantOnboardingRoute(
+      baseInput({
+        pathname: APPLICATION_ROUTES.applicationStatus,
+        search: "?completion=pre_hire&tenant=zipstaff",
+        progress: progressWithCompletedThrough(enabled, enabled.length - 1),
+      })
+    );
+    expect(decision.status).toBe("redirect");
+    if (decision.status === "redirect") {
+      expect(decision.href).not.toContain(APPLICATION_ROUTES.applicationStatus);
+    }
+  });
+
   it("preserves tenant query on redirects", () => {
     const config = legacyZipstaffConfig();
     const enabled = resolveApplicantOnboardingSteps(config);
@@ -520,5 +602,64 @@ describe("resolveApplicantOnboardingRoute", () => {
     if (decision.status === "redirect") {
       expect(decision.href).toContain("application-status");
     }
+  });
+
+  it("keeps a submitted applicant on the first post-hire step", () => {
+    const welcome: TenantOnboardingStep = {
+      id: "welcome",
+      step_key: "authorizations_2",
+      title: "Welcome packet",
+      description: null,
+      step_type: "custom_question",
+      sort_order: 10,
+      is_required: true,
+      is_enabled: true,
+      metadata: {
+        workflow_step_id: "welcome-packet-esign",
+        workflow_settings: { phase: "post_hire", completionOwner: "applicant" },
+      },
+    };
+    const config: TenantOnboardingConfig = {
+      configId: "cfg-post",
+      tenantId: "tenant-zippy",
+      version: 1,
+      steps: [welcome],
+      requiredDocuments: [],
+      skillAssessments: [],
+      candidateEngineOrder: [
+        {
+          id: "recruiter-gate",
+          step_key: "internal_review",
+          sort_order: 1,
+          required: true,
+          candidateVisible: false,
+        },
+        {
+          id: welcome.id,
+          step_key: welcome.step_key,
+          sort_order: 10,
+          required: true,
+          candidateVisible: true,
+        },
+      ],
+    };
+    const progress: WorkerOnboardingProgressPayload = {
+      progressId: "prog-post",
+      status: "in_progress",
+      submittedAt: "2026-10-19T12:00:00.000Z",
+      steps: [],
+    };
+
+    const decision = resolveApplicantOnboardingRoute(
+      baseInput({
+        config,
+        progress,
+        tenantSlug: "zippycorp",
+        pathname: "/application/custom-step/authorizations_2",
+        search: "?stepKey=authorizations_2&tenant=zippycorp&job_token=job-1",
+      })
+    );
+
+    expect(decision.status).toBe("allow");
   });
 });

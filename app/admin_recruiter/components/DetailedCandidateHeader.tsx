@@ -4,7 +4,6 @@ import Link from "next/link";
 import { /* ClipboardList, */ Link2, Loader2, Mail } from "lucide-react";
 import BrandedSvgIcon from "@/app/components/BrandedSvgIcon";
 import CandidateAvatarIcon from "./CandidateAvatarIcon";
-import { CandidateApplicationStatusControl } from "./CandidateApplicationStatusControl";
 import { useResendApplicationStatusLink } from "@/app/admin_recruiter/hooks/useResendApplicationStatusLink";
 import {
   candidateDetailAiAnalysisHref,
@@ -16,7 +15,6 @@ const CANDIDATE_DETAIL_ICON = "/icons/candidate-detail-icon.svg";
 type DetailedCandidateHeaderProps = {
   name: string;
   role: string;
-  status?: string;
   loading?: boolean;
   profilePhotoUrl?: string | null;
   workerId?: string | null;
@@ -36,7 +34,6 @@ const actionBtnBase =
 export default function DetailedCandidateHeader({
   name,
   role,
-  status,
   loading = false,
   profilePhotoUrl,
   workerId,
@@ -58,8 +55,6 @@ export default function DetailedCandidateHeader({
 
   const displayName = loading ? "Loading..." : name.trim() || "Applicant";
   const displayRole = loading ? "—" : role.trim() || "—";
-  const displayStatus = status?.trim();
-  const canEditApplicationStatus = Boolean(workerId?.trim()) && !loading;
   const resolvedAiHref =
     typeof aiAnalysisHref === "string" && aiAnalysisHref.trim()
       ? aiAnalysisHref.trim()
@@ -114,16 +109,6 @@ export default function DetailedCandidateHeader({
               <span className="min-[480px]:hidden">Journey</span>
             </Link>
           ) : null} */}
-          {canEditApplicationStatus ? (
-            <CandidateApplicationStatusControl
-              workerId={workerId!.trim()}
-              fallbackStatus={displayStatus}
-            />
-          ) : displayStatus ? (
-            <span className="inline-flex h-8 min-w-0 flex-1 items-center justify-center truncate rounded-md border border-[#D1D5DB] bg-white px-1.5 text-center text-[10px] font-semibold leading-4 text-[#111827] min-[700px]:max-w-none min-[700px]:flex-none min-[700px]:px-3 min-[700px]:text-xs">
-              {displayStatus}
-            </span>
-          ) : null}
           {showResendStatus ? (
             <button
               type="button"

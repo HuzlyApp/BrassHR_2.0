@@ -59,6 +59,17 @@ export const HIRE_LIBRARY_ICON_PATHS: Record<string, string> = {
   "final-onboarding-call": `${POST_HIRE_BASE}/Welcome-icons/final-onboarding-call.svg`,
   "buddy-mentor-assignment": `${POST_HIRE_BASE}/Welcome-icons/buddy-mentor-assignment.svg`,
   "completion-milestone": `${POST_HIRE_BASE}/Welcome-icons/onboarding-complete.svg`,
+  "pre-hire-completion-milestone": `${POST_HIRE_BASE}/Welcome-icons/onboarding-complete.svg`,
+  "post-hire-completion-milestone": `${POST_HIRE_BASE}/Welcome-icons/onboarding-complete.svg`,
+  "follow-up-interview": `${PRE_HIRE_BASE}/Interview-icons/interview-qualification.svg`,
+  "submit-to-client": `${PRE_HIRE_BASE}/submission-icons/sent-to-client-msp.svg`,
+  "authorization-esign": `${PRE_HIRE_BASE}/Offer-and-agreement-icons/agreement-signed.svg`,
+  "offer-prep": `${PRE_HIRE_BASE}/Offer-and-agreement-icons/offer-letter-sent.svg`,
+  "manager-approval": `${PRE_HIRE_BASE}/Approval-icons/manager-approval.svg`,
+  w9: `${POST_HIRE_BASE}/Payroll/w4-state-tax.svg`,
+  "system-access": `${POST_HIRE_BASE}/Access-and-system/system-door-access.svg`,
+  "health-screening-waiver": `${POST_HIRE_BASE}/training-policy/compliance-training.svg`,
+  "record-selection": `${PRE_HIRE_BASE}/Approval-icons/final-approval.svg`,
 };
 
 export function resolveHireLibraryIconPath(stepId: string, iconKey?: string): string | null {

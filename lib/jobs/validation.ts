@@ -13,14 +13,21 @@ import { industryKeyValidationMessage } from "@/lib/ai-catalog/industry-catalog"
 import { isRemoteJobLocationType } from "@/lib/service-area/location-type";
 import { locationFromFreeText } from "@/lib/service-area/normalize";
 
+/**
+ * Zod 4.6 treats a union that includes `undefined` as still required on an object.
+ * Omitted JSON keys then fail with "expected nonoptional, received undefined".
+ * `.optional()` marks the key as omittable; the transform stores null.
+ */
 const optionalText = z
-  .union([z.string(), z.null(), z.undefined()])
-  .transform((value) => value?.trim() || null);
+  .union([z.string(), z.null()])
+  .optional()
+  .transform((value) => (typeof value === "string" ? value.trim() || null : null));
 
 const optionalNumber = z
-  .union([z.number(), z.string(), z.null(), z.undefined()])
+  .union([z.number(), z.string(), z.null()])
+  .optional()
   .transform((value, ctx) => {
-    if (value === null || value === undefined || value === "") return null;
+    if (value == null || value === "") return null;
     const parsed = typeof value === "number" ? value : Number(value);
     if (!Number.isFinite(parsed)) {
       ctx.addIssue({ code: "custom", message: "Must be a valid number" });
@@ -37,8 +44,9 @@ export const jobRequisitionInputSchema = z.object({
   eorType: z.enum(["Tenant", "MSP"]).nullable().optional(),
   mspClient: optionalText,
   professionId: z
-    .union([z.string(), z.null(), z.undefined()])
-    .transform((value) => value?.trim() || null)
+    .union([z.string(), z.null()])
+    .optional()
+    .transform((value) => (typeof value === "string" ? value.trim() || null : null))
     .pipe(z.union([z.uuid(), z.null()])),
   profession: optionalText,
   specialtyId: optionalText.pipe(z.uuid().nullable()),
@@ -65,7 +73,8 @@ export const jobRequisitionInputSchema = z.object({
   worksiteState: optionalText,
   worksitePostalCode: optionalText,
   remoteAllowedStates: z
-    .union([z.array(z.string()), z.null(), z.undefined()])
+    .union([z.array(z.string()), z.null()])
+    .optional()
     .transform((value) =>
       Array.isArray(value)
         ? value.map((item) => item.trim().toUpperCase()).filter(Boolean)
@@ -79,19 +88,22 @@ export const jobRequisitionInputSchema = z.object({
   numberOfPositions: optionalNumber,
   yearsOfExperience: optionalText,
   additionalLocations: z
-    .union([z.array(z.string()), z.null(), z.undefined()])
+    .union([z.array(z.string()), z.null()])
+    .optional()
     .transform((value) =>
       Array.isArray(value)
         ? value.map((item) => item.trim()).filter(Boolean)
         : null
     ),
   showInMultipleAreas: z
-    .union([z.boolean(), z.null(), z.undefined()])
+    .union([z.boolean(), z.null()])
+    .optional()
     .transform((value) => (typeof value === "boolean" ? value : null)),
   jobLocationType: optionalText,
   acceptableMatchRate: optionalText,
   isEmployerOnRecord: z
-    .union([z.boolean(), z.null(), z.undefined()])
+    .union([z.boolean(), z.null()])
+    .optional()
     .transform((value) => (typeof value === "boolean" ? value : null)),
   compensationType: optionalText,
   currency: optionalText,
@@ -111,6 +123,53 @@ export const jobMutationSchema = z.object({
   job: jobRequisitionInputSchema,
   action: z.enum(["save_draft", "publish", "update", "unpublish", "close", "archive"]),
 });
+
+const JOB_MUTATION_FIELD_LABELS: Record<string, string> = {
+  professionId: "Profession",
+  specialtyId: "Specialty",
+  employmentType: "Payroll employment type",
+  sourceType: "Job source",
+  placementType: "MSP placement",
+  eorType: "Employer of record type",
+  payRateMin: "Pay rate",
+  payRateMax: "Maximum pay rate",
+  suggestedPayRate: "Suggested pay rate",
+  billRate: "Bill rate",
+  hoursPerWeek: "Expected hours",
+  commissionPercent: "Commission percent",
+  commissionFixedAmount: "Commission amount",
+  numberOfPositions: "Number of positions",
+  remoteAllowedStates: "Remote work states",
+  additionalLocations: "Additional locations",
+  showInMultipleAreas: "Show in multiple areas",
+  isEmployerOnRecord: "Employer on record",
+  targetStartDate: "Start date",
+  applicationDeadline: "Application deadline",
+  sourceJobUrl: "Source job URL",
+  publicDescription: "Job description",
+  industryKey: "Industry",
+  action: "Save action",
+};
+
+/** Turn a failed job-save parse into a banner message and per-field errors. */
+export function formatJobMutationFailure(error: z.ZodError): {
+  error: string;
+  fieldErrors: Record<string, string>;
+} {
+  const fieldErrors: Record<string, string> = {};
+  for (const issue of error.issues) {
+    const parts = issue.path.filter((part) => part !== "job").map(String);
+    const key = parts[parts.length - 1] || "job";
+    if (!fieldErrors[key]) fieldErrors[key] = issue.message;
+  }
+  const details = Object.entries(fieldErrors)
+    .map(([key, message]) => `${JOB_MUTATION_FIELD_LABELS[key] ?? key}: ${message}`)
+    .join(" ");
+  return {
+    error: details ? `Invalid job requisition. ${details}` : "Invalid job requisition",
+    fieldErrors,
+  };
+}
 
 export const jobStatusSchema = z.enum(JOB_STATUSES);
 

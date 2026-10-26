@@ -18,7 +18,13 @@ import {
   validatePublishedJobForApplication,
 } from "@/lib/jobs/validate-job-application";
 import type { OnboardingStepDraft } from "@/lib/onboarding/default-onboarding-steps";
-import type { TenantOnboardingConfig, TenantOnboardingStep } from "@/lib/onboarding/types";
+import { isPreviewOnboardingStepId } from "@/lib/onboarding/load-applicant-draft-config";
+import type {
+  TenantOnboardingConfig,
+  TenantOnboardingStep,
+  TenantRequiredDocument,
+} from "@/lib/onboarding/types";
+import type { WorkflowDocumentRow } from "@/lib/professions/service";
 import { attachPublishedSkillAssessmentToConfig } from "@/lib/skill-assessment/load-settings";
 
 function workflowNodeId(meta: Record<string, unknown> | undefined): string | null {
@@ -56,11 +62,36 @@ export function matchPublishedStepForJobDraft(
   const byKey = available.find((step) => step.step_key === draft.step_key);
   if (byKey) return byKey;
 
+  // Numbered keys and step-type guesses must not collapse two different library
+  // steps (for example Collect references and Background check) onto one row.
+  const sameLibrary = (step: TenantOnboardingStep) => {
+    const stepLibraryId = workflowStepId(step.metadata);
+    if (!draftWorkflowStepId || !stepLibraryId) return true;
+    return stepLibraryId === draftWorkflowStepId;
+  };
+
   const draftBase = draft.step_key.replace(/_\d+$/, "");
-  const byBaseKey = available.find((step) => step.step_key.replace(/_\d+$/, "") === draftBase);
+  const byBaseKey = available.find(
+    (step) => sameLibrary(step) && step.step_key.replace(/_\d+$/, "") === draftBase
+  );
   if (byBaseKey) return byBaseKey;
 
-  return available.find((step) => step.step_type === draft.step_type) ?? null;
+  return available.find((step) => sameLibrary(step) && step.step_type === draft.step_type) ?? null;
+}
+
+/** Drafts that have no real tenant step yet. Preview ids are not persistable progress targets. */
+export function unmatchedJobWorkflowDrafts(
+  publishedSteps: TenantOnboardingStep[],
+  drafts: OnboardingStepDraft[]
+): OnboardingStepDraft[] {
+  const realSteps = publishedSteps.filter((step) => !isPreviewOnboardingStepId(step.id));
+  const usedIds = new Set<string>();
+  return drafts.filter((draft) => {
+    const matched = matchPublishedStepForJobDraft(realSteps, draft, usedIds);
+    if (!matched) return true;
+    usedIds.add(matched.id);
+    return false;
+  });
 }
 
 /**
@@ -119,6 +150,44 @@ export function configFromJobWorkflowDraft(
   };
 }
 
+export function attachWorkflowDocuments(
+  config: TenantOnboardingConfig,
+  documents: WorkflowDocumentRow[]
+): TenantOnboardingConfig {
+  const active = documents.filter((doc) => doc.is_active);
+  if (!active.length) return config;
+
+  const step =
+    config.steps.find((item) => item.step_type === "professional_license") ??
+    config.steps.find((item) => item.step_type === "document_upload");
+  if (!step) return config;
+
+  const mapped: TenantRequiredDocument[] = active.map((doc) => ({
+    id: doc.id,
+    onboarding_step_id: step.id,
+    title: doc.name,
+    description: null,
+    is_required: doc.is_required,
+    sort_order: doc.sort_order,
+    accepted_file_types: ["pdf", "png", "jpg", "jpeg", "webp"],
+    max_file_size_mb: 10,
+    source: "workflow",
+    code: doc.code,
+    has_expiration: doc.has_expiration,
+    collect_issuing_organization: doc.collect_issuing_organization,
+    collect_scope: doc.collect_scope,
+    collect_validity: doc.collect_validity,
+  }));
+
+  return {
+    ...config,
+    requiredDocuments: [
+      ...config.requiredDocuments.filter((doc) => doc.onboarding_step_id !== step.id),
+      ...mapped,
+    ],
+  };
+}
+
 export type JobWorkflowConfigResult = {
   config: TenantOnboardingConfig;
   tenantId: string;
@@ -164,7 +233,15 @@ async function loadApplicantConfigFromFlow(
     );
   }
 
-  const fromFlow = configFromJobWorkflowDraft(published, flow.builderDraft);
+  const stepDrafts = workflowStateToStepDrafts(
+    enforceUploadResumeFirstInWorkflowState(flow.builderDraft, []),
+    []
+  ).filter((step) => step.is_enabled !== false);
+  const { ensureJobWorkflowStepAnchors } = await import(
+    "@/lib/onboarding/ensure-job-workflow-step-anchors"
+  );
+  const anchoredPublished = await ensureJobWorkflowStepAnchors(supabase, published, stepDrafts);
+  const fromFlow = configFromJobWorkflowDraft(anchoredPublished, flow.builderDraft);
   const candidatePreview = projectCandidateOnboardingConfig(fromFlow);
   if (!candidatePreview.steps.length) {
     throw new JobApplicationGateError(
@@ -173,7 +250,32 @@ async function loadApplicantConfigFromFlow(
     );
   }
 
-  const config = await attachPublishedSkillAssessmentToConfig(supabase, tenantId, fromFlow);
+  const withSkills = await attachPublishedSkillAssessmentToConfig(supabase, tenantId, fromFlow);
+  let config = withSkills;
+  let attachedProfessionDocuments = false;
+  try {
+    const { attachProfessionDocuments, listActiveProfessionDocuments, readFlowProfessionId } =
+      await import("@/lib/professions/profession-documents");
+    const professionId = await readFlowProfessionId(supabase, tenantId, flow.id);
+    if (professionId) {
+      const professionDocuments = await listActiveProfessionDocuments(supabase, tenantId, professionId);
+      if (professionDocuments.length) {
+        config = attachProfessionDocuments(withSkills, professionDocuments);
+        attachedProfessionDocuments = true;
+      }
+    }
+  } catch {
+    config = withSkills;
+  }
+  if (!attachedProfessionDocuments) {
+    try {
+      const { listFlowDocuments } = await import("@/lib/professions/service");
+      const documents = await listFlowDocuments(supabase, tenantId, flow.id);
+      config = attachWorkflowDocuments(withSkills, documents);
+    } catch {
+      config = withSkills;
+    }
+  }
 
   return {
     config,

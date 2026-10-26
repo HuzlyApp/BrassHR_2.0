@@ -101,7 +101,7 @@ export function followUpEnrichmentFromVerifications(args: {
   if (questions.length) {
     blocks.push(
       [
-        "Step 2 Verifications questions and answers. Do not repeat a question that already has an answer. Use the answer when you write the next question.",
+        "Step 2 Verifications questions and answers. Never repeat or rephrase any of these questions — answered or unanswered. Dig into content gaps (skills, tools, scope, credentials) instead of logistics.",
         ...questions.map((item, index) => {
           const parts = [
             `${index + 1}. ${item.question}`,

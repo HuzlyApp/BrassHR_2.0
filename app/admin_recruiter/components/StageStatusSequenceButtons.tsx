@@ -1,8 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import toast from "react-hot-toast";
-import { catalogSavePlan } from "@/lib/jobs/application-statuses/stage-reason-codes";
+import {
+  catalogSavePlan,
+  reasonCodeLaneOf,
+  reasonCodesExcludingStatusNames,
+  reasonCodesForLane,
+  type ReasonCodeLane,
+} from "@/lib/jobs/application-statuses/stage-reason-codes";
 import {
   composeStatusChangeNote,
   normalizeStageStatusLane,
@@ -10,6 +17,8 @@ import {
   resolveStageStatusLanes,
   selectWorkflowScopedLaneRows,
   applyStageButtonVisibility,
+  resolveStageActionButtonLabel,
+  resolveStageButtonLabel,
   sequenceOrderedStatuses,
   type SavedStageStatusLane,
   type StageStatusLane,
@@ -23,13 +32,39 @@ import {
 type StageStatusSequenceButtonsProps = {
   applicationId: string;
   stageName: string;
+  /**
+   * When true, shows “Application status” with the current status name above the
+   * action buttons (hire-journey stage panels).
+   */
+  showCurrentStatus?: boolean;
   onStatusChanged?: (next: { statusName: string; statusId: string }) => void;
   /** Return true when the caller handled a closed status itself. */
   onException?: (status: StatusOption, note: string) => Promise<boolean>;
+  /**
+   * When the recommended sequence is finished and the button reads
+   * “Proceed to next stage”, point the recruiter at the Hiring Journey button.
+   */
+  showHiringJourneyHint?: boolean;
+  /** Destination for the Hiring Journey link in the completed-sequence hint. */
+  hiringJourneyHref?: string | null;
 };
 
 type LaneRow = SavedStageStatusLane & { workflowId: string | null };
-type ReasonRow = { code: string; workflowId: string | null };
+type ReasonRow = { code: string; workflowId: string | null; lane: ReasonCodeLane };
+
+function mapReasonRows(rows: unknown, stageFilter: string): ReasonRow[] {
+  if (!Array.isArray(rows)) return [];
+  return rows.flatMap((row: { stageName?: unknown; code?: unknown; workflowId?: unknown; lane?: unknown }) => {
+    if (row.stageName !== stageFilter || typeof row.code !== "string" || !row.code.trim()) return [];
+    return [
+      {
+        code: row.code.trim(),
+        workflowId: typeof row.workflowId === "string" && row.workflowId ? row.workflowId : null,
+        lane: reasonCodeLaneOf(typeof row.lane === "string" ? row.lane : null),
+      },
+    ];
+  });
+}
 type NoteRow = { body: string; workflowId: string | null };
 type ButtonPref = {
   workflowId: string | null;
@@ -37,11 +72,29 @@ type ButtonPref = {
   showClosed: boolean;
 };
 
+function readSharedButtonLabels(value: unknown): { alternate: string | null; closed: string | null } {
+  if (!value || typeof value !== "object") return { alternate: null, closed: null };
+  const record = value as { alternateLabel?: unknown; closedLabel?: unknown };
+  return {
+    alternate:
+      typeof record.alternateLabel === "string" && record.alternateLabel.trim()
+        ? record.alternateLabel.trim()
+        : null,
+    closed:
+      typeof record.closedLabel === "string" && record.closedLabel.trim()
+        ? record.closedLabel.trim()
+        : null,
+  };
+}
+
 export function StageStatusSequenceButtons({
   applicationId,
   stageName,
+  showCurrentStatus = false,
   onStatusChanged,
   onException,
+  showHiringJourneyHint = false,
+  hiringJourneyHref = null,
 }: StageStatusSequenceButtonsProps) {
   const [options, setOptions] = useState<StatusOption[]>([]);
   const [assignedGroupIds, setAssignedGroupIds] = useState<string[] | null>(null);
@@ -50,8 +103,13 @@ export function StageStatusSequenceButtons({
   const [noteRows, setNoteRows] = useState<NoteRow[]>([]);
   const [workflowName, setWorkflowName] = useState<string | null>(null);
   const [buttonPrefs, setButtonPrefs] = useState<ButtonPref[]>([]);
+  const [sharedButtonLabels, setSharedButtonLabels] = useState<{
+    alternate: string | null;
+    closed: string | null;
+  }>({ alternate: null, closed: null });
   const [workflowId, setWorkflowId] = useState<string | null>(null);
   const [statusId, setStatusId] = useState<string | null>(null);
+  const [statusName, setStatusName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pending, setPending] = useState<{
@@ -90,11 +148,13 @@ export function StageStatusSequenceButtons({
       const laneRows = Array.isArray(assignPayload.lanes) ? assignPayload.lanes : [];
       const codes = Array.isArray(assignPayload.reasonCodes) ? assignPayload.reasonCodes : [];
       const prefs = Array.isArray(assignPayload.buttonPrefs) ? assignPayload.buttonPrefs : [];
+      setSharedButtonLabels(readSharedButtonLabels(assignPayload.buttonLabels));
       const notes = Array.isArray(assignPayload.notes) ? assignPayload.notes : [];
       const flows = Array.isArray(assignPayload.workflows) ? assignPayload.workflows : [];
       const nextWorkflowId = typeof application.workflow_id === "string" ? application.workflow_id : null;
       setOptions(nextOptions);
       setStatusId(resolved.statusId);
+      setStatusName(resolved.statusName);
       setWorkflowId(nextWorkflowId);
       const matchedFlow = flows.find(
         (row: { id?: unknown; name?: unknown }) => row.id === nextWorkflowId && typeof row.name === "string"
@@ -115,19 +175,7 @@ export function StageStatusSequenceButtons({
           ];
         })
       );
-      setReasonRows(
-        codes.flatMap((row: { stageName?: unknown; code?: unknown; workflowId?: unknown }) => {
-          if (row.stageName !== stageFilter || typeof row.code !== "string" || !row.code.trim()) {
-            return [];
-          }
-          return [
-            {
-              code: row.code.trim(),
-              workflowId: typeof row.workflowId === "string" && row.workflowId ? row.workflowId : null,
-            },
-          ];
-        })
-      );
+      setReasonRows(mapReasonRows(codes, stageFilter));
       setNoteRows(
         notes.flatMap((row: { stageName?: unknown; body?: unknown; workflowId?: unknown }) => {
           if (row.stageName !== stageFilter || typeof row.body !== "string" || !row.body.trim()) return [];
@@ -170,6 +218,8 @@ export function StageStatusSequenceButtons({
       console.error(error);
       setOptions([]);
       setAssignedGroupIds([]);
+      setStatusId(null);
+      setStatusName(null);
     } finally {
       setLoading(false);
     }
@@ -179,22 +229,45 @@ export function StageStatusSequenceButtons({
     void load();
   }, [load]);
 
+  const buttonPref = useMemo(() => {
+    const picked = selectWorkflowScopedLaneRows(buttonPrefs, workflowId);
+    return picked.source === "none" ? null : picked.rows[0];
+  }, [buttonPrefs, workflowId]);
   const lanes = useMemo(() => {
     const picked = selectWorkflowScopedLaneRows(savedLanes, workflowId);
     const resolved =
       picked.source === "none"
         ? resolveStageStatusLanes(options, assignedGroupIds ?? [], [])
         : resolveConfiguredStageStatusLanes(options, picked.rows);
-    const pickedButtons = selectWorkflowScopedLaneRows(buttonPrefs, workflowId);
-    return applyStageButtonVisibility(
-      resolved,
-      pickedButtons.source === "none" ? null : pickedButtons.rows[0]
-    );
-  }, [assignedGroupIds, buttonPrefs, options, savedLanes, workflowId]);
-  const reasonCodes = useMemo(
-    () => selectWorkflowScopedLaneRows(reasonRows, workflowId).rows.map((row) => row.code),
-    [reasonRows, workflowId]
+    return applyStageButtonVisibility(resolved, buttonPref);
+  }, [assignedGroupIds, buttonPref, options, savedLanes, workflowId]);
+  const statusNames = useMemo(() => options.map((status) => status.name), [options]);
+  const alternateReasonCodes = useMemo(
+    () =>
+      reasonCodesExcludingStatusNames(
+        reasonCodesForLane(reasonRows, workflowId, "alternate"),
+        statusNames
+      ),
+    [reasonRows, statusNames, workflowId]
   );
+  const closedReasonCodes = useMemo(
+    () =>
+      reasonCodesExcludingStatusNames(
+        reasonCodesForLane(reasonRows, workflowId, "closed"),
+        statusNames
+      ),
+    [reasonRows, statusNames, workflowId]
+  );
+  const alternateLabel =
+    resolveStageActionButtonLabel(
+      sharedButtonLabels.alternate,
+      lanes.alternate.map((status) => status.name)
+    ) || resolveStageButtonLabel("alternate", null);
+  const closedLabel =
+    resolveStageActionButtonLabel(
+      sharedButtonLabels.closed,
+      lanes.closed.map((status) => status.name)
+    ) || resolveStageButtonLabel("closed", null);
   const stageNotes = useMemo(
     () =>
       noteRows
@@ -221,6 +294,7 @@ export function StageStatusSequenceButtons({
         const handled = await onException(option, note ?? "");
         if (handled) {
           setStatusId(option.id);
+          setStatusName(option.name);
           onStatusChanged?.({ statusName: option.name, statusId: option.id });
           return;
         }
@@ -242,6 +316,7 @@ export function StageStatusSequenceButtons({
       const nextName = String(payload.application?.statusName ?? option.name);
       const nextId = String(payload.application?.statusId ?? option.id);
       setStatusId(nextId);
+      setStatusName(nextName);
       toast.success(payload.unchanged ? "Status unchanged" : `Status updated to ${nextName}`);
       onStatusChanged?.({ statusName: nextName, statusId: nextId });
     } catch (error) {
@@ -254,7 +329,7 @@ export function StageStatusSequenceButtons({
   async function saveAlternate(option: StatusOption, reasonCode: string, note: string) {
     setBusyId(option.id);
     try {
-      const known = reasonCodes.some((code) => code.toLowerCase() === reasonCode.toLowerCase());
+      const known = alternateReasonCodes.some((code) => code.toLowerCase() === reasonCode.toLowerCase());
       if (!known) {
         const response = await fetch("/api/admin/application-status-stage-assignments", {
           method: "PUT",
@@ -263,23 +338,13 @@ export function StageStatusSequenceButtons({
             action: "addReasonCode",
             stageName: stageFilter,
             workflowId,
+            lane: "alternate",
             code: reasonCode,
           }),
         });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error || "Failed to save the reason code");
-        const saved = Array.isArray(payload.reasonCodes) ? payload.reasonCodes : [];
-        setReasonRows(
-          saved.flatMap((row: { stageName?: unknown; code?: unknown; workflowId?: unknown }) => {
-            if (row.stageName !== stageFilter || typeof row.code !== "string" || !row.code.trim()) return [];
-            return [
-              {
-                code: row.code.trim(),
-                workflowId: typeof row.workflowId === "string" && row.workflowId ? row.workflowId : null,
-              },
-            ];
-          })
-        );
+        setReasonRows(mapReasonRows(payload.reasonCodes, stageFilter));
       }
       const noteResponse = await fetch("/api/admin/application-status-stage-assignments", {
         method: "PUT",
@@ -319,19 +384,42 @@ export function StageStatusSequenceButtons({
   }
 
   if (!stageFilter) return null;
+
+  const statusHeader = showCurrentStatus ? (
+    <div className="mb-2 flex flex-wrap items-center gap-2">
+      <p className="text-xs font-medium text-[#64748B]">Application status</p>
+      {loading ? (
+        <span className="text-sm text-[#98A2B3]">Loading…</span>
+      ) : statusName ? (
+        <span className="text-sm font-semibold text-[#101828]">{statusName}</span>
+      ) : (
+        <span className="text-sm text-[#98A2B3]">No status set</span>
+      )}
+    </div>
+  ) : null;
+
   if (loading || assignedGroupIds == null) {
-    return <p className="text-sm text-[#98A2B3]">Loading statuses…</p>;
+    return (
+      <>
+        {statusHeader}
+        {!showCurrentStatus ? <p className="text-sm text-[#98A2B3]">Loading statuses…</p> : null}
+      </>
+    );
   }
   if (!nextHappyPath && alternates.length === 0 && closed.length === 0) {
     return (
-      <p className="text-sm text-[#98A2B3]">
-        No statuses on this stage yet. Add a primary, alternate, or closing status in Settings.
-      </p>
+      <>
+        {statusHeader}
+        <p className="text-sm text-[#98A2B3]">
+          No statuses on this stage yet. Add a primary, alternate, or closing status in Settings.
+        </p>
+      </>
     );
   }
 
   return (
     <>
+      {statusHeader}
       <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Stage status actions">
         {lanes.happy_path.length > 0 ? (
           <button
@@ -352,9 +440,9 @@ export function StageStatusSequenceButtons({
             type="button"
             disabled={Boolean(busyId)}
             onClick={() => setPending({ lane: "alternate", options: alternates })}
-            className="inline-flex h-9 items-center rounded-full border border-[#D0D5DD] bg-white px-4 text-sm font-semibold text-[#344054] transition hover:bg-[#F8FAFC] disabled:opacity-60"
+            className="inline-flex min-h-9 items-center rounded-full border border-[#D0D5DD] bg-white px-4 py-1.5 text-center text-sm font-semibold text-[#344054] transition hover:bg-[#F8FAFC] disabled:opacity-60"
           >
-            {busyId === alternates[0].id ? "Updating…" : "Alternate"}
+            {busyId === alternates[0].id ? "Updating…" : alternateLabel}
           </button>
         ) : null}
         {closed[0] ? (
@@ -362,19 +450,43 @@ export function StageStatusSequenceButtons({
             type="button"
             disabled={Boolean(busyId)}
             onClick={() => setPending({ lane: "closed", options: closed })}
-            className="inline-flex h-9 items-center rounded-full border border-[#FECACA] bg-white px-4 text-sm font-semibold text-[#B42318] transition hover:bg-[#FEF2F2] disabled:opacity-60"
+            className="inline-flex min-h-9 items-center rounded-full border border-[#FECACA] bg-white px-4 py-1.5 text-center text-sm font-semibold text-[#B42318] transition hover:bg-[#FEF2F2] disabled:opacity-60"
           >
-            {busyId === closed[0].id ? "Updating…" : "Closing"}
+            {busyId === closed[0].id ? "Updating…" : closedLabel}
           </button>
         ) : null}
       </div>
+      {showHiringJourneyHint && lanes.happy_path.length > 0 && !nextHappyPath ? (
+        <p className="mt-2 text-sm leading-5 text-[#475467]">
+          Click on{" "}
+          {hiringJourneyHref ? (
+            <Link
+              href={hiringJourneyHref}
+              className="font-semibold text-[#001A46] underline underline-offset-2 hover:text-[#001A46]/80"
+            >
+              Hiring Journey
+            </Link>
+          ) : (
+            "Hiring Journey"
+          )}{" "}
+          button to complete the steps
+        </p>
+      ) : null}
       {pending ? (
         <StatusChangeDialog
           lane={pending.lane}
           stageName={stageFilter}
           workflowLabel={workflowLabel}
+          alternateLabel={alternateLabel}
+          closedLabel={closedLabel}
           options={pending.options ?? []}
-          reasonCodes={reasonCodes ?? []}
+          reasonCodes={
+            pending.lane === "alternate"
+              ? alternateReasonCodes
+              : pending.lane === "closed"
+                ? closedReasonCodes
+                : []
+          }
           notes={stageNotes}
           busy={Boolean(busyId)}
           onCancel={() => {
@@ -403,24 +515,12 @@ export function StageStatusSequenceButtons({
   );
 }
 
-function noteChoices(options: StatusOption[] | undefined, reasonCodes: string[] | undefined): string[] {
-  const choices: string[] = [];
-  const seen = new Set<string>();
-  const names = (options ?? []).map((status) => status.name);
-  for (const value of [...names, ...(reasonCodes ?? [])]) {
-    const label = String(value ?? "").trim();
-    const key = label.toLowerCase();
-    if (!label || seen.has(key)) continue;
-    seen.add(key);
-    choices.push(label);
-  }
-  return choices;
-}
-
 function StatusChangeDialog({
   lane,
   stageName,
   workflowLabel,
+  alternateLabel,
+  closedLabel,
   options,
   reasonCodes,
   notes,
@@ -431,6 +531,8 @@ function StatusChangeDialog({
   lane: StageStatusLane;
   stageName: string;
   workflowLabel: string;
+  alternateLabel: string;
+  closedLabel: string;
   options: StatusOption[];
   reasonCodes: string[];
   notes: string[];
@@ -440,30 +542,23 @@ function StatusChangeDialog({
 }) {
   const statuses = options ?? [];
   const codes = reasonCodes ?? [];
-  const choices = noteChoices(statuses, codes);
   const [selectedReason, setSelectedReason] = useState("");
-  const [reasonDraft, setReasonDraft] = useState("");
-  const [selectedNote, setSelectedNote] = useState("");
   const [note, setNote] = useState("");
   const [selectedStatusId, setSelectedStatusId] = useState(statuses[0]?.id ?? "");
   const isAlternate = lane === "alternate";
-  const picksFromList = lane === "closed";
-  const title =
-    lane === "closed" ? "Close application" : isAlternate ? "Alternate status" : "Update status";
-  const reasonTyped = reasonDraft.trim() ? reasonDraft : selectedReason;
-  const reasonPlan = catalogSavePlan(codes, reasonTyped);
+  const isClosed = lane === "closed";
+  const needsReason = isAlternate || isClosed;
+  const title = isClosed ? closedLabel : isAlternate ? alternateLabel : "Update status";
+  const statusLabel = isClosed ? closedLabel : alternateLabel;
+  const reasonPlan = catalogSavePlan(codes, selectedReason);
   const notePlan = catalogSavePlan(notes, note);
-  const reasonSuggestions = codes.filter((code) => {
-    if (!reasonDraft.trim()) return false;
-    return code.toLowerCase().includes(reasonDraft.trim().toLowerCase());
-  });
   const noteSuggestions = notes.filter((item) => {
     if (!note.trim()) return false;
     return item.toLowerCase().includes(note.trim().toLowerCase());
   });
-  const matched = statuses.find((status) => status.name.toLowerCase() === selectedNote.toLowerCase());
-  const statusId = isAlternate ? selectedStatusId || statuses[0]?.id || "" : matched?.id ?? statuses[0]?.id ?? "";
-  const alternateReady = reasonPlan.action !== "empty" && notePlan.action !== "empty" && Boolean(statusId);
+  const statusId = selectedStatusId || statuses[0]?.id || "";
+  const reasonReady = !needsReason || (codes.length > 0 && reasonPlan.action !== "empty");
+  const noteReady = !isAlternate || notePlan.action !== "empty";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0F172A]/40 p-4">
@@ -476,16 +571,18 @@ function StatusChangeDialog({
         <h2 id="status-change-title" className="text-base font-semibold text-[#101828]">
           {title}
         </h2>
-        {isAlternate ? (
+        {needsReason ? (
           <p className="mt-1 text-sm text-[#475467]">
             {workflowLabel} · {stageName}
           </p>
-        ) : null}
-        {isAlternate ? (
+        ) : (
+          <p className="mt-1 text-sm text-[#475467]">{statuses[0]?.name}</p>
+        )}
+        {needsReason ? (
           <div className="mt-4 space-y-4">
             {statuses.length > 1 ? (
               <label className="block text-sm font-medium text-[#344054]">
-                Alternate status
+                Status
                 <select
                   value={statusId}
                   onChange={(event) => setSelectedStatusId(event.target.value)}
@@ -499,16 +596,15 @@ function StatusChangeDialog({
                 </select>
               </label>
             ) : (
-              <p className="text-sm text-[#475467]">{statuses[0]?.name}</p>
+              <p className="text-sm text-[#475467]">
+                Status: <span className="font-medium text-[#101828]">{statuses[0]?.name ?? statusLabel}</span>
+              </p>
             )}
             <label className="block text-sm font-medium text-[#344054]">
               Reason code
               <select
                 value={selectedReason}
-                onChange={(event) => {
-                  setSelectedReason(event.target.value);
-                  setReasonDraft("");
-                }}
+                onChange={(event) => setSelectedReason(event.target.value)}
                 className="mt-1 h-10 w-full rounded-lg border border-[#D0D5DD] bg-white px-3 text-sm"
               >
                 <option value="">Select a reason code</option>
@@ -519,52 +615,22 @@ function StatusChangeDialog({
                 ))}
               </select>
             </label>
-            <label className="block text-sm font-medium text-[#344054]">
-              Or add a reason code for this stage
-              <input
-                value={reasonDraft}
-                onChange={(event) => setReasonDraft(event.target.value)}
-                placeholder="Search reason codes for this stage"
-                className="mt-1 h-10 w-full rounded-lg border border-[#D0D5DD] px-3 text-sm"
-              />
-            </label>
-            {reasonDraft.trim() && reasonSuggestions.length > 0 ? (
-              <ul className="max-h-28 overflow-auto rounded-lg border border-[#E2E8F0]">
-                {reasonSuggestions.slice(0, 8).map((code) => (
-                  <li key={code}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedReason(code);
-                        setReasonDraft("");
-                      }}
-                      className="block w-full px-3 py-1.5 text-left text-sm text-[#0F172A] hover:bg-[#F8FAFC]"
-                    >
-                      {code}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            {reasonPlan.action === "reuse" ? (
-              <p className="text-xs text-[#166534]">“{reasonPlan.value}” will be reused for this stage.</p>
-            ) : null}
-            {reasonPlan.action === "create" ? (
+            {codes.length === 0 ? (
               <p className="text-xs text-[#92400E]">
-                A new reason code will be created for this stage. Other stages keep their own codes.
+                No reason codes for this action yet. Add them in Settings for this stage.
               </p>
             ) : null}
             <label className="block text-sm font-medium text-[#344054]">
-              Notes
+              {isAlternate ? "Notes" : "Notes (optional)"}
               <textarea
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
                 rows={4}
                 className="mt-1 w-full rounded-lg border border-[#D0D5DD] px-3 py-2 text-sm"
-                placeholder="Search notes for this stage"
+                placeholder={isAlternate ? "Search notes for this stage" : "Add notes"}
               />
             </label>
-            {note.trim() && noteSuggestions.length > 0 ? (
+            {isAlternate && note.trim() && noteSuggestions.length > 0 ? (
               <ul className="max-h-28 overflow-auto rounded-lg border border-[#E2E8F0]">
                 {noteSuggestions.slice(0, 8).map((item) => (
                   <li key={item}>
@@ -579,43 +645,24 @@ function StatusChangeDialog({
                 ))}
               </ul>
             ) : null}
-            {notePlan.action === "reuse" ? (
+            {isAlternate && notePlan.action === "reuse" ? (
               <p className="text-xs text-[#166534]">“{notePlan.value}” already exists for this stage and will be reused.</p>
             ) : null}
-            {notePlan.action === "create" ? (
+            {isAlternate && notePlan.action === "create" ? (
               <p className="text-xs text-[#92400E]">
                 A new note will be created for this stage. It will not be added to other stages or workflows.
               </p>
             ) : null}
           </div>
-        ) : picksFromList ? (
-          <label className="mt-4 block text-sm font-medium text-[#344054]">
-            Reason code
-            <select
-              value={selectedNote}
-              onChange={(event) => setSelectedNote(event.target.value)}
-              className="mt-1 h-10 w-full rounded-lg border border-[#D0D5DD] bg-white px-3 text-sm"
-            >
-              <option value="">Select a reason code</option>
-              {choices.map((choice) => (
-                <option key={choice} value={choice}>
-                  {choice}
-                </option>
-              ))}
-            </select>
-          </label>
         ) : (
-          <p className="mt-1 text-sm text-[#475467]">{statuses[0]?.name}</p>
-        )}
-        {isAlternate ? null : (
           <label className="mt-4 block text-sm font-medium text-[#344054]">
-            {picksFromList ? "Notes" : "Detail"}
+            Note
             <textarea
               value={note}
               onChange={(event) => setNote(event.target.value)}
               rows={4}
               className="mt-1 w-full rounded-lg border border-[#D0D5DD] px-3 py-2 text-sm"
-              placeholder={picksFromList ? "Add notes" : "Add a detail"}
+              placeholder="Add a note"
             />
           </label>
         )}
@@ -630,22 +677,11 @@ function StatusChangeDialog({
           </button>
           <button
             type="button"
-            disabled={
-              busy ||
-              (isAlternate
-                ? !alternateReady
-                : !statusId || (picksFromList && (!selectedNote || !note.trim())))
-            }
+            disabled={busy || !statusId || !reasonReady || !noteReady}
             onClick={() =>
               onConfirm({
                 statusId,
-                reasonCode: isAlternate
-                  ? reasonPlan.action === "empty"
-                    ? ""
-                    : reasonPlan.value
-                  : picksFromList
-                    ? selectedNote
-                    : "",
+                reasonCode: needsReason && reasonPlan.action !== "empty" ? reasonPlan.value : "",
                 note: isAlternate ? (notePlan.action === "empty" ? "" : notePlan.value) : note.trim(),
               })
             }

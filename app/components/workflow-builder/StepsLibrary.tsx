@@ -1,9 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronDown, FileText, PanelLeftClose, Plus, Search } from "lucide-react";
+import { ChevronDown, FileText, PanelLeftClose, Plus, Search, X } from "lucide-react";
 import { CARD_BORDER, GOLD, TEXT_PRIMARY, TEXT_SECONDARY } from "./constants";
-import { filterStepLibrary } from "./filter-step-library";
+import {
+  countLibraryMatches,
+  excludeUsedLibrarySteps,
+  filterStepLibrary,
+} from "./filter-step-library";
 import { resolveHireLibraryIconPath } from "./hire-library-icons";
 import {
   filterStepLibraryByPhase,
@@ -21,8 +25,13 @@ import { writeWorkflowStepDragData } from "./workflow-step-drag";
 
 type StepsLibraryProps = {
   categories: StepCategory[];
+  /** Catalog step ids already placed on the canvas. */
+  usedStepIds?: Iterable<string>;
+  /** Canvas labels used when a placed step's id does not match the library. */
+  usedLabels?: Iterable<string>;
   title?: string;
   searchTerm?: string;
+  onSearchTermChange?: (value: string) => void;
   readOnly?: boolean;
   /** Tablet/phone drawer mode — desktop leaves panels in normal flex layout. */
   compactMode?: boolean;
@@ -35,26 +44,55 @@ const LIBRARY_TABS: Array<{ id: LibraryHirePhase; label: string }> = [
   { id: "post_hire", label: "Post-hire" },
 ];
 
+const EMPTY_USED_IDS: string[] = [];
+
 export default function StepsLibrary({
   categories,
+  usedStepIds = EMPTY_USED_IDS,
+  usedLabels,
   title = "Steps Library",
   searchTerm = "",
+  onSearchTermChange,
   readOnly = false,
   compactMode = false,
   panelOpen = true,
   onPanelClose,
 }: StepsLibraryProps) {
-  const [localSearch, setLocalSearch] = useState("");
+  const [localSearch, setLocalSearch] = useState(searchTerm);
   const [activePhase, setActivePhase] = useState<LibraryHirePhase>("pre_hire");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
-  const effectiveSearch = searchTerm || localSearch;
+  const controlled = typeof onSearchTermChange === "function";
+  const query = controlled ? searchTerm : localSearch;
+  const setQuery = (value: string) => {
+    if (controlled) onSearchTermChange(value);
+    else setLocalSearch(value);
+  };
 
   const filtered = useMemo(() => {
     const byPhase = filterStepLibraryByPhase(categories, activePhase);
-    const searched = filterStepLibrary(byPhase, effectiveSearch);
+    const available = excludeUsedLibrarySteps(byPhase, usedStepIds, {
+      usedLabels,
+      retainEmptyCategories: true,
+    });
+    const searched = filterStepLibrary(available, query);
     return sortLibraryCategoriesForDisplay(searched, activePhase);
-  }, [activePhase, categories, effectiveSearch]);
+  }, [activePhase, categories, query, usedLabels, usedStepIds]);
+
+  const otherPhase: LibraryHirePhase = activePhase === "pre_hire" ? "post_hire" : "pre_hire";
+  const otherMatchCount = useMemo(() => {
+    if (!query.trim()) return 0;
+    const byPhase = filterStepLibraryByPhase(categories, otherPhase);
+    const available = excludeUsedLibrarySteps(byPhase, usedStepIds, {
+      usedLabels,
+      retainEmptyCategories: true,
+    });
+    return countLibraryMatches(filterStepLibrary(available, query));
+  }, [categories, otherPhase, query, usedLabels, usedStepIds]);
+
+  const phaseName = activePhase === "pre_hire" ? "pre-hire" : "post-hire";
+  const otherPhaseName = otherPhase === "pre_hire" ? "pre-hire" : "post-hire";
+  const searching = query.trim().length > 0;
 
   if (!compactMode && !panelOpen) {
     return null;
@@ -128,25 +166,50 @@ export default function StepsLibrary({
             color="#98a2b3"
           />
           <input
-            type="search"
-            value={localSearch}
-            onChange={(e) => setLocalSearch(e.target.value)}
+            type="text"
+            role="searchbox"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
             placeholder="Search steps"
-            className="h-9 w-full rounded-lg border bg-[#f9fafb] pl-8 pr-3 text-xs outline-none transition focus:border-[#BC8B41] focus:bg-white focus:ring-2 focus:ring-[#BC8B41]/20"
+            aria-label="Search steps"
+            className="h-9 w-full rounded-lg border bg-[#f9fafb] pl-8 pr-8 text-xs outline-none transition focus:border-[#BC8B41] focus:bg-white focus:ring-2 focus:ring-[#BC8B41]/20"
             style={{ borderColor: CARD_BORDER, color: TEXT_PRIMARY }}
           />
+          {query ? (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              className="absolute right-2 top-1/2 inline-flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-[#98a2b3] transition hover:text-[#344054]"
+              aria-label="Clear search"
+            >
+              <X size={12} />
+            </button>
+          ) : null}
         </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-3">
         {filtered.length === 0 ? (
-          <p className="px-2 py-8 text-center text-xs" style={{ color: TEXT_SECONDARY }}>
-            No {activePhase === "pre_hire" ? "pre-hire" : "post-hire"} steps found
-            {effectiveSearch.trim() ? ` for "${effectiveSearch.trim()}"` : ""}
-          </p>
+          <div className="flex flex-col items-center gap-2 px-2 py-8 text-center">
+            <p className="text-xs" style={{ color: TEXT_SECONDARY }}>
+              No {phaseName} steps found
+              {searching ? ` for "${query.trim()}"` : ""}
+            </p>
+            {otherMatchCount > 0 ? (
+              <button
+                type="button"
+                onClick={() => setActivePhase(otherPhase)}
+                className="text-xs font-semibold"
+                style={{ color: GOLD }}
+              >
+                Show {otherMatchCount} {otherPhaseName}{" "}
+                {otherMatchCount === 1 ? "match" : "matches"}
+              </button>
+            ) : null}
+          </div>
         ) : (
           filtered.map((cat) => {
-            const isCollapsed = collapsed[cat.id] ?? false;
+            const isCollapsed = searching ? false : (collapsed[cat.id] ?? false);
             const customStepsCategory = isCustomStepsCategory(cat.id);
             const categoryColor = resolveCategoryThemeColor(cat.id, cat.label);
             const categoryLabel = resolveCategoryDisplayLabel(cat.id, cat.label);
@@ -194,20 +257,29 @@ export default function StepsLibrary({
                 </header>
 
                 {!isCollapsed ? (
-                  <ul
-                    className={`flex flex-col gap-1.5 p-2 ${customStepsCategory ? "bg-white" : ""}`}
-                  >
-                    {cat.steps.map((step) => (
-                      <li key={step.id}>
-                        <StepLibraryItem
-                          step={step}
-                          categoryId={cat.id}
-                          categoryLabel={cat.label}
-                          readOnly={readOnly}
-                        />
-                      </li>
-                    ))}
-                  </ul>
+                  cat.steps.length === 0 ? (
+                    <p
+                      className="px-3 py-3 font-[Inter,sans-serif] text-[12px] font-medium leading-4"
+                      style={{ color: TEXT_SECONDARY }}
+                    >
+                      All steps in this stage have already been added.
+                    </p>
+                  ) : (
+                    <ul
+                      className={`flex flex-col gap-1.5 p-2 ${customStepsCategory ? "bg-white" : ""}`}
+                    >
+                      {cat.steps.map((step) => (
+                        <li key={step.id}>
+                          <StepLibraryItem
+                            step={step}
+                            categoryId={cat.id}
+                            categoryLabel={cat.label}
+                            readOnly={readOnly}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  )
                 ) : null}
               </section>
             );

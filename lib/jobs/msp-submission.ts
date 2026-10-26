@@ -244,8 +244,8 @@ export function planApplicationStatusChange(input: {
     return { ok: true };
   }
 
-  // Stage menus follow Settings group attachments. Job source still applies
-  // when the change is not tied to one of those stages.
+  // Stage menus follow Settings group attachments. Job source and the MSP
+  // packet rule still apply when the change is not tied to one of those stages.
   if (!input.assignedToStage) {
     const audience = applicationStageAudience(input.targetName, input.targetSystemKey);
     const source = jobSourceKind(input.sourceType);
@@ -266,7 +266,11 @@ export function planApplicationStatusChange(input: {
       };
     }
   }
-  if (isMspSubmissionStatusName(input.targetName) && !input.hasMspSubmission) {
+  if (
+    !input.assignedToStage &&
+    isMspSubmissionStatusName(input.targetName) &&
+    !input.hasMspSubmission
+  ) {
     return {
       ok: false,
       status: 409,

@@ -10,13 +10,17 @@ import {
   APPLICANT_BTN_PRIMARY,
   APPLICANT_FORM_GRID,
 } from "@/app/application/applicant-onboarding-responsive";
+import { candidateCheckboxMessage } from "@/lib/onboarding/candidate-checkbox-steps";
 import {
   integrationProviderLabel,
   isApplicantWaitingGateStep,
   showsApplicantPartnerScreeningNotice,
 } from "@/lib/onboarding/workflow-settings";
+import { IDENTITY_DOCUMENT_GROUPS } from "@/lib/onboarding/identity-document-fields";
 import {
   STEP_PREVIEW_SAMPLE,
+  isSsnIdentityPreview,
+  stepPreviewUsesProfessionDocuments,
   type StepPreviewModel,
   type StepPreviewState,
 } from "@/lib/onboarding/step-preview-model";
@@ -411,37 +415,122 @@ function ApprovalBody({ model, previewState }: { model: StepPreviewModel; previe
   );
 }
 
+function IdentitySideField({
+  groupTitle,
+  label,
+  required,
+  uploaded,
+}: {
+  groupTitle: string;
+  label: string;
+  required: boolean;
+  uploaded: boolean;
+}) {
+  const branding = useTenantBranding();
+  const fileName = `${groupTitle} ${label}.pdf`;
+  return (
+    <div>
+      <p className="mb-1.5 text-[11px] font-medium text-slate-500">
+        {label}
+        {required ? <span className="text-red-500"> *</span> : <span className="text-slate-400"> (optional)</span>}
+      </p>
+      {uploaded ? (
+        <div
+          className="rounded-lg border px-3 py-2.5"
+          style={{
+            borderColor: hexToRgba(branding.primaryHex, 0.4),
+            backgroundColor: hexToRgba(branding.primaryHex, 0.1),
+          }}
+        >
+          <p className="truncate text-[13px] font-semibold" style={{ color: branding.primaryHex }}>
+            {fileName}
+          </p>
+          <p className="text-[11px] text-slate-500">Uploaded</p>
+        </div>
+      ) : (
+        <div
+          className="rounded-xl border border-dashed bg-white px-3 py-4 text-center"
+          style={{ borderColor: branding.primaryHex }}
+        >
+          <div className="flex flex-col items-center gap-1.5">
+            <div
+              className="flex h-8 w-8 items-center justify-center rounded-full"
+              style={{ backgroundColor: hexToRgba(branding.primaryHex, 0.1) }}
+            >
+              <BrandedUploadIcon className="h-4 w-4" primaryHex={branding.primaryHex} />
+            </div>
+            <span
+              className="rounded-md border px-3 py-0.5 text-[11px] font-medium"
+              style={{ borderColor: branding.primaryHex, color: branding.primaryHex }}
+            >
+              Browse files
+            </span>
+            <p className="text-[10px] text-slate-400">Max 10 MB</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DocumentUploadBody({ model, previewState }: { model: StepPreviewModel; previewState: StepPreviewState }) {
   const branding = useTenantBranding();
-  const docs = model.requiredDocuments.length
-    ? model.requiredDocuments
-    : [{ title: "Required document", description: "", is_required: model.step.is_required }];
+  const docs = model.requiredDocuments;
   const uploaded = filled(previewState);
+  const identity = isSsnIdentityPreview(model.libraryId, model.step.step_type, model.step.step_key);
   return (
     <>
       <PreviewPageHeader title={model.step.title} description={model.step.description} />
-      <div className="mt-4 space-y-3">
-        {docs.map((doc) => (
-          <div
-            key={doc.title}
-            className="flex items-center justify-between gap-3 rounded-xl border px-3 py-3"
-            style={{ borderColor: branding.primaryHex }}
-          >
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium" style={{ color: branding.primaryHex }}>
-                {doc.title}
-              </p>
-              <p className="text-[10px] text-slate-500">
-                {doc.is_required ? "Required" : "Optional"}
-                {uploaded ? " · uploaded" : ""}
-              </p>
+      <div className="mt-4 space-y-4">
+        {identity
+          ? IDENTITY_DOCUMENT_GROUPS.map((group) => (
+              <div key={group.id}>
+                <p className="mb-2 text-[13px] font-semibold text-slate-800">{group.title}</p>
+                <div className="grid grid-cols-1 gap-3">
+                  {group.fields.map((field) => (
+                    <IdentitySideField
+                      key={field.column}
+                      groupTitle={group.title}
+                      label={field.side}
+                      required={field.required}
+                      uploaded={uploaded}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))
+          : null}
+        {docs.length === 0 && !identity ? (
+          <p className="rounded-xl border border-dashed border-slate-300 bg-white/60 px-3 py-4 text-center text-sm text-slate-500">
+            {stepPreviewUsesProfessionDocuments(model.libraryId, model.step.step_type)
+              ? "No documents configured for this profession."
+              : "No documents required for this step."}
+          </p>
+        ) : (
+          docs.map((doc, index) => (
+            <div
+              key={`${doc.title}-${index}`}
+              className="flex items-center justify-between gap-3 rounded-xl border px-3 py-3"
+              style={{ borderColor: branding.primaryHex }}
+            >
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium" style={{ color: branding.primaryHex }}>
+                  {doc.title}
+                </p>
+                <p className="text-[10px] text-slate-500">
+                  {doc.description ? `${doc.description} · ` : ""}
+                  {doc.is_required ? "Required" : "Optional"}
+                  {uploaded ? " · uploaded" : ""}
+                </p>
+              </div>
+              <span className="inline-flex items-center gap-1 text-xs font-semibold" style={{ color: branding.primaryHex }}>
+                <Upload className="h-3.5 w-3.5" />
+                {uploaded ? "Replace" : "Upload"}
+              </span>
             </div>
-            <span className="inline-flex items-center gap-1 text-xs font-semibold" style={{ color: branding.primaryHex }}>
-              <Upload className="h-3.5 w-3.5" />
-              {uploaded ? "Replace" : "Upload"}
-            </span>
-          </div>
-        ))}
+          ))
+        )}
+        {identity ? <p className="text-[11px] text-slate-400">Only PNG, JPG, or PDF files</p> : null}
       </div>
       {showError(previewState) ? (
         <p className="mt-3 text-sm text-rose-600">Upload all required documents to continue.</p>
@@ -456,44 +545,50 @@ function ReferencesBody({ model, previewState }: { model: StepPreviewModel; prev
     typeof model.step.metadata.min_count === "number" ? model.step.metadata.min_count : 1;
   const sample = filled(previewState);
   const error = showError(previewState);
+  const fields: Array<{ label: string; value: string; placeholder?: string; required?: boolean }> = [
+    { label: "First Name", value: sample ? "Alex" : "", placeholder: "First Name", required: true },
+    { label: "Last Name", value: sample ? "Rivera" : "", placeholder: "Last Name", required: true },
+    { label: "Relationship", value: sample ? "Former supervisor" : "", placeholder: "Former supervisor", required: true },
+    { label: "Company", value: sample ? "Northwind Health" : "", required: true },
+    { label: "Job Title", value: sample ? "Charge Nurse" : "", required: true },
+    { label: "Years Known", value: sample ? "5" : "", placeholder: "e.g. 5 (0–80)" },
+    { label: "Phone", value: sample ? STEP_PREVIEW_SAMPLE.phone : "", placeholder: "(201) 555-5555", required: true },
+    { label: "Email", value: sample ? "alex.rivera@example.com" : "", required: true },
+  ];
   return (
     <>
       <PreviewPageHeader
-        title={model.step.title || "Add Reference"}
-        description={model.step.description || `Add at least ${minCount} complete professional reference.`}
+        title={model.step.title || "Collect references"}
+        description={
+          model.step.description ||
+          `Add at least ${minCount} complete professional reference${minCount === 1 ? "" : "s"} (up to 5).`
+        }
       />
       <div className="mt-4">
-        <p className="mb-3 text-[15px] font-bold text-slate-800">Reference 1</p>
-        <div className={`${APPLICANT_FORM_GRID} mb-3`}>
-          <PreviewField
-            label="First Name"
-            required
-            error={error}
-            value={sample ? "Alex" : ""}
-            placeholder="First Name"
-          />
-          <PreviewField
-            label="Last Name"
-            required
-            error={error}
-            value={sample ? "Rivera" : ""}
-            placeholder="Last Name"
-          />
+        <div className="mb-3 flex items-center justify-between">
+          <p className="text-[15px] font-bold text-slate-800">Reference 1</p>
+          <p className="text-[11px] font-medium text-rose-600">Required</p>
         </div>
         <div className={APPLICANT_FORM_GRID}>
-          <PreviewField
-            label="Phone"
-            required
-            error={error}
-            value={sample ? STEP_PREVIEW_SAMPLE.phone : ""}
-          />
-          <PreviewField
-            label="Email"
-            required
-            error={error}
-            value={sample ? "alex.rivera@example.com" : ""}
-          />
+          {fields.map((field) => (
+            <PreviewField
+              key={field.label}
+              label={field.label}
+              required={field.required}
+              error={error && field.required}
+              value={field.value}
+              placeholder={field.placeholder}
+            />
+          ))}
         </div>
+        <PreviewField
+          label="Notes"
+          value={sample ? "Worked together on the night shift." : ""}
+          placeholder="Optional"
+        />
+        <p className="mt-4 w-fit rounded-md border border-[color:var(--brand-primary)] px-4 py-1.5 text-[12px] font-medium text-[color:var(--brand-primary)]">
+          Add another reference
+        </p>
       </div>
       <PreviewActionRow primaryLabel="Save and Continue" />
     </>
@@ -549,11 +644,12 @@ function CustomQuestionBody({ model, previewState }: { model: StepPreviewModel; 
       <div className="mt-4">
         {model.step.step_key === "i9-right-to-work-verification" ? (
           <OnboardingCheckbox
+            alignFirstLine
             checked={filled(previewState)}
             onChange={() => undefined}
             disabled
           >
-            <span className="text-sm text-slate-700">
+            <span className="text-sm leading-5 text-slate-700">
               I confirm that I have completed Section 1 of Form I-9 and that the information provided is true and accurate to the best of my knowledge.
               {required ? <span className="text-red-600"> *</span> : null}
             </span>
@@ -567,6 +663,34 @@ function CustomQuestionBody({ model, previewState }: { model: StepPreviewModel; 
             placeholder={model.prompt || "Enter information for this step"}
           />
         )}
+      </div>
+      <PreviewActionRow primaryLabel="Continue" />
+    </>
+  );
+}
+
+function CheckboxConfirmationBody({
+  model,
+  previewState,
+}: {
+  model: StepPreviewModel;
+  previewState: StepPreviewState;
+}) {
+  const required = model.settings.required === true || model.step.is_required;
+  const message = candidateCheckboxMessage(model.step);
+  return (
+    <>
+      <PreviewPageHeader
+        title={model.step.title}
+        description={model.step.description || "Check the confirmation below to complete this step."}
+      />
+      <div className="mt-6">
+        <OnboardingCheckbox alignFirstLine checked={filled(previewState)} onChange={() => undefined} disabled>
+          <span className="text-sm leading-5 text-slate-700">
+            {message}
+            {required ? <span className="text-red-600"> *</span> : null}
+          </span>
+        </OnboardingCheckbox>
       </div>
       <PreviewActionRow primaryLabel="Continue" />
     </>
@@ -714,6 +838,8 @@ export function StepPreviewBody({
       return <SkillsIntroBody model={model} previewState={previewState} />;
     case "custom_question":
       return <CustomQuestionBody model={model} previewState={previewState} />;
+    case "checkbox_confirmation":
+      return <CheckboxConfirmationBody model={model} previewState={previewState} />;
     case "waiting_gate":
     case "screening":
       return <WaitingOrScreeningBody model={model} previewState={previewState} />;

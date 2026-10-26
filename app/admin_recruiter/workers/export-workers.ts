@@ -9,7 +9,7 @@ import type { WorkerListRow } from "./render-worker-list-cell";
 const WORKER_EXPORT_COLUMNS: ExportColumn<WorkerListRow>[] = [
   { header: "Name", value: (row) => row.name },
   { header: "Reference", value: (row) => row.reference },
-  { header: "Job Role", value: (row) => row.role },
+  { header: "Job name", value: (row) => row.role },
   { header: "Email", value: (row) => row.email },
   { header: "Phone", value: (row) => row.phone },
   { header: "Location", value: (row) => row.location },

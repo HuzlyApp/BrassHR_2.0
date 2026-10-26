@@ -5,8 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import AdminConsolePanel from "@/app/admin_recruiter/settings/AdminConsolePanel";
 import BrandingSettingsPanel from "@/app/admin_recruiter/settings/BrandingSettingsPanel";
+import HireJourneyThemePanel from "@/app/admin_recruiter/settings/HireJourneyThemePanel";
 import CandidateStatusesPanel from "@/app/admin_recruiter/settings/CandidateStatusesPanel";
 import AssessmentSettingsPanel from "@/app/admin_recruiter/settings/AssessmentSettingsPanel";
+import ProfessionDocumentsPanel from "@/app/admin_recruiter/settings/ProfessionDocumentsPanel";
 
 function SettingsContent() {
   const router = useRouter();
@@ -26,8 +28,8 @@ function SettingsContent() {
           Settings
         </h1>
         <p className="mt-1.5 max-w-2xl text-sm leading-6 text-[#64748B]">
-          Set up onboarding, assessments, and your company look. Branding updates apply for your whole organization,
-          including worker sign-in.
+          Set up onboarding, assessments, upload documents, and your company look. Branding updates apply for your
+          whole organization, including worker sign-in.
         </p>
       </div>
 
@@ -45,11 +47,25 @@ function SettingsContent() {
         <BrandingSettingsPanel />
       </section>
 
+      <section aria-labelledby="hire-journey-theme-heading">
+        <h2 id="hire-journey-theme-heading" className="sr-only">
+          Hiring journey
+        </h2>
+        <HireJourneyThemePanel />
+      </section>
+
       <section aria-labelledby="assessment-heading">
         <h2 id="assessment-heading" className="sr-only">
           Assessment
         </h2>
         <AssessmentSettingsPanel />
+      </section>
+
+      <section aria-labelledby="profession-documents-heading">
+        <h2 id="profession-documents-heading" className="sr-only">
+          Upload documents
+        </h2>
+        <ProfessionDocumentsPanel />
       </section>
 
       <section aria-labelledby="prehire-status-catalog-heading">
@@ -58,6 +74,7 @@ function SettingsContent() {
         </h2>
         <CandidateStatusesPanel />
       </section>
+
     </main>
   );
 }

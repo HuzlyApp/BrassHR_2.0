@@ -97,6 +97,8 @@ export type CandidatesListShellProps = {
   /** Shown when rows are selected (bulk delete). */
   deleteButton?: React.ReactNode;
   kpiCards?: CandidateKpiCard[];
+  /** True only on the first metrics fetch (not background revalidation). */
+  kpiLoading?: boolean;
   totalCount: number | null;
   loading: boolean;
   totalLabel: string;
@@ -343,6 +345,7 @@ export function CandidatesListShell({
   onClaimCandidates,
   deleteButton,
   kpiCards,
+  kpiLoading = false,
   totalCount,
   loading,
   totalLabel,
@@ -594,7 +597,7 @@ export function CandidatesListShell({
 
       {resolvedKpiCards ? (
         <div className="mt-4 sm:mt-5">
-          <CandidatesKpiRow cards={resolvedKpiCards} />
+          <CandidatesKpiRow cards={resolvedKpiCards} loading={kpiLoading} />
         </div>
       ) : null}
 

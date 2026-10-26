@@ -6,6 +6,7 @@ export const WORKFLOW_STEP_TO_ONBOARDING_TYPE: Record<string, OnboardingStepType
   "parameterized-job-application": "profile_information",
   "collect-extra-files": "document_upload",
   "references-collection": "references",
+  "collect-references": "references",
   "reference-verification": "references",
   "skill-qualification-assessment": "skill_assessment",
   "custom-application-form": "custom_question",

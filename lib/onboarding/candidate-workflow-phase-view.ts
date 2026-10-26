@@ -6,7 +6,6 @@ import { loadTenantOnboardingConfig } from "@/lib/onboarding/load-tenant-config"
 import {
   canRevealPostHire,
   canRevealPostHireForStaffJourney,
-  hasCompletedAgreementEsignStep,
 } from "@/lib/onboarding/lock-post-hire";
 
 import { resolveCandidateHireGate } from "@/lib/onboarding/resolve-candidate-hire-gate";
@@ -44,6 +43,10 @@ import {
 import { isParameterizedJobApplicationStepType } from "@/lib/onboarding/job-application-parameters";
 import { loadJobApplicationStepView } from "@/lib/onboarding/job-application-step";
 import { applyParameterizedJobApplicationStepEvidence } from "@/lib/onboarding/parameterized-job-application-progress";
+import {
+  syncWorkflowInstanceToDraft,
+  workflowDraftHasNewSteps,
+} from "@/lib/onboarding/sync-workflow-instances";
 
 export type { CandidateWorkflowAssignmentView } from "@/lib/onboarding/assigned-workflow-steps";
 
@@ -78,6 +81,8 @@ export type CandidateWorkflowPhaseView = {
   hiredAt: string | null;
   hiredBy: string | null;
   postHireVisible: boolean;
+  /** False when the assigned workflow has no post-hire steps, so staff UI hides Post-Hire entirely. */
+  workflowHasPostHireSteps: boolean;
   postHireUnlocked: boolean;
   postHireLocked: boolean;
   postHireSuspended: boolean;
@@ -107,6 +112,68 @@ function instanceHasPhase(
   phase: EmploymentLifecyclePhase
 ): boolean {
   return records.some((row) => row.phase === phase);
+}
+
+/**
+ * A Manual Task / HR Action added on the canvas (and renamed, for example to
+ * "Recruiter Offer Call") is missing from hire journey until the candidate's
+ * step records include that node. Pull those steps from the saved flow.
+ */
+async function syncMissingFlowSteps(
+  supabase: SupabaseClient,
+  params: {
+    tenantId: string;
+    workerId: string;
+    instances: Array<Record<string, unknown>>;
+    records: Array<Record<string, unknown>>;
+  }
+): Promise<boolean> {
+  const active =
+    params.instances.find((row) => assignmentStateOf(row.assignment_state ?? row.status) === "active") ??
+    params.instances[0] ??
+    null;
+  const activeId = asText(active?.id);
+  const flowId = asText(active?.workflow_id) ?? asText(active?.onboarding_flow_id);
+  if (!activeId || !flowId) return false;
+
+  const { data: flow, error } = await supabase
+    .from("onboarding_flows")
+    .select("name, builder_draft")
+    .eq("tenant_id", params.tenantId)
+    .eq("id", flowId)
+    .maybeSingle();
+  if (error || !flow?.builder_draft) return false;
+
+  const recordIds = params.records
+    .filter((row) => asText(row.workflow_instance_id) === activeId)
+    .map((row) => asText(row.snapshot_step_id))
+    .filter((id): id is string => Boolean(id));
+  if (!workflowDraftHasNewSteps(recordIds, flow.builder_draft)) return false;
+
+  await syncWorkflowInstanceToDraft(supabase, {
+    tenantId: params.tenantId,
+    instanceId: activeId,
+    workerId: params.workerId,
+    draft: flow.builder_draft,
+    flowName: asText(flow.name),
+  });
+  return true;
+}
+
+async function loadStepRecords(
+  supabase: SupabaseClient,
+  tenantId: string,
+  instanceIds: string[]
+): Promise<Array<Record<string, unknown>>> {
+  if (!instanceIds.length) return [];
+  const { data, error } = await supabase
+    .from("applicant_workflow_step_records")
+    .select(ASSIGNED_STEP_RECORD_COLUMNS)
+    .eq("tenant_id", tenantId)
+    .in("workflow_instance_id", instanceIds)
+    .order("position", { ascending: true });
+  if (error && !/does not exist/i.test(error.message)) throw error;
+  return (data ?? []) as Array<Record<string, unknown>>;
 }
 
 export async function loadCandidateWorkflowPhaseView(
@@ -194,7 +261,6 @@ export async function loadCandidateWorkflowPhaseView(
   const workflowPhase = hireGate.workflowPhase;
   const postHireUnlockedAt = hireGate.postHireUnlockedAt;
   const postHireSuspended = hireGate.postHireSuspended;
-  const postHireUnlocked = hireGate.postHireUnlocked;
   const postHireActivationFailed = hireGate.postHireActivationFailed;
 
   const workerRow = (workerRes.data ?? {}) as Record<string, unknown>;
@@ -206,16 +272,20 @@ export async function loadCandidateWorkflowPhaseView(
   });
 
   const instanceIds = instances.map((row) => asText(row.id)).filter((id): id is string => Boolean(id));
-  let stepRecords: Array<Record<string, unknown>> = [];
-  if (instanceIds.length) {
-    const { data, error } = await supabase
-      .from("applicant_workflow_step_records")
-      .select(ASSIGNED_STEP_RECORD_COLUMNS)
-      .eq("tenant_id", tenantId)
-      .in("workflow_instance_id", instanceIds)
-      .order("position", { ascending: true });
-    if (error && !/does not exist/i.test(error.message)) throw error;
-    stepRecords = (data ?? []) as Array<Record<string, unknown>>;
+  let stepRecords = await loadStepRecords(supabase, tenantId, instanceIds);
+  const synced = await syncMissingFlowSteps(supabase, {
+    tenantId,
+    workerId,
+    instances,
+    records: stepRecords,
+  }).catch(
+    (error) => {
+      console.warn("[workflow-phases] could not add new workflow steps", error);
+      return false;
+    }
+  );
+  if (synced) {
+    stepRecords = await loadStepRecords(supabase, tenantId, instanceIds);
   }
 
   const activeInstance =
@@ -479,8 +549,7 @@ export async function loadCandidateWorkflowPhaseView(
     ) ??
     null;
 
-  const agreementEsignDone = hasCompletedAgreementEsignStep(preHireSteps);
-  const effectivePostHireUnlocked = postHireVisible && (postHireUnlocked || agreementEsignDone);
+  const effectivePostHireUnlocked = postHireVisible && !postHireSuspended;
 
   const onboarded = isCandidateAlreadyConverted(workerRow);
   const currentStage = resolveEmploymentJourneyStage({
@@ -498,6 +567,7 @@ export async function loadCandidateWorkflowPhaseView(
     hiredAt: hireGate.hiredAt,
     hiredBy: hireGate.hiredBy,
     postHireVisible,
+    workflowHasPostHireSteps: postHireSteps.length > 0,
     postHireUnlocked: effectivePostHireUnlocked,
     postHireLocked: !postHireVisible,
     postHireSuspended,

@@ -2,6 +2,7 @@ import type { Edge, Node } from "@xyflow/react";
 
 import { createWorkflowEdge, NODE_VERTICAL_SPACING } from "./constants";
 import { normalizeWorkflowNodeSettings } from "@/lib/onboarding/normalize-workflow-settings";
+import { resolveCompletionOwner } from "@/lib/onboarding/workflow-settings";
 import type {
   StepDefinition,
   WorkflowCanvasNodeData,
@@ -36,7 +37,10 @@ export function buildStepNode(
   day: number
 ): Node<WorkflowNodeData> {
   const settings = normalizeWorkflowNodeSettings(
-    def.defaultPhase ? { phase: def.defaultPhase } : undefined,
+    {
+      ...(def.defaultPhase ? { phase: def.defaultPhase } : {}),
+      completionOwner: resolveCompletionOwner(undefined, def.id),
+    },
     { required: true, day }
   );
 

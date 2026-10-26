@@ -1,8 +1,19 @@
 {
+  "git": {
+    "deploymentEnabled": {
+      "**": false,
+      "main": true,
+      "staging": true
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/close-expired-jobs",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/notify-expired-profession-documents",
+      "schedule": "15 * * * *"
     }
   ]
 }

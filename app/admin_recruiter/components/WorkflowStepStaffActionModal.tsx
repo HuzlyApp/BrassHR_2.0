@@ -89,7 +89,7 @@ const COPY: Record<StaffStepAction, ActionCopy> = {
     title: (step) => `Complete ${step}?`,
     description:
       "This marks the step as completed by you. If it was the only thing blocking the candidate, their next application step unlocks.",
-    confirm: "Mark complete",
+    confirm: "Mark as complete",
     confirmClass: "shadow-sm hover:brightness-[0.97]",
   },
   reject: {
@@ -108,10 +108,28 @@ const COPY: Record<StaffStepAction, ActionCopy> = {
   },
 };
 
+const ON_BEHALF_COMPLETE_COPY: ActionCopy = {
+  title: (step) => `Complete ${step} for the candidate?`,
+  description:
+    "Marks this step completed under your name and approves any documents uploaded for it. The candidate won't need to do this step in their portal.",
+  confirm: "Mark as complete",
+  confirmClass: "shadow-sm hover:brightness-[0.97]",
+};
+
+const VERIFY_SUBMISSION_COPY: ActionCopy = {
+  title: (step) => `Mark ${step} as complete?`,
+  description:
+    "Confirms you reviewed the candidate's submission and it checks out. The step changes from Submitted to Completed. The candidate's progress isn't affected.",
+  confirm: "Mark as complete",
+  confirmClass: "shadow-sm hover:brightness-[0.97]",
+};
+
 export default function WorkflowStepStaffActionModal({
   action,
   variant = "default",
   optional = false,
+  onBehalf = false,
+  verifySubmission = false,
   stepTitle,
   submitting,
   error,
@@ -122,6 +140,10 @@ export default function WorkflowStepStaffActionModal({
   variant?: StaffStepVariant;
   /** Optional steps never block the candidate, so reject copy must not say they do. */
   optional?: boolean;
+  /** Staff completing a candidate upload step after uploading the documents themselves. */
+  onBehalf?: boolean;
+  /** Recruiter verifying a candidate step the candidate already submitted. */
+  verifySubmission?: boolean;
   stepTitle: string;
   submitting: boolean;
   error: string | null;
@@ -150,7 +172,11 @@ export default function WorkflowStepStaffActionModal({
   }, [action]);
 
   const baseCopy = action
-    ? (variant === "default" ? undefined : VARIANT_COPY[variant][action]) ?? COPY[action]
+    ? verifySubmission && action === "complete"
+      ? VERIFY_SUBMISSION_COPY
+      : onBehalf && action === "complete"
+        ? ON_BEHALF_COMPLETE_COPY
+        : (variant === "default" ? undefined : VARIANT_COPY[variant][action]) ?? COPY[action]
     : null;
   const copy =
     baseCopy && optional && action === "reject" && variant === "default"
@@ -160,7 +186,7 @@ export default function WorkflowStepStaffActionModal({
             "The step is marked as rejected. It's optional, so the candidate can still move to the next stage. Add the reason for the record.",
         }
       : baseCopy;
-  const showNotify = action === "complete";
+  const showNotify = action === "complete" && !verifySubmission;
   const noteRequired = action === "reject";
   const canSubmit = !submitting && (!noteRequired || note.trim().length > 0);
 
@@ -230,7 +256,11 @@ export default function WorkflowStepStaffActionModal({
                       : "Why is this step rejected?"
                     : variant === "interview"
                       ? "Interview feedback, strengths, concerns, or next steps"
-                      : "Screening outcome, call summary, or anything the team should know"
+                      : onBehalf
+                        ? "For example: confirmed with the candidate by phone, documents received by email"
+                        : verifySubmission
+                          ? "For example: reviewed answers, documents look valid"
+                          : "Screening outcome, call summary, or anything the team should know"
                 }
                 className="mt-1 w-full resize-y rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-[color:var(--brand-primary)] focus:outline-none focus:ring-1 focus:ring-[color:var(--brand-primary)]"
               />

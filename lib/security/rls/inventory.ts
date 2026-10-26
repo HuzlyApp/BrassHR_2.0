@@ -129,6 +129,14 @@ export const RECRUITING_RESOURCES: ResourceInventory[] = [
     notes: "Admin INSERT/UPDATE/DELETE; staff SELECT. Recruiter cannot configure definitions via RLS.",
   },
   {
+    resource: "application_status_versions",
+    rls: "on",
+    policyCount: 1,
+    tenantSource: "direct.tenant_id",
+    securityClass: "tenant-config",
+    notes: "Staff SELECT only. Rows are written by the status rename trigger. Authenticated users cannot insert or edit versions.",
+  },
+  {
     resource: "job_screening_questions",
     rls: "on",
     policyCount: 2,

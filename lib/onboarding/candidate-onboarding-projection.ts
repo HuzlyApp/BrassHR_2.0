@@ -6,6 +6,7 @@ import {
 } from "@/lib/onboarding/compute-max-allowed-from-progress";
 import { isTenantStepBlocking } from "@/lib/onboarding/reference-verification";
 import { isWorkerVisibleStep } from "@/lib/onboarding/workflow-settings";
+import { readStepLifecyclePhase } from "@/lib/onboarding/workflow-phase";
 import { isUuid } from "@/lib/validation/uuid";
 import type {
   CandidateEngineOrderEntry,
@@ -127,6 +128,13 @@ export function computeCandidateOnboardingFrontier(params: {
 
   const statusByCandidateId = buildProgressStatusMaps(candidateSteps, progress);
   const candidateIndexById = new Map(candidateSteps.map((step, index) => [step.id, index]));
+  // Pre-hire recruiter gates still pause the candidate. Once post-hire has started,
+  // recruiter-owned steps must not raise the review modal or block later candidate steps.
+  const postHireFlow =
+    progress?.workflowPhase === "post_hire" ||
+    progress?.workflowPhase === "completed" ||
+    candidateSteps.every((step) => readStepLifecyclePhase(step) === "post_hire");
+  const skipInternalWait = postHireFlow;
 
   let maxCandidate = 0;
   let waitingOnInternal = false;
@@ -136,7 +144,7 @@ export function computeCandidateOnboardingFrontier(params: {
     const done = status === "completed" || status === "skipped";
 
     if (!entry.candidateVisible) {
-      if (done || !entry.required) continue;
+      if (skipInternalWait || done || !entry.required) continue;
       waitingOnInternal = true;
       break;
     }

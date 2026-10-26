@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 import { requireStaffApiSession } from "@/lib/auth/api-session";
-import { requireWorkflowAdmin } from "@/lib/auth/workflow-admin";
+import { isStaffStageCatalogAction, requireWorkflowAdmin } from "@/lib/auth/workflow-admin";
 import { writeActivityLog } from "@/lib/audit/activity-log";
 import {
   ApplicationStatusError,
@@ -11,7 +11,9 @@ import {
   listApplicationStatusGroupStageAssignments,
   appendApplicationStatusStageReasonCode,
   findOrCreateApplicationStatusStageNote,
+  getApplicationStatusButtonLabels,
   listApplicationStatusStageButtons,
+  saveApplicationStatusButtonLabels,
   listApplicationStatusStageLanes,
   listApplicationStatusStageNotes,
   listApplicationStatusStageReasonCodes,
@@ -60,11 +62,12 @@ export async function GET() {
   try {
     const tenantId = await resolveStaffTenantId(supabase, auth);
     if (!tenantId) return NextResponse.json({ error: "No tenant selected" }, { status: 400 });
-    const [assignments, lanes, reasonCodes, buttonPrefs, notes, flowsResult] = await Promise.all([
+    const [assignments, lanes, reasonCodes, buttonPrefs, buttonLabels, notes, flowsResult] = await Promise.all([
       listApplicationStatusGroupStageAssignments(supabase, tenantId),
       listApplicationStatusStageLanes(supabase, tenantId),
       listApplicationStatusStageReasonCodes(supabase, tenantId),
       listApplicationStatusStageButtons(supabase, tenantId),
+      getApplicationStatusButtonLabels(supabase, tenantId),
       listApplicationStatusStageNotes(supabase, tenantId),
       supabase
         .from("onboarding_flows")
@@ -85,6 +88,7 @@ export async function GET() {
         lanes,
         reasonCodes,
         buttonPrefs,
+        buttonLabels,
         notes,
         workflows,
         canManage: auth.role === "admin" || auth.godAdmin,
@@ -103,15 +107,33 @@ export async function GET() {
  * - { action: "assign", stageName, groupId }
  * - { action: "unassign", stageName, groupId }
  * - { action: "setLanes", stageName, workflowId?, lanes: { happy_path, alternate, closed } }
- * - { action: "setReasonCodes", stageName, workflowId?, codes: string[] }
- * - { action: "addReasonCode", stageName, workflowId?, code }
- * - { action: "findOrCreateNote", stageName, workflowId?, note }
+ * - { action: "setButtonLabels", alternateLabel, closedLabel }
+ * - { action: "setReasonCodes", stageName, workflowId?, lane: "alternate" | "closed", codes: string[] } — admin
+ * - { action: "addReasonCode", stageName, workflowId?, lane: "alternate" | "closed", code } — any staff
+ * - { action: "findOrCreateNote", stageName, workflowId?, note } — any staff
  */
 export async function PUT(req: NextRequest) {
   const auth = await requireStaffApiSession();
   if (auth instanceof NextResponse) return auth;
-  const forbidden = requireWorkflowAdmin(auth);
-  if (forbidden) return forbidden;
+
+  const body = (await req.json().catch(() => null)) as {
+    action?: unknown;
+    stageName?: unknown;
+    groupId?: unknown;
+    lanes?: unknown;
+    workflowId?: unknown;
+    codes?: unknown;
+    code?: unknown;
+    lane?: unknown;
+    note?: unknown;
+    alternateLabel?: unknown;
+    closedLabel?: unknown;
+  } | null;
+  const action = typeof body?.action === "string" ? body.action : "";
+  if (!isStaffStageCatalogAction(action)) {
+    const forbidden = requireWorkflowAdmin(auth);
+    if (forbidden) return forbidden;
+  }
 
   const supabase = createServiceRoleClient();
   if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
@@ -120,21 +142,10 @@ export async function PUT(req: NextRequest) {
     const tenantId = await resolveStaffTenantId(supabase, auth);
     if (!tenantId) return NextResponse.json({ error: "No tenant selected" }, { status: 400 });
 
-    const body = (await req.json().catch(() => null)) as {
-      action?: unknown;
-      stageName?: unknown;
-      groupId?: unknown;
-      lanes?: unknown;
-      workflowId?: unknown;
-      codes?: unknown;
-      code?: unknown;
-      note?: unknown;
-    } | null;
-
-    const action = typeof body?.action === "string" ? body.action : "";
     const stageName = typeof body?.stageName === "string" ? body.stageName : "";
     const groupId = typeof body?.groupId === "string" ? body.groupId : "";
     const workflowId = typeof body?.workflowId === "string" ? body.workflowId.trim() : "";
+    const lane = typeof body?.lane === "string" ? body.lane : "";
 
     if (action === "setReasonCodes") {
       if (!stageName) {
@@ -148,6 +159,7 @@ export async function PUT(req: NextRequest) {
         stageName,
         codes,
         workflowId: workflowId || null,
+        lane,
       });
       await writeActivityLog({
         actorUserId: auth.userId,
@@ -155,7 +167,7 @@ export async function PUT(req: NextRequest) {
         entityType: "application_status_stage",
         entityId: stageName,
         tenantId,
-        metadata: { stageName, workflowId: workflowId || null, codes },
+        metadata: { stageName, workflowId: workflowId || null, lane, codes },
         request: req,
       });
       return NextResponse.json({ reasonCodes: saved });
@@ -171,6 +183,7 @@ export async function PUT(req: NextRequest) {
         stageName,
         code,
         workflowId: workflowId || null,
+        lane,
       });
       await writeActivityLog({
         actorUserId: auth.userId,
@@ -178,7 +191,7 @@ export async function PUT(req: NextRequest) {
         entityType: "application_status_stage",
         entityId: stageName,
         tenantId,
-        metadata: { stageName, workflowId: workflowId || null, code, created: saved.created },
+        metadata: { stageName, workflowId: workflowId || null, lane, code, created: saved.created },
         request: req,
       });
       return NextResponse.json({ reasonCodes: saved.reasonCodes, created: saved.created });
@@ -206,6 +219,26 @@ export async function PUT(req: NextRequest) {
         request: req,
       });
       return NextResponse.json({ note: saved.note, created: saved.created, notes });
+    }
+
+    if (action === "setButtonLabels") {
+      const alternateLabel = typeof body?.alternateLabel === "string" ? body.alternateLabel : null;
+      const closedLabel = typeof body?.closedLabel === "string" ? body.closedLabel : null;
+      const buttonLabels = await saveApplicationStatusButtonLabels(supabase, {
+        tenantId,
+        alternateLabel,
+        closedLabel,
+      });
+      await writeActivityLog({
+        actorUserId: auth.userId,
+        action: "application_status_button_labels.updated",
+        entityType: "tenant",
+        entityId: tenantId,
+        tenantId,
+        metadata: { alternateLabel, closedLabel },
+        request: req,
+      });
+      return NextResponse.json({ buttonLabels });
     }
 
     if (action === "setLanes") {

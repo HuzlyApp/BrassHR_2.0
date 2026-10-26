@@ -7,7 +7,8 @@ import type { OnboardingStepStatus, TenantOnboardingStep } from "@/lib/onboardin
 type UpdateStepStatusFn = (
   stepKey: string,
   status: OnboardingStepStatus,
-  data?: Record<string, unknown>
+  data?: Record<string, unknown>,
+  stepId?: string
 ) => Promise<void>;
 
 type UseMarkStepInProgressIfPendingOptions = {
@@ -54,7 +55,7 @@ export function useMarkStepInProgressIfPending({
     }
 
     attemptedStepIdRef.current = step.id;
-    void mark(step.step_key, "in_progress").catch(() => {
+    void mark(step.step_key, "in_progress", undefined, step.id).catch(() => {
       // Mount-time mark must not surface as an unhandledRejection.
     });
   }, [disabled, loading, step?.step_key, step?.id, progressSteps, mark, completingRef]);
@@ -66,12 +67,14 @@ export async function persistStepProgress(
   stepKey: string | undefined,
   status: OnboardingStepStatus,
   completingRef?: MutableRefObject<boolean>,
-  data?: Record<string, unknown>
-): Promise<void> {
-  if (!stepKey || !updateStepStatus) return;
+  data?: Record<string, unknown>,
+  stepId?: string
+): Promise<boolean> {
+  if (!stepKey || !updateStepStatus) return false;
   if (completingRef) completingRef.current = true;
   try {
-    await updateStepStatus(stepKey, status, data);
+    await updateStepStatus(stepKey, status, data, stepId);
+    return true;
   } finally {
     if (completingRef) completingRef.current = false;
   }

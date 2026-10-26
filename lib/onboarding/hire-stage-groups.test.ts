@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CandidateWorkflowStepView } from "@/lib/onboarding/candidate-workflow-phase-view";
 import {
+  currentPreHireStatusStageName,
   groupStepsIntoHireStages,
   hireStageLabelForStep,
   hireStageProgressMeta,
@@ -119,6 +120,50 @@ describe("groupStepsIntoHireStages", () => {
     ]);
     expect(groups.find((g) => g.name === "Compliance")?.steps.map((s) => s.title)).toEqual([
       "SSN / Identity Verification",
+    ]);
+  });
+
+  it("orders stage groups Intake → Screening and sorts steps inside each group by library sequence", () => {
+    const groups = groupStepsIntoHireStages(
+      [
+        step({
+          id: "rv",
+          title: "Reference Verification",
+          stepKey: "reference-verification",
+        }),
+        step({
+          id: "refs",
+          title: "Collect References",
+          stepKey: "collect-references",
+        }),
+        step({
+          id: "skill",
+          title: "Skill / Qualification Assessment",
+          stepKey: "skill-qualification-assessment",
+        }),
+        step({
+          id: "files",
+          title: "Collect Extra Files",
+          stepKey: "collect-extra-files",
+        }),
+        step({
+          id: "screen",
+          title: "Recruiter Screening",
+          stepKey: "recruiter-screening",
+        }),
+      ],
+      "pre_hire"
+    );
+
+    expect(groups.map((g) => g.name)).toEqual(["Intake", "Screening"]);
+    expect(groups[0]?.steps.map((s) => s.stepKey)).toEqual([
+      "collect-extra-files",
+      "collect-references",
+    ]);
+    expect(groups[1]?.steps.map((s) => s.stepKey)).toEqual([
+      "recruiter-screening",
+      "skill-qualification-assessment",
+      "reference-verification",
     ]);
   });
 
@@ -316,6 +361,92 @@ describe("groupStepsIntoHireStages", () => {
     expect(groups.map((g) => g.name)).toEqual(["Intake", "Approvals"]);
   });
 
+  it("puts the Complete milestone last and keeps payroll on its own stage", () => {
+    const groups = groupStepsIntoHireStages(
+      [
+        step({
+          id: "train",
+          title: "Knowledge Transfer / Training",
+          stepType: "training-modules-quiz",
+          phase: "post_hire",
+          settings: { stageName: "Training" },
+          displayStatus: "submitted",
+        }),
+        step({
+          id: "done",
+          title: "Complete",
+          stepType: "completion-milestone",
+          phase: "post_hire",
+          settings: { stageName: "Complete" },
+          displayStatus: "not_started",
+        }),
+        step({
+          id: "pay",
+          title: "Payroll Setup",
+          stepType: "direct-deposit-setup",
+          phase: "post_hire",
+          settings: { stageName: "Payroll & Compliance" },
+          displayStatus: "submitted",
+        }),
+        step({
+          id: "i9",
+          title: "I-9",
+          stepType: "i9-right-to-work-verification",
+          phase: "post_hire",
+          settings: { stageName: "Payroll & Compliance" },
+          displayStatus: "submitted",
+        }),
+      ],
+      "post_hire"
+    );
+
+    expect(groups.map((group) => group.name)).toEqual([
+      "Payroll & Tax",
+      "Training & Policy",
+      "Welcome & Complete",
+    ]);
+    expect(groups[2]?.steps.map((item) => item.title)).toEqual(["Complete"]);
+
+    const meta = hireStageProgressMeta(groups);
+    expect(meta.totalStages).toBe(3);
+    expect(meta.completedStages).toBe(2);
+  });
+
+  it("places an Application stage first as Intake", () => {
+    const groups = groupStepsIntoHireStages(
+      [
+        step({
+          id: "screen",
+          title: "Screening",
+          stepType: "recruiter-screening",
+          settings: { stageName: "Screening" },
+          displayStatus: "in_progress",
+        }),
+        step({
+          id: "resume",
+          title: "Resume & Basic Profile",
+          stepType: "resume-basic-profile",
+          settings: { stageName: "Application" },
+          displayStatus: "submitted",
+        }),
+        step({
+          id: "job",
+          title: "Parameterized Job Application",
+          stepType: "parameterized-job-application",
+          settings: { stageName: "Application" },
+          displayStatus: "submitted",
+        }),
+      ],
+      "pre_hire"
+    );
+
+    expect(groups.map((group) => group.name)).toEqual(["Intake", "Screening"]);
+    expect(groups[0]?.steps.map((item) => item.title)).toEqual([
+      "Resume & Basic Profile",
+      "Parameterized Job Application",
+    ]);
+  });
+
   it("lets an explicit stageName override the library map", () => {
     const groups = groupStepsIntoHireStages(
       [
@@ -332,6 +463,32 @@ describe("groupStepsIntoHireStages", () => {
   });
 });
 
+describe("currentPreHireStatusStageName", () => {
+  it("returns the current Pre-Hire board stage for status actions", () => {
+    const groups = groupStepsIntoHireStages(
+      [
+        step({
+          id: "a",
+          title: "Resume",
+          stepType: "resume-basic-profile",
+          settings: { stageName: "Intake" },
+          displayStatus: "completed",
+          completedAt: "2026-01-01T00:00:00Z",
+        }),
+        step({
+          id: "b",
+          title: "Screening",
+          stepType: "recruiter-screening",
+          settings: { stageName: "Screening" },
+          displayStatus: "in_progress",
+        }),
+      ],
+      "pre_hire"
+    );
+    expect(currentPreHireStatusStageName(groups)).toBe("Screening");
+  });
+});
+
 describe("hireStageLabelForStep", () => {
   it("returns the Post-Hire board bucket for candidate screens", () => {
     expect(
@@ -340,6 +497,25 @@ describe("hireStageLabelForStep", () => {
     expect(
       hireStageLabelForStep({ stageName: null, libraryId: "safety-training", stepKey: "custom_question_4", lifecycle: "post_hire" })
     ).toBe("Training & Policy");
+  });
+
+  it("places Agreement e-sign and I-9 Section 1 in Offer & Agreement", () => {
+    expect(
+      hireStageLabelForStep({
+        stageName: null,
+        libraryId: "employee-agreement",
+        stepKey: "agreement-esign",
+        lifecycle: "pre_hire",
+      })
+    ).toBe("Offer & Agreement");
+    expect(
+      hireStageLabelForStep({
+        stageName: null,
+        libraryId: "i9-right-to-work-verification",
+        stepKey: "i9-section-1",
+        lifecycle: "pre_hire",
+      })
+    ).toBe("Offer & Agreement");
   });
 
   it("ignores a stage name that belongs to the other phase", () => {

@@ -85,4 +85,24 @@ describe("AddStepPicker", () => {
     expect(screen.getByRole("button", { name: "Clear search" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Create Custom Step" })).toBeTruthy();
   });
+
+  it("brings hidden steps back when the query is deleted", async () => {
+    const user = userEvent.setup();
+    render(
+      <AddStepPicker
+        open
+        categories={categories}
+        onSelect={() => undefined}
+        onClose={() => undefined}
+      />
+    );
+
+    const input = screen.getByLabelText("Search workflow steps");
+    await user.type(input, "tax");
+    expect(screen.queryByText("References Collection")).toBeNull();
+
+    await user.clear(input);
+    expect(screen.getByText("References Collection")).toBeTruthy();
+    expect(screen.getByText("Policy Acknowledgment")).toBeTruthy();
+  });
 });

@@ -32,12 +32,12 @@ export function HireStepTypeIcon({
       style={
         done
           ? {
-              backgroundColor: "color-mix(in srgb, var(--brand-primary) 8%, white)",
-              borderColor: "color-mix(in srgb, var(--brand-primary) 70%, white)",
+              backgroundColor: "color-mix(in srgb, var(--hj-icon, var(--brand-secondary)) 12%, white)",
+              borderColor: "var(--hj-icon-border, var(--brand-secondary))",
             }
           : {
-              backgroundColor: "var(--brand-secondary)",
-              borderColor: "var(--brand-secondary)",
+              backgroundColor: "var(--hj-icon, var(--brand-secondary))",
+              borderColor: "var(--hj-icon-border, var(--brand-secondary))",
             }
       }
     >

@@ -216,8 +216,44 @@ function createEmptyLibrarySupabase(options?: {
             error: null,
           };
         }),
+        then: (
+          resolve: (value: { data: Array<Record<string, unknown>>; error: null }) => unknown
+        ) =>
+          resolve({
+            data: Object.values(presets)
+              .filter((row) => !filters.employment_type || row.employment_type === filters.employment_type)
+              .map((row) => ({
+                ...row,
+                industry_key: null,
+                tenant_id: null,
+                type: "preset",
+                status: "published",
+                builder_draft: { nodes: [{ id: "n1", data: { label: row.name } }], edges: [] },
+                description: null,
+                template_type: "default",
+                is_system_preset: true,
+                is_editable: false,
+                version: 1,
+                flow_name: row.name,
+                created_by: null,
+                updated_by: null,
+                created_at: "2026-01-01T00:00:00Z",
+                updated_at: "2026-01-01T00:00:00Z",
+              })),
+            error: null,
+          }),
       };
       return api;
+    }
+
+    if (table === "tenants") {
+      return {
+        select: () => ({
+          eq: () => ({
+            maybeSingle: async () => ({ data: { primary_industry_key: null }, error: null }),
+          }),
+        }),
+      };
     }
 
     throw new Error(`Unexpected table ${table}`);

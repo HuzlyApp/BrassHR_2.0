@@ -1,5 +1,6 @@
 import type { OnboardingDbClient } from "@/lib/onboarding/load-tenant-config";
-import { stampHireStageOnStepSettings } from "@/lib/onboarding/hire-stage-catalog";
+import { hireLifecycleForPhase, stampHireStageOnStepSettings } from "@/lib/onboarding/hire-stage-catalog";
+import { isSerializableWorkflowState } from "@/lib/onboarding/workflow-builder-serialization";
 
 type SnapshotNode = Record<string, unknown>;
 
@@ -11,6 +12,7 @@ export type StepRecordRow = {
   title: string;
   step_type: string;
   is_required: boolean;
+  phase: "pre_hire" | "post_hire";
   settings: Record<string, unknown>;
 };
 
@@ -31,7 +33,7 @@ export type InstanceStepSyncPlan = {
 };
 
 const SYNC_RECORD_COLUMNS =
-  "id, tenant_id, workflow_instance_id, snapshot_step_id, position, title, step_type, is_required, settings, status, completed_at, status_changed_at, review_decision";
+  "id, tenant_id, workflow_instance_id, snapshot_step_id, position, title, step_type, is_required, phase, settings, status, completed_at, status_changed_at, review_decision";
 
 /** Unique-position constraint is not deferrable, so reorders park rows above any real position first. */
 const PARKED_POSITION_OFFSET = 100_000;
@@ -53,6 +55,30 @@ export function snapshotNodes(draft: unknown): SnapshotNode[] {
   return Array.isArray(nodes) ? (nodes as SnapshotNode[]) : [];
 }
 
+/**
+ * Node ids from a saved builder draft. Returns null when the draft is not a step canvas,
+ * so a partial payload cannot replace a candidate's steps.
+ */
+export function workflowDraftNodeIds(draft: unknown): string[] | null {
+  if (!isSerializableWorkflowState(draft) || !draft.nodes.length) return null;
+  const ids: string[] = [];
+  for (let index = 0; index < draft.nodes.length; index += 1) {
+    const node = draft.nodes[index];
+    if (!node || typeof node.stepId !== "string" || !node.stepId.trim()) return null;
+    const id = typeof node.id === "string" ? node.id.trim() : "";
+    ids.push(id || `step-${index + 1}`);
+  }
+  return ids;
+}
+
+/** True when the saved workflow canvas has a step the candidate instance does not. */
+export function workflowDraftHasNewSteps(recordStepIds: Iterable<string>, flowDraft: unknown): boolean {
+  const next = workflowDraftNodeIds(flowDraft);
+  if (!next) return false;
+  const have = new Set(recordStepIds);
+  return next.some((id) => !have.has(id));
+}
+
 function nodeSnapshotStepId(node: SnapshotNode, index: number): string {
   return String(node.id ?? `step-${index + 1}`);
 }
@@ -71,6 +97,7 @@ export function buildStepRecordRow(
         ? node.phase
         : "pre_hire";
   const stepType = String(node.stepId ?? "custom");
+  const stamped = stampHireStageOnStepSettings(stepType, { ...settings, phase });
   return {
     tenant_id: tenantId,
     workflow_instance_id: instanceId,
@@ -79,7 +106,8 @@ export function buildStepRecordRow(
     title: String(node.label ?? `Step ${index + 1}`),
     step_type: stepType,
     is_required: node.required === true,
-    settings: stampHireStageOnStepSettings(stepType, { ...settings, phase }),
+    phase: hireLifecycleForPhase(stamped.phase ?? phase) ?? "pre_hire",
+    settings: stamped,
   };
 }
 
@@ -112,6 +140,7 @@ function sameContent(a: StepRecordRow, b: StepRecordRow): boolean {
     a.title === b.title &&
     a.step_type === b.step_type &&
     a.is_required === b.is_required &&
+    a.phase === b.phase &&
     stableJson(a.settings) === stableJson(b.settings)
   );
 }
@@ -126,6 +155,7 @@ function existingRow(record: SyncableStepRecord, position: number): StepRecordRo
     title: record.title,
     step_type: record.step_type,
     is_required: record.is_required,
+    phase: record.phase === "post_hire" ? "post_hire" : "pre_hire",
     settings: asSettings(record.settings),
   };
 }
@@ -389,11 +419,115 @@ export async function syncActiveWorkflowInstancesToDraft(
   }
   if (!changedInstanceIds.length) return result;
 
-  for (const batch of chunk(deleteIds)) {
+  await applyStepSyncWrites(supabase, {
+    tenantId: params.tenantId,
+    draft: params.draft,
+    flowName: params.flowName,
+    deleteIds,
+    updates,
+    inserts,
+    changedInstanceIds,
+  });
+
+  result.instances = changedInstanceIds.length;
+  result.inserted = inserts.length;
+  result.deleted = deleteIds.length;
+  return result;
+}
+
+/**
+ * Aligns one candidate's Hire Journey with the saved canvas.
+ * Page loads must use this. Syncing every active assignment loads hundreds of
+ * thousands of step rows and the request dies before the Pre-Hire tab renders.
+ */
+export async function syncWorkflowInstanceToDraft(
+  supabase: OnboardingDbClient,
+  params: {
+    tenantId: string;
+    instanceId: string;
+    workerId?: string | null;
+    draft: unknown;
+    flowName?: string | null;
+  }
+): Promise<{ changed: boolean; inserted: number; deleted: number }> {
+  const nodes = snapshotNodes(params.draft);
+  const empty = { changed: false, inserted: 0, deleted: 0 };
+  if (!nodes.length || !params.instanceId) return empty;
+
+  const records = await selectAllPages<SyncableStepRecord>((from, to) =>
+    supabase
+      .from("applicant_workflow_step_records")
+      .select(SYNC_RECORD_COLUMNS)
+      .eq("tenant_id", params.tenantId)
+      .eq("workflow_instance_id", params.instanceId)
+      .order("id")
+      .range(from, to)
+  );
+
+  const currentNodeIds = new Set(nodes.map(nodeSnapshotStepId));
+  const copiesPerStep = new Map<string, number>();
+  for (const record of records) {
+    copiesPerStep.set(
+      record.snapshot_step_id,
+      (copiesPerStep.get(record.snapshot_step_id) ?? 0) + 1
+    );
+  }
+  const untouched = records.filter((record) => !isRecordTouched(record));
+  const removedRecords = untouched.filter((record) => !currentNodeIds.has(record.snapshot_step_id));
+  const duplicateRecords = untouched.filter(
+    (record) =>
+      currentNodeIds.has(record.snapshot_step_id) &&
+      (copiesPerStep.get(record.snapshot_step_id) ?? 0) > 1
+  );
+  const touchedStale =
+    removedRecords.length || duplicateRecords.length
+      ? await loadTouchedStaleIds(supabase, {
+          tenantId: params.tenantId,
+          eventRecordIds: [...removedRecords, ...duplicateRecords].map((record) => record.id),
+          removedRecords,
+          workerByInstanceId: new Map([[params.instanceId, params.workerId ?? null]]),
+        })
+      : new Set<string>();
+
+  const plan = planInstanceStepSync({
+    tenantId: params.tenantId,
+    instanceId: params.instanceId,
+    nodes,
+    records,
+    isStaleRecordTouched: (record) => touchedStale.has(record.id),
+  });
+  if (!plan.changed) return empty;
+
+  await applyStepSyncWrites(supabase, {
+    tenantId: params.tenantId,
+    draft: params.draft,
+    flowName: params.flowName,
+    deleteIds: plan.deleteIds,
+    updates: plan.updates,
+    inserts: plan.inserts,
+    changedInstanceIds: [params.instanceId],
+  });
+
+  return { changed: true, inserted: plan.inserts.length, deleted: plan.deleteIds.length };
+}
+
+async function applyStepSyncWrites(
+  supabase: OnboardingDbClient,
+  params: {
+    tenantId: string;
+    draft: unknown;
+    flowName?: string | null;
+    deleteIds: string[];
+    updates: InstanceStepSyncPlan["updates"];
+    inserts: StepRecordRow[];
+    changedInstanceIds: string[];
+  }
+): Promise<void> {
+  for (const batch of chunk(params.deleteIds)) {
     const { error } = await supabase.from("applicant_workflow_step_records").delete().in("id", batch);
     if (error) throw error;
   }
-  for (const batch of chunk(updates)) {
+  for (const batch of chunk(params.updates)) {
     const { error } = await supabase
       .from("applicant_workflow_step_records")
       .upsert(
@@ -402,13 +536,13 @@ export async function syncActiveWorkflowInstancesToDraft(
       );
     if (error) throw error;
   }
-  for (const batch of chunk(updates)) {
+  for (const batch of chunk(params.updates)) {
     const { error } = await supabase
       .from("applicant_workflow_step_records")
       .upsert(batch, { onConflict: "id" });
     if (error) throw error;
   }
-  for (const batch of chunk(inserts)) {
+  for (const batch of chunk(params.inserts)) {
     const { error } = await supabase.from("applicant_workflow_step_records").insert(batch);
     if (error) throw error;
   }
@@ -418,7 +552,7 @@ export async function syncActiveWorkflowInstancesToDraft(
     workflow_version: new Date().toISOString(),
   };
   if (params.flowName?.trim()) instancePatch.workflow_name = params.flowName.trim();
-  for (const batch of chunk(changedInstanceIds)) {
+  for (const batch of chunk(params.changedInstanceIds)) {
     const { error } = await supabase
       .from("applicant_workflow_instances")
       .update(instancePatch)
@@ -426,11 +560,21 @@ export async function syncActiveWorkflowInstancesToDraft(
       .in("id", batch);
     if (error) throw error;
   }
+}
 
-  result.instances = changedInstanceIds.length;
-  result.inserted = inserts.length;
-  result.deleted = deleteIds.length;
-  return result;
+function syncErrorReason(err: unknown): string {
+  if (err instanceof Error && err.message.trim()) return err.message;
+  if (err && typeof err === "object" && "message" in err) {
+    const message = (err as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message;
+  }
+  try {
+    const serialized = JSON.stringify(err);
+    if (serialized && serialized !== "{}") return serialized;
+  } catch {
+    /* ignore */
+  }
+  return String(err);
 }
 
 /** Publish has already succeeded when this runs, so a sync failure is logged rather than thrown. */
@@ -449,7 +593,7 @@ export async function syncActiveWorkflowInstancesSafely(
   } catch (err) {
     console.error("[sync-workflow-instances] failed", {
       flowId: params.flowId,
-      reason: err instanceof Error ? err.message : String(err),
+      reason: syncErrorReason(err),
     });
   }
 }

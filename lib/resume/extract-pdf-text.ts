@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createRequire } from "node:module";
+import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 type PdfjsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -45,7 +46,11 @@ function ensurePdfWorker(GlobalWorkerOptions: PdfjsModule["GlobalWorkerOptions"]
   if (workerConfigured) return;
   workerConfigured = true;
   try {
-    const workerPath = require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs");
+    // Resolve the package JSON (valid for require) and point at the worker file.
+    // require() of the .mjs worker itself makes Turbopack refuse to externalize
+    // pdfjs-dist, because Node cannot load that ESM file with require().
+    const packageJsonPath = require.resolve("pdfjs-dist/package.json");
+    const workerPath = path.join(path.dirname(packageJsonPath), "legacy", "build", "pdf.worker.mjs");
     GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
   } catch {
     // pdfjs then falls back to its own worker path next to the package.
@@ -66,7 +71,6 @@ async function extractWithPdfjs(data: Uint8Array): Promise<string> {
   const doc = await getDocument({
     data,
     verbosity: 0,
-    isEvalSupported: false,
   }).promise;
   try {
     const pages: string[] = [];

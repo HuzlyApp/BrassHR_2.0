@@ -14,6 +14,7 @@ import {
   stepStatusPill,
 } from "@/lib/onboarding/assigned-workflow-steps";
 import { STEP_PILL_TONE_CLASSES } from "@/lib/onboarding/interview-step";
+import { hireStageSummaryPartColor } from "@/lib/tenant/hire-journey-theme";
 import type { HireStageGroup } from "@/lib/onboarding/hire-stage-groups";
 import {
   HireFigmaIcon,
@@ -48,9 +49,14 @@ function isStepDone(step: CandidateWorkflowStepView): boolean {
 }
 
 function stepSubtitle(step: CandidateWorkflowStepView, done: boolean, hasPill: boolean): string {
+  const prefix =
+    step.displayStatus === "submitted"
+      ? "Submitted"
+      : isReferenceVerificationStep(step)
+        ? "Verified"
+        : "Completed";
   const status = done
-    ? formatShortDate(step.completedAt, isReferenceVerificationStep(step) ? "Verified" : "Completed") ??
-      stepDisplayStatusLabel(step)
+    ? formatShortDate(step.completedAt, prefix) ?? (hasPill ? null : stepDisplayStatusLabel(step))
     : hasPill
       ? null
       : stepDisplayStatusLabel(step);
@@ -65,15 +71,7 @@ function SummaryText({ summary }: { summary: string }) {
   return (
     <>
       {summary.split(/(•)/).map((part, i) => (
-        <span
-          key={`${i}-${part}`}
-          style={{
-            color:
-              /\bIn Progress\b/i.test(part) && !/\bCurrent Step\b/i.test(part)
-                ? "var(--brand-secondary)"
-                : "var(--brand-primary)",
-          }}
-        >
+        <span key={`${i}-${part}`} style={{ color: hireStageSummaryPartColor(part) }}>
           {part}
         </span>
       ))}
@@ -229,7 +227,8 @@ function PostTaskCard({
   refreshingId: string | null;
   onRefreshStep?: (stepId: string) => void;
 }) {
-  const done = isStepDone(step);
+  // Skipped steps were never done, so they keep the in-progress icon.
+  const done = isStepDone(step) && step.displayStatus !== "skipped";
   const pill = stepStatusPill(step);
   const rejected = step.displayStatus === "rejected" || step.displayStatus === "blocked";
   const settled = done || rejected || stepDecision(step) != null;
@@ -238,9 +237,10 @@ function PostTaskCard({
 
   return (
     <div
-      className="flex w-full items-center gap-2 rounded-xl border bg-white px-3 py-3 transition hover:shadow-sm"
+      className="flex w-full items-center gap-2 rounded-xl border px-3 py-3 transition"
       style={{
-        borderColor: settled ? "#E8ECF0" : "color-mix(in srgb, var(--brand-primary) 40%, #E8ECF0)",
+        backgroundColor: settled ? "var(--hj-completed-bg, #FFFFFF)" : "#FFFFFF",
+        borderColor: "var(--hj-step-border, #E8ECF0)",
       }}
     >
       <button
@@ -279,7 +279,14 @@ function PostTaskCard({
           {pill.label}
         </span>
       ) : done ? (
-        <HireFigmaIcon src={PRE_HIRE_UI_ICONS.stageCheckOutlineGreen} width={22} height={22} className="shrink-0" />
+        <HireFigmaIcon
+          src={PRE_HIRE_UI_ICONS.stageCheckOutlineGreen}
+          width={22}
+          height={22}
+          tint="var(--hj-complete, #12AA00)"
+          tintGreen
+          className="shrink-0"
+        />
       ) : (
         <StepRefreshButton step={step} refreshingId={refreshingId} onRefreshStep={onRefreshStep} />
       )}
@@ -358,9 +365,18 @@ function PostStageColumn({
     <section
       aria-label={`${stage.name} stage`}
       className={`flex min-h-[420px] min-w-[260px] flex-1 basis-0 flex-col overflow-hidden rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.04)] ${
-        locked ? "border-[#E8ECF0] bg-[#F8FAFC]" : completed ? "border-transparent bg-white" : "border-[#E8ECF0]"
+        locked ? "border-[#E8ECF0] bg-[#F8FAFC]" : "border-[#E8ECF0] bg-white"
       }`}
-      style={current ? { backgroundColor: "color-mix(in srgb, var(--brand-primary) 6%, white)" } : undefined}
+      style={
+        current
+          ? {
+              backgroundColor: "color-mix(in srgb, var(--hj-progress-bg, var(--brand-primary)) 10%, white)",
+              borderColor: "var(--hj-progress-bg, var(--brand-primary))",
+            }
+          : completed
+            ? { backgroundColor: "var(--hj-completed-bg, #FFFFFF)" }
+            : undefined
+      }
     >
       <header className="flex items-start gap-3 border-b border-[#E8ECF0]/60 px-3 py-3.5 sm:px-4">
         <span
@@ -370,7 +386,13 @@ function PostStageColumn({
           style={
             locked
               ? undefined
-              : { backgroundColor: completed ? "#12AA00" : "var(--brand-secondary)" }
+              : {
+                  backgroundColor: completed
+                    ? "var(--hj-complete, #12AA00)"
+                    : current
+                      ? "var(--hj-progress-bg, var(--brand-primary))"
+                      : "var(--hj-icon, var(--brand-secondary))",
+                }
           }
         >
           {index + 1}
@@ -381,7 +403,13 @@ function PostStageColumn({
           </h3>
           <p className="mt-0.5 inline-flex items-center gap-1.5 text-xs font-medium sm:text-sm">
             {completed ? (
-              <HireFigmaIcon src={PRE_HIRE_UI_ICONS.doubleCheck} width={14} height={14} className="shrink-0" />
+              <HireFigmaIcon
+                src={PRE_HIRE_UI_ICONS.doubleCheck}
+                width={14}
+                height={14}
+                tint="var(--hj-complete, #12AA00)"
+                className="shrink-0"
+              />
             ) : null}
             {locked ? (
               <>

@@ -48,6 +48,8 @@ export type StepCategory = {
   id: string;
   label: string;
   steps: StepDefinition[];
+  /** Catalog steps from this stage that are already on the canvas. */
+  takenSteps?: StepDefinition[];
 };
 
 export type StepSettings = {
@@ -69,6 +71,9 @@ export type StepSettings = {
   conditionalLogic: string;
   firmaRecruiterTemplateId?: string;
   firmaRecruiterTemplateName?: string;
+  /** Optional candidate email sent when this step is completed. Empty means no email. */
+  emailTemplateKey?: string;
+  emailTemplateName?: string;
   /** Candidate screen content for Post-Hire steps (see lib/onboarding/post-hire-step-screens.ts). */
   applicantInstructions?: string;
   contentUrl?: string;
@@ -86,6 +91,8 @@ export type WorkflowNodeData = {
   settings: StepSettings;
   onDelete?: (id: string) => void;
   phaseBanner?: "pre_hire" | "placement_gate" | null;
+  /** Set when the step's library stage conflicts with its Pre-Hire / Post-Hire phase. */
+  alienStageWarning?: string | null;
   [key: string]: unknown;
 };
 
@@ -135,4 +142,6 @@ export const DEFAULT_STEP_SETTINGS: StepSettings = {
   conditionalLogic: "If result = fail → Pause flow + notify",
   firmaRecruiterTemplateId: "",
   firmaRecruiterTemplateName: "",
+  emailTemplateKey: "",
+  emailTemplateName: "",
 };

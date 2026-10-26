@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
 import type { EmploymentType } from "@/lib/jobs/types";
@@ -35,11 +35,9 @@ type OptionsPayload = {
 type FormState = {
   id?: string;
   professionId: string;
-  specialtyId: string;
   employmentType: EmploymentType;
   location: string;
   locationType: string;
-  yearsOfExperience: string;
   workflowId: string;
   priority: number;
   isActive: boolean;
@@ -47,11 +45,9 @@ type FormState = {
 
 const emptyForm = (): FormState => ({
   professionId: "",
-  specialtyId: "",
   employmentType: "W2",
   location: "",
   locationType: "",
-  yearsOfExperience: "",
   workflowId: "",
   priority: 100,
   isActive: true,
@@ -65,6 +61,10 @@ const modalInputClass =
 
 function employmentLabel(type: EmploymentType): string {
   return type === "Contract" ? "RNR" : type;
+}
+
+function isProfessionId(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 function criteriaSummary(mapping: MappingItem): string {
@@ -115,12 +115,6 @@ export default function WorkflowMappingsClient() {
       .finally(() => setLoading(false));
   }, [loadMappings, loadOptions]);
 
-  const specialtyOptions = useMemo(() => {
-    if (!options) return [];
-    if (!form.professionId) return options.specialties;
-    return options.specialties.filter((item) => item.profession_id === form.professionId);
-  }, [form.professionId, options]);
-
   function openCreate(prefill?: Partial<FormState>) {
     setForm({ ...emptyForm(), ...prefill });
     setFormOpen(true);
@@ -131,7 +125,7 @@ export default function WorkflowMappingsClient() {
     const employmentType = searchParams.get("employmentType") as EmploymentType | null;
     const workflowId = searchParams.get("workflowId");
     if (professionId || employmentType || workflowId) {
-      setFilterProfession(professionId ?? "");
+      setFilterProfession(professionId && isProfessionId(professionId) ? professionId : "");
       setFilterEmployment(employmentType ?? "");
       openCreate({
         professionId: professionId ?? "",
@@ -151,11 +145,9 @@ export default function WorkflowMappingsClient() {
     setForm({
       id: mapping.id,
       professionId: mapping.professionId ?? "",
-      specialtyId: mapping.specialtyId ?? "",
       employmentType: mapping.employmentType,
       location: mapping.location ?? "",
       locationType: mapping.locationType ?? "",
-      yearsOfExperience: mapping.yearsOfExperience ?? "",
       workflowId: mapping.workflowId,
       priority: mapping.priority,
       isActive: mapping.isActive,
@@ -169,11 +161,11 @@ export default function WorkflowMappingsClient() {
       const body = {
         id: form.id,
         professionId: form.professionId || null,
-        specialtyId: form.specialtyId || null,
+        specialtyId: null,
         employmentType: form.employmentType,
         location: form.location || null,
         locationType: form.locationType || null,
-        yearsOfExperience: form.yearsOfExperience || null,
+        yearsOfExperience: null,
         workflowId: form.workflowId,
         priority: form.priority,
         isActive: form.isActive,
@@ -190,7 +182,7 @@ export default function WorkflowMappingsClient() {
       if (!response.ok) throw new Error(payload.error || "Failed to save mapping");
       toast.success(form.id ? "Mapping updated" : "Mapping created");
       setFormOpen(false);
-      await loadMappings();
+      await Promise.all([loadMappings(), loadOptions()]);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to save mapping");
     } finally {
@@ -255,11 +247,13 @@ export default function WorkflowMappingsClient() {
               onChange={(e) => setFilterProfession(e.target.value)}
             >
               <option value="">All professions</option>
-              {options?.professions.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
+              {options?.professions
+                .filter((item) => isProfessionId(item.id))
+                .map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
             </select>
           </label>
           <label className="block w-full text-sm sm:w-[220px]">
@@ -427,30 +421,10 @@ export default function WorkflowMappingsClient() {
                 <select
                   className={modalInputClass}
                   value={form.professionId}
-                  onChange={(e) =>
-                    setForm((c) => ({ ...c, professionId: e.target.value, specialtyId: "" }))
-                  }
+                  onChange={(e) => setForm((c) => ({ ...c, professionId: e.target.value }))}
                 >
                   <option value="">Any profession</option>
                   {options?.professions.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-sm">
-                <span className="mb-1.5 block text-xs font-medium text-[#374151]">
-                  Specialty (optional)
-                </span>
-                <select
-                  className={modalInputClass}
-                  value={form.specialtyId}
-                  onChange={(e) => setForm((c) => ({ ...c, specialtyId: e.target.value }))}
-                  disabled={!form.professionId}
-                >
-                  <option value="">Any specialty</option>
-                  {specialtyOptions.map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.name}
                     </option>
@@ -483,17 +457,6 @@ export default function WorkflowMappingsClient() {
                   value={form.location}
                   onChange={(e) => setForm((c) => ({ ...c, location: e.target.value }))}
                   placeholder="e.g. Dallas, TX"
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="mb-1.5 block text-xs font-medium text-[#374151]">
-                  Years of experience (optional)
-                </span>
-                <input
-                  className={modalInputClass}
-                  value={form.yearsOfExperience}
-                  onChange={(e) => setForm((c) => ({ ...c, yearsOfExperience: e.target.value }))}
-                  placeholder="e.g. 3+"
                 />
               </label>
               <label className="block text-sm">

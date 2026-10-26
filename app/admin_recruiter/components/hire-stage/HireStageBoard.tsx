@@ -27,7 +27,7 @@ import { HireStageSidebar, type HireStageSidebarProfile } from "./HireStageSideb
 import { HireStageStepper } from "./HireStageStepper";
 import { PostHireStageColumns, PostHireSummaryBanner } from "./PostHireStageColumns";
 
-import { hasCompletedAgreementEsignStep } from "@/lib/onboarding/lock-post-hire";
+import { areAllRequiredPreHireStepsComplete } from "@/lib/onboarding/lock-post-hire";
 
 function formatLongDate(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -101,19 +101,12 @@ export function HireStageBoard({
       ? "Track every step before someone becomes part of your team."
       : "Track onboarding steps after the candidate joins your team.";
 
-  const agreementEsignComplete =
-    lifecycle === "pre_hire" &&
-    hasCompletedAgreementEsignStep(steps);
+  const requiredPreHireDone =
+    lifecycle === "pre_hire" && areAllRequiredPreHireStepsComplete(steps);
+  const preHireComplete = requiredPreHireDone && Boolean(phaseView?.postHireVisible);
 
-  const preHireComplete =
-    lifecycle === "pre_hire" &&
-    assigned &&
-    steps.length > 0 &&
-    (progressMeta.percent === 100 || agreementEsignComplete || Boolean(phaseView?.postHireVisible));
-
-  // Pre-Hire is done but the application isn't hired yet: proceeding hires them, which unlocks Post-Hire.
-  const canActivatePostHire =
-    preHireComplete && Boolean(applicationId) && !phaseView?.postHireVisible && !phaseView?.isHired;
+  // Unlock happens when the last required Pre-Hire step is completed. This button only opens the tab.
+  const canActivatePostHire = false;
   const [activatingPostHire, setActivatingPostHire] = useState(false);
   const [activatePostHireError, setActivatePostHireError] = useState<string | null>(null);
 
@@ -292,9 +285,13 @@ export function HireStageBoard({
                   : "Hired / Post-Hire Onboarding"
               }
               hiredAt={formatLongDate(phaseView?.hiredAt)}
-              percent={progressMeta.percent}
-              completedSteps={stages.reduce((sum, stage) => sum + stage.completedCount, 0)}
-              totalSteps={stages.reduce((sum, stage) => sum + stage.steps.length, 0)}
+              percent={
+                progressMeta.totalStages > 0
+                  ? Math.round((progressMeta.completedStages / progressMeta.totalStages) * 100)
+                  : 0
+              }
+              completedSteps={progressMeta.completedStages}
+              totalSteps={progressMeta.totalStages}
               lastUpdated={formatLongDate(phaseView?.phaseStartedAt ?? assignment?.assignedAt)}
               aiAnalysisHref={aiAnalysisHref}
             />
@@ -326,7 +323,7 @@ export function HireStageBoard({
               progressPercent={progressMeta.percent}
               progressLabel={progressMeta.label}
               lastUpdated={formatLongDate(phaseView?.phaseStartedAt ?? assignment?.assignedAt)}
-              showProceedToPostHire={preHireComplete}
+              showProceedToPostHire={preHireComplete && phaseView?.workflowHasPostHireSteps !== false}
               proceedDisabledReason={proceedDisabledReason}
               aiAnalysisHref={aiAnalysisHref}
               proceedBusy={activatingPostHire}

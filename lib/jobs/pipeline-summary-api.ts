@@ -2,8 +2,41 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireStaffApiSession } from "@/lib/auth/api-session";
 import { resolveStaffTenantId } from "@/lib/jobs/tenant";
-import { tallyJobPipelineSummary, type JobPipelineSummary } from "@/lib/jobs/pipeline-summary";
+import {
+  loadConvertedIdentitiesForApplications,
+  withoutConvertedWorkerApplications,
+} from "@/lib/admin/converted-worker-identities";
+import {
+  tallyJobPipelineSummary,
+  type JobPipelineSummary,
+  type JobPipelineSummaryRow,
+} from "@/lib/jobs/pipeline-summary";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+
+const PIPELINE_APPLICATION_SELECT =
+  "id, worker_id, status, status_id, application_statuses!status_id(system_key, name)";
+
+type PipelineApplicationRow = JobPipelineSummaryRow & {
+  id?: string | null;
+  worker_id?: string | null;
+};
+
+/** Applications that still appear on the Job candidates list for this job. */
+export async function loadVisibleJobApplications(
+  supabase: SupabaseClient,
+  tenantId: string,
+  jobId: string
+): Promise<PipelineApplicationRow[]> {
+  const { data, error } = await supabase
+    .from("job_applications")
+    .select(PIPELINE_APPLICATION_SELECT)
+    .eq("job_requisition_id", jobId)
+    .eq("tenant_id", tenantId);
+  if (error) throw error;
+  const applications = (data ?? []) as PipelineApplicationRow[];
+  const identities = await loadConvertedIdentitiesForApplications(supabase, applications);
+  return withoutConvertedWorkerApplications(applications, identities);
+}
 
 export async function loadJobPipelineSummaryForStaff(
   supabase: SupabaseClient,
@@ -19,12 +52,7 @@ export async function loadJobPipelineSummaryForStaff(
   if (jobError) throw jobError;
   if (!job) return { error: "Job not found", status: 404 };
 
-  const { data: applications, error: appsError } = await supabase
-    .from("job_applications")
-    .select("id, status, status_id, application_statuses!status_id(system_key, name)")
-    .eq("job_requisition_id", jobId)
-    .eq("tenant_id", tenantId);
-  if (appsError) throw appsError;
+  const applications = await loadVisibleJobApplications(supabase, tenantId, jobId);
 
   const showSubmission =
     String(job.source_type ?? "")

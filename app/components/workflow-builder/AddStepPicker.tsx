@@ -1,15 +1,25 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Search, X } from "lucide-react";
+import { FileText, Search, X } from "lucide-react";
 
-import { CARD_BORDER, GOLD, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY } from "./constants";
+import { CARD_BORDER, GOLD, TEXT_PRIMARY, TEXT_SECONDARY } from "./constants";
 import { filterStepLibrary, findCustomStepDefinition } from "./filter-step-library";
+import { resolveHireLibraryIconPath } from "./hire-library-icons";
+import {
+  isCustomStepsCategory,
+  LIBRARY_THEME_COLORS,
+  resolveCategoryDisplayLabel,
+  resolveCategoryThemeColor,
+  resolveStepThemeColor,
+  withAlpha,
+} from "./library-category-theme";
 import type { StepCategory, StepDefinition } from "./types";
 
 type AddStepPickerProps = {
   open: boolean;
   categories: StepCategory[];
+  slotStage?: string | null;
   onSelect: (step: StepDefinition) => void;
   onClose: () => void;
 };
@@ -17,6 +27,7 @@ type AddStepPickerProps = {
 export default function AddStepPicker({
   open,
   categories,
+  slotStage = null,
   onSelect,
   onClose,
 }: AddStepPickerProps) {
@@ -67,13 +78,20 @@ export default function AddStepPicker({
           className="flex shrink-0 items-center justify-between border-b px-5 py-4"
           style={{ borderColor: CARD_BORDER }}
         >
-          <h2
-            id="add-workflow-step-title"
-            className="text-sm font-semibold"
-            style={{ color: TEXT_PRIMARY }}
-          >
-            Add Workflow Step
-          </h2>
+          <div className="min-w-0">
+            <h2
+              id="add-workflow-step-title"
+              className="text-sm font-semibold"
+              style={{ color: TEXT_PRIMARY }}
+            >
+              Add Workflow Step
+            </h2>
+            {slotStage ? (
+              <p className="mt-1 text-[11px] leading-4" style={{ color: TEXT_SECONDARY }}>
+                Only {slotStage} steps can be added between these steps.
+              </p>
+            ) : null}
+          </div>
           <button
             type="button"
             onClick={onClose}
@@ -92,7 +110,8 @@ export default function AddStepPicker({
               color="#98a2b3"
             />
             <input
-              type="search"
+              type="text"
+              role="searchbox"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search steps..."
@@ -132,48 +151,56 @@ export default function AddStepPicker({
               </div>
             </div>
           ) : (
-            filtered.map((category) => (
-              <section key={category.id} className="mb-5 last:mb-0">
-                <h3
-                  className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em]"
-                  style={{ color: TEXT_MUTED }}
-                >
-                  {category.label}
-                </h3>
-                <ul className="flex flex-col gap-1.5">
-                  {category.steps.map((step) => (
-                    <li key={step.id}>
-                      <button
-                        type="button"
-                        onClick={() => onSelect(step)}
-                        className="flex w-full items-center gap-2 rounded-lg border bg-white px-3 py-2.5 text-left transition hover:border-[#BC8B41] hover:bg-[#faf6ef]"
-                        style={{ borderColor: CARD_BORDER }}
-                      >
-                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md">
-                          {step.icon}
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span
-                            className="block truncate text-xs font-semibold"
-                            style={{ color: TEXT_PRIMARY }}
-                          >
-                            {step.label}
-                          </span>
-                          {step.description ? (
-                            <span
-                              className="mt-0.5 block truncate text-[11px]"
-                              style={{ color: TEXT_SECONDARY }}
-                            >
-                              {step.description}
-                            </span>
-                          ) : null}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ))
+            filtered
+              .filter((category) => category.steps.length > 0)
+              .map((category) => {
+                const customStepsCategory = isCustomStepsCategory(category.id);
+                const categoryColor = customStepsCategory
+                  ? LIBRARY_THEME_COLORS.slate
+                  : resolveCategoryThemeColor(category.id, category.label);
+                const categoryLabel = resolveCategoryDisplayLabel(category.id, category.label);
+
+                return (
+                  <section
+                    key={category.id}
+                    className="mb-3 overflow-hidden rounded-lg border last:mb-0"
+                    style={
+                      customStepsCategory
+                        ? { borderColor: CARD_BORDER, backgroundColor: "#FFFFFF" }
+                        : {
+                            borderColor: withAlpha(categoryColor, 0.35),
+                            backgroundColor: withAlpha(categoryColor, 0.06),
+                          }
+                    }
+                  >
+                    <h3
+                      className="border-b px-2.5 py-2 font-[Inter,sans-serif] text-[12px] font-semibold leading-4"
+                      style={
+                        customStepsCategory
+                          ? { borderColor: CARD_BORDER, backgroundColor: "#FFFFFF", color: "#000000" }
+                          : {
+                              borderColor: withAlpha(categoryColor, 0.2),
+                              backgroundColor: withAlpha(categoryColor, 0.1),
+                              color: "#000000",
+                            }
+                      }
+                    >
+                      {categoryLabel}
+                    </h3>
+                    <ul className="flex flex-col gap-1.5 p-2">
+                      {category.steps.map((step) => (
+                        <PickerStepButton
+                          key={step.id}
+                          step={step}
+                          categoryId={category.id}
+                          categoryLabel={category.label}
+                          onSelect={onSelect}
+                        />
+                      ))}
+                    </ul>
+                  </section>
+                );
+              })
           )}
         </div>
 
@@ -192,5 +219,59 @@ export default function AddStepPicker({
         </div>
       </div>
     </div>
+  );
+}
+
+function PickerStepButton({
+  step,
+  categoryId,
+  categoryLabel,
+  onSelect,
+}: {
+  step: StepDefinition;
+  categoryId: string;
+  categoryLabel: string;
+  onSelect: (step: StepDefinition) => void;
+}) {
+  const customStep = isCustomStepsCategory(categoryId);
+  const themeColor = customStep
+    ? LIBRARY_THEME_COLORS.slate
+    : resolveStepThemeColor(step, categoryId, categoryLabel);
+  const iconPath = resolveHireLibraryIconPath(step.id, step.iconKey);
+
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => onSelect(step)}
+        className="flex w-full items-center gap-2 rounded-lg border bg-white px-2 py-2 text-left transition hover:shadow-sm"
+        style={{ borderColor: customStep ? CARD_BORDER : withAlpha(themeColor, 0.35) }}
+      >
+        <span
+          className="flex h-[30px] w-[30px] shrink-0 items-center justify-center overflow-hidden rounded-md"
+          style={{ backgroundColor: themeColor }}
+        >
+          {iconPath ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={iconPath} alt="" className="h-5 w-5 object-contain brightness-0 invert" />
+          ) : (
+            <FileText size={20} className="text-white" strokeWidth={2} />
+          )}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span
+            className="block whitespace-normal break-words font-[Inter,sans-serif] text-[12px] font-semibold leading-4"
+            style={{ color: "#374151" }}
+          >
+            {step.label}
+          </span>
+          {step.description ? (
+            <span className="mt-0.5 block truncate text-[11px]" style={{ color: TEXT_SECONDARY }}>
+              {step.description}
+            </span>
+          ) : null}
+        </span>
+      </button>
+    </li>
   );
 }

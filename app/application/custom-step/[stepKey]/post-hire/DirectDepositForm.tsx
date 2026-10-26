@@ -25,6 +25,7 @@ type Summary = {
 
 export default function DirectDepositForm({
   stepKey: _stepKey,
+  stepId,
   applicantId: _applicantId,
   applicationId: _applicationId,
   tenantSlug: _tenantSlug,
@@ -32,9 +33,11 @@ export default function DirectDepositForm({
   authorizationText,
   isPreview: _isPreview,
   submit,
+  persistDraft,
   actions,
 }: {
   stepKey: string;
+  stepId?: string;
   applicantId: string | null;
   applicationId: string | null;
   tenantSlug: string | null;
@@ -42,11 +45,12 @@ export default function DirectDepositForm({
   authorizationText: string;
   isPreview: boolean;
   submit: (fields: PostHireSubmissionField[], extra?: Record<string, unknown>) => Promise<void>;
+  persistDraft?: (extra: Record<string, unknown>) => Promise<void>;
   actions: ActionRowProps;
 }) {
   const onboarding = useOnboardingConfigOptional();
-  const progressRow = onboarding?.progress?.steps.find(
-    (row) => row.step_key === _stepKey || row.onboarding_step_id === _stepKey
+  const progressRow = onboarding?.progress?.steps.find((row) =>
+    stepId ? row.onboarding_step_id === stepId : row.step_key === _stepKey
   );
   const rowData = (progressRow?.data && typeof progressRow.data === "object" ? progressRow.data : {}) as Record<string, unknown>;
   const isAlreadyConfirmed = Boolean(
@@ -66,6 +70,24 @@ export default function DirectDepositForm({
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  async function handleCheckboxChange(checked: boolean) {
+    setAuthorized(checked);
+    setError("");
+    if (!persistDraft) return;
+    try {
+      await persistDraft({
+        checkbox_confirmed: checked,
+        checkbox_label: authorizationText,
+        authorized: checked,
+        direct_deposit_confirmed: checked,
+        response: checked ? authorizationText : "",
+        confirmed_at: checked ? new Date().toISOString() : null,
+      });
+    } catch {
+      // Draft save failures should not block the candidate from continuing.
+    }
+  }
 
   /*
   const routingDigits = routing.replace(/\D/g, "");
@@ -237,7 +259,11 @@ export default function DirectDepositForm({
       */}
 
       <Section>
-        <CheckboxRow id="dd-authorize" checked={authorized} onChange={setAuthorized}>
+        <CheckboxRow
+          id="dd-authorize"
+          checked={authorized}
+          onChange={(checked) => void handleCheckboxChange(checked)}
+        >
           {authorizationText}
         </CheckboxRow>
       </Section>

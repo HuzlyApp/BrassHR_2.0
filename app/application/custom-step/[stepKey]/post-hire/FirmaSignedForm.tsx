@@ -30,6 +30,8 @@ export default function FirmaSignedForm({
 }) {
   const [agreed, setAgreed] = useState(false);
   const [signed, setSigned] = useState(false);
+  const [signingRequestId, setSigningRequestId] = useState<string | null>(null);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const templateName = readFirmaTemplateSettings(
@@ -39,6 +41,13 @@ export default function FirmaSignedForm({
     setSigned(value);
     if (value) setAgreed(true);
   }, []);
+  const handleSignedDocument = useCallback(
+    (document: { signingRequestId: string | null; downloadUrl: string | null }) => {
+      setSigningRequestId(document.signingRequestId);
+      setDownloadUrl(document.downloadUrl);
+    },
+    []
+  );
 
   async function handleContinue() {
     setError("");
@@ -54,7 +63,15 @@ export default function FirmaSignedForm({
           { label: "Statement", value: acknowledgmentText },
           { label: "Signed on", value: new Date().toLocaleDateString("en-US") },
         ],
-        { signing_provider: "firma", firma_signed: true, authorization_agreed: true }
+        {
+          signing_provider: "firma",
+          firma_signed: true,
+          authorization_agreed: true,
+          ...(signingRequestId ? { signing_request_id: signingRequestId } : {}),
+          ...(downloadUrl
+            ? { download_url: downloadUrl, signed_document_url: downloadUrl }
+            : {}),
+        }
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save your progress");
@@ -79,6 +96,7 @@ export default function FirmaSignedForm({
           signerEmailLoading={signerEmailLoading}
           agreed={agreed}
           onSignedChange={handleSignedChange}
+          onSignedDocument={handleSignedDocument}
           documentTitle={templateName ?? step.title}
         />
       </div>

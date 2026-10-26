@@ -1,9 +1,11 @@
 import { isUploadResumeStep } from "@/lib/onboarding/enforce-upload-resume-first";
 import { applicantStepHasNavigableScreen } from "@/lib/onboarding/applicant-step-navigability";
 import { readStepTemplatePhase } from "@/lib/onboarding/workflow-phase";
+import { isTenantStepBlocking } from "@/lib/onboarding/reference-verification";
 import { isUuid } from "@/lib/validation/uuid";
 import type {
   OnboardingStepStatus,
+  StepProgressRow,
   TenantOnboardingStep,
   WorkerOnboardingProgressPayload,
 } from "@/lib/onboarding/types";
@@ -23,17 +25,7 @@ function readStepPhase(step: TenantOnboardingStep): StepPhase {
 }
 
 function isPostHireUnlocked(progress: WorkerOnboardingProgressPayload | null): boolean {
-  if (progress?.workflowPhase === "post_hire" || progress?.workflowPhase === "completed") {
-    return true;
-  }
-  const appStatus = String(progress?.applicationStatus ?? "").toLowerCase();
-  if (appStatus === "hired") return true;
-  for (const step of progress?.steps ?? []) {
-    if (step.data?.transition_approved === true || step.data?.post_hire_unlocked === true) {
-      return true;
-    }
-  }
-  return false;
+  return progress?.workflowPhase === "post_hire" || progress?.workflowPhase === "completed";
 }
 
 function preferStatus(
@@ -43,6 +35,20 @@ function preferStatus(
   const currentRank = PROGRESS_STATUS_RANK[(current as OnboardingStepStatus) ?? "pending"] ?? 0;
   const nextRank = PROGRESS_STATUS_RANK[next as OnboardingStepStatus] ?? 0;
   return nextRank >= currentRank ? next : (current ?? "pending");
+}
+
+/** Progress row for a configured step. Placeholder ids may match a published row by step_key. */
+export function findProgressRowForStep(
+  steps: StepProgressRow[] | null | undefined,
+  step: { id: string; step_key?: string | null }
+): StepProgressRow | null {
+  const rows = steps ?? [];
+  const byId = rows.find((row) => row.onboarding_step_id === step.id);
+  if (byId) return byId;
+  if (isUuid(step.id)) return null;
+  const key = step.step_key?.trim();
+  if (!key) return null;
+  return rows.find((row) => row.step_key === key) ?? null;
 }
 
 /**
@@ -77,10 +83,7 @@ export function buildProgressStatusMaps(
       // Published steps own their progress row by id (republish keeps ids stable). Keys are
       // shared by unrelated steps across flows, so only placeholder ids may resolve through them.
       if (isUuid(step.id)) {
-        const idStatus = byStepId.get(step.id);
-        if (idStatus && idStatus !== "pending") {
-          return [step.id, idStatus] as const;
-        }
+        return [step.id, byStepId.get(step.id) ?? "pending"] as const;
       }
       const baseKey = step.step_key.replace(/_\d+$/, "");
       const status =
@@ -125,7 +128,7 @@ export function computeMaxAllowedStepIndexFromProgress(
       } else if (st === "in_progress") {
         max = Math.max(max, i + 1);
         break;
-      } else if (!enabledSteps[i]!.is_required) {
+      } else if (!isTenantStepBlocking(enabledSteps[i]!)) {
         max = Math.max(max, i + 2);
       } else if (!applicantStepHasNavigableScreen(enabledSteps[i]!, enabledSteps)) {
         max = Math.max(max, i + 2);

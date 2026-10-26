@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { canRevealPostHire, isAgreementEsignStep, isAuthoritativelyHired } from "@/lib/onboarding/lock-post-hire";
-import { parseApplicantLifecyclePhase, type ApplicantLifecyclePhase } from "@/lib/onboarding/workflow-phase";
+import { isAuthoritativelyHired } from "@/lib/onboarding/lock-post-hire";
+import { requiredPreHireStepsComplete } from "@/lib/onboarding/required-pre-hire-gate";
+import { isTerminalApplicationStatus, parseApplicantLifecyclePhase, type ApplicantLifecyclePhase } from "@/lib/onboarding/workflow-phase";
 
 export type CandidateApplicationPhaseRow = {
   status?: string | null;
@@ -56,8 +57,8 @@ export function resolveCandidateHireGate(applications: CandidateApplicationPhase
 }
 
 /**
- * Staff access to individual Post-Hire step records: after conversion, or once
- * an application is hired (Post-Hire activated) and not suspended.
+ * Staff can open Post-Hire step records only after every required Pre-Hire
+ * step in that application's dynamic workflow is finished.
  */
 export async function canStaffAccessPostHireSteps(
   supabase: SupabaseClient,
@@ -72,69 +73,32 @@ export async function canStaffAccessPostHireSteps(
     };
   }
 ): Promise<boolean> {
-  if (
-    canRevealPostHire({
-      workerStatus: asText(params.worker.status),
-      convertedAt: asText(params.worker.converted_at),
-      convertedWorkerId: asText(params.worker.converted_worker_id),
-      conversionStatus: asText(params.worker.conversion_status),
-    })
-  ) {
-    return true;
-  }
   const { data } = await supabase
     .from("job_applications")
-    .select("status, workflow_phase, post_hire_activated_at, post_hire_suspended_at, created_at")
+    .select("id, status, post_hire_suspended_at, applicant_workflow_instance_id, created_at")
     .eq("tenant_id", params.tenantId)
     .eq("worker_id", params.workerId)
     .order("created_at", { ascending: false });
-  const gate = resolveCandidateHireGate((data ?? []) as CandidateApplicationPhaseRow[]);
-  if (gate.isHired && !gate.postHireSuspended) {
-    return true;
-  }
 
-  // If candidate has completed the Agreement eSign step in pre-hire, Post-Hire is accessible.
-  try {
-    const { data: stepProgress } = await supabase
-      .from("worker_onboarding_step_progress")
-      .select("onboarding_step_id, status")
-      .eq("worker_id", params.workerId)
-      .in("status", ["completed", "approved"]);
-    if (stepProgress && stepProgress.length > 0) {
-      const ids = stepProgress.map((r) => r.onboarding_step_id).filter(Boolean);
-      const { data: steps } = await supabase
-        .from("tenant_onboarding_steps")
-        .select("id, step_key, step_type, title, metadata")
-        .in("id", ids);
-      const signed = (steps ?? []).some((s) =>
-        isAgreementEsignStep({
-          snapshotStepId: String(s.metadata?.workflow_step_id ?? ""),
-          stepKey: s.step_key,
-          stepType: s.step_type,
-          title: s.title,
-        })
-      );
-      if (signed) return true;
-    }
+  const applications = (data ?? []) as Array<{
+    id?: string;
+    status?: string | null;
+    post_hire_suspended_at?: string | null;
+    applicant_workflow_instance_id?: string | null;
+  }>;
 
-    const { data: stepRecords } = await supabase
-      .from("applicant_workflow_step_records")
-      .select("step_key, step_type, title, status, metadata, phase")
-      .eq("tenant_id", params.tenantId)
-      .in("status", ["completed", "approved"]);
-    const signedRecord = (stepRecords ?? []).some((record) => {
-      if (record.phase === "post_hire") return false;
-      const meta = record.metadata as Record<string, unknown> | null | undefined;
-      return isAgreementEsignStep({
-        snapshotStepId: String(meta?.workflow_step_id ?? ""),
-        stepKey: record.step_key,
-        stepType: record.step_type,
-        title: record.title,
-      });
+  for (const application of applications) {
+    const applicationId = asText(application.id);
+    if (!applicationId) continue;
+    if (isTerminalApplicationStatus(application.status)) continue;
+    if (asText(application.post_hire_suspended_at)) continue;
+    const ready = await requiredPreHireStepsComplete(supabase, {
+      tenantId: params.tenantId,
+      workerId: params.workerId,
+      applicationId,
+      workflowInstanceId: asText(application.applicant_workflow_instance_id),
     });
-    if (signedRecord) return true;
-  } catch {
-    /* ignore fallback query error */
+    if (ready) return true;
   }
 
   return false;

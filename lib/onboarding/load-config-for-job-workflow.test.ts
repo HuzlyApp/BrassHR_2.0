@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  attachWorkflowDocuments,
   configFromJobWorkflowDraft,
   matchPublishedStepForJobDraft,
+  unmatchedJobWorkflowDrafts,
 } from "@/lib/onboarding/load-config-for-job-workflow";
 import type { TenantOnboardingConfig } from "@/lib/onboarding/types";
 import type { SerializableWorkflowState } from "@/lib/onboarding/workflow-builder-serialization";
@@ -127,6 +129,37 @@ describe("matchPublishedStepForJobDraft", () => {
     );
     expect(matched?.id).toBe("uuid-skill");
   });
+
+  it("does not reuse a different library step of the same type", () => {
+    const matched = matchPublishedStepForJobDraft(
+      [
+        {
+          id: "uuid-background",
+          step_key: "authorization_background_check",
+          title: "Authorization / Background Check",
+          description: null,
+          step_type: "custom_question",
+          sort_order: 40,
+          is_required: true,
+          is_enabled: true,
+          metadata: { workflow_step_id: "background-check" },
+        },
+      ],
+      {
+        step_key: "custom_question",
+        title: "Collect references",
+        description: "",
+        step_type: "custom_question",
+        sort_order: 40,
+        is_required: true,
+        is_enabled: true,
+        metadata: { workflow_step_id: "collect-references", workflow_node_id: "rnr-healthcare-04" },
+        required_documents: [],
+      },
+      new Set()
+    );
+    expect(matched).toBeNull();
+  });
 });
 
 describe("configFromJobWorkflowDraft", () => {
@@ -166,5 +199,101 @@ describe("configFromJobWorkflowDraft", () => {
     expect(config.steps[1]?.title).toBe("RN License");
     expect(config.requiredDocuments).toHaveLength(1);
     expect(config.skillAssessments).toHaveLength(0);
+  });
+
+  it("uses a catalog anchor id for a job step that is not in the published flow", () => {
+    const withAnchor: TenantOnboardingConfig = {
+      ...published,
+      steps: [
+        ...published.steps,
+        {
+          id: "uuid-job-application",
+          step_key: "profile_information",
+          title: "Job application",
+          description: null,
+          step_type: "profile_information",
+          sort_order: 300000,
+          is_required: true,
+          is_enabled: false,
+          metadata: {
+            workflow_node_id: "rnr-healthcare-02",
+            workflow_step_id: "parameterized-job-application",
+            catalog_anchor: true,
+          },
+        },
+      ],
+    };
+    const flow = draftWithNodes([
+      { id: "node-resume", stepId: "resume-basic-profile", label: "Resume" },
+      { id: "rnr-healthcare-02", stepId: "parameterized-job-application", label: "Job application" },
+    ]);
+
+    const config = configFromJobWorkflowDraft(withAnchor, flow);
+    const jobApplication = config.steps.find((step) => step.step_key === "profile_information");
+    expect(jobApplication?.id).toBe("uuid-job-application");
+    expect(jobApplication?.id.startsWith("preview-")).toBe(false);
+    expect(unmatchedJobWorkflowDrafts(published.steps, [
+      {
+        step_key: "profile_information",
+        title: "Job application",
+        description: "",
+        step_type: "profile_information",
+        sort_order: 20,
+        is_required: true,
+        is_enabled: true,
+        metadata: { workflow_step_id: "parameterized-job-application" },
+        required_documents: [],
+      },
+    ])).toHaveLength(1);
+  });
+});
+
+describe("attachWorkflowDocuments", () => {
+  it("shows the nursing document list on the license step and hides an inactive forklift row", () => {
+    const config = attachWorkflowDocuments(published, [
+      {
+        id: "doc-nursing",
+        code: "NURSING_LICENSE",
+        name: "Nursing license",
+        is_required: true,
+        has_expiration: true,
+        collect_issuing_organization: true,
+        collect_scope: true,
+        collect_validity: true,
+        sort_order: 10,
+        is_active: true,
+      },
+      {
+        id: "doc-ssn",
+        code: "SSN_CARD",
+        name: "SSN card",
+        is_required: true,
+        has_expiration: false,
+        collect_issuing_organization: false,
+        collect_scope: false,
+        collect_validity: false,
+        sort_order: 50,
+        is_active: true,
+      },
+      {
+        id: "doc-forklift",
+        code: "FORKLIFT",
+        name: "Forklift Operator Certification",
+        is_required: true,
+        has_expiration: true,
+        collect_issuing_organization: true,
+        collect_scope: false,
+        collect_validity: false,
+        sort_order: 70,
+        is_active: false,
+      },
+    ]);
+
+    expect(config.requiredDocuments.map((doc) => doc.title)).toEqual([
+      "Nursing license",
+      "SSN card",
+    ]);
+    expect(config.requiredDocuments[0]?.source).toBe("workflow");
+    expect(config.requiredDocuments[1]?.has_expiration).toBe(false);
   });
 });

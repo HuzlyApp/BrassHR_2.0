@@ -1,7 +1,8 @@
 "use client";
 
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
-import { FileText, X, Lock } from "lucide-react";
+import { AlertTriangle, FileText, X, Lock } from "lucide-react";
+import { canvasStepPhaseStageLabel } from "@/lib/onboarding/hire-stage-catalog";
 import { GOLD } from "../constants";
 import { resolveHireLibraryIconPath } from "../hire-library-icons";
 import { resolveCanvasStepThemeColor } from "../library-category-theme";
@@ -13,17 +14,22 @@ export default function StepNode(props: NodeProps<StepNodeType>) {
   const { data, id, selected } = props;
   const onDelete = data.onDelete;
   const lockedFirstStep = data.lockedFirstStep === true;
-  const phaseLabel =
-    data.settings.phase === "post_hire"
-      ? "Post-Hire"
-      : "Pre-Hire";
-
+  const alienStageWarning =
+    typeof data.alienStageWarning === "string" && data.alienStageWarning.trim()
+      ? data.alienStageWarning.trim()
+      : null;
   const stageName =
     typeof (data.settings as { stageName?: unknown }).stageName === "string"
       ? (data.settings as { stageName?: string }).stageName
       : null;
+  const phaseStageLabel = canvasStepPhaseStageLabel({
+    phase: data.settings.phase,
+    stepKey: data.stepId,
+    stageName,
+  });
   const themeColor = resolveCanvasStepThemeColor(data.stepId, stageName);
   const iconPath = resolveHireLibraryIconPath(data.stepId);
+  const borderColor = alienStageWarning ? "#D97706" : selected ? GOLD : themeColor;
 
   return (
     <div className="relative">
@@ -53,7 +59,7 @@ export default function StepNode(props: NodeProps<StepNodeType>) {
       <div
         className="h-[70px] w-[232px] min-h-[46px] min-w-[100px] overflow-hidden rounded-md bg-white transition"
         style={{
-          border: `1px solid ${selected ? GOLD : themeColor}`,
+          border: `1px solid ${borderColor}`,
         }}
       >
         <Handle
@@ -116,34 +122,49 @@ export default function StepNode(props: NodeProps<StepNodeType>) {
             ) : null}
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-slate-700">
-              {phaseLabel}
-            </span>
-          </div>
-
-          <div
-            className="flex items-center gap-1.5"
-            style={{
-              fontFamily: "Inter, Arial, sans-serif",
-              fontWeight: 400,
-              fontSize: "10px",
-              lineHeight: "15px",
-              letterSpacing: "0",
-            }}
-          >
-            <span style={{ color: "#101828" }}>
-              Day {data.day}
-            </span>
-            {data.required ? (
-              <>
-                <span style={{ color: "#d0d5dd" }}>•</span>
-                <span style={{ color: "#DC2626" }}>
-                  Required
+          {alienStageWarning ? (
+            <div
+              className="flex items-start gap-1 text-[9px] font-medium leading-3 text-amber-800"
+              role="alert"
+            >
+              <AlertTriangle size={10} className="mt-px shrink-0" strokeWidth={2.5} aria-hidden />
+              <span>{alienStageWarning}</span>
+            </div>
+          ) : (
+            <>
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span
+                  className="max-w-full truncate rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-slate-700"
+                  title={phaseStageLabel}
+                >
+                  {phaseStageLabel}
                 </span>
-              </>
-            ) : null}
-          </div>
+              </div>
+
+              <div
+                className="flex items-center gap-1.5"
+                style={{
+                  fontFamily: "Inter, Arial, sans-serif",
+                  fontWeight: 400,
+                  fontSize: "10px",
+                  lineHeight: "15px",
+                  letterSpacing: "0",
+                }}
+              >
+                <span style={{ color: "#101828" }}>
+                  Day {data.day}
+                </span>
+                {data.required ? (
+                  <>
+                    <span style={{ color: "#d0d5dd" }}>•</span>
+                    <span style={{ color: "#DC2626" }}>
+                      Required
+                    </span>
+                  </>
+                ) : null}
+              </div>
+            </>
+          )}
         </div>
 
         <Handle

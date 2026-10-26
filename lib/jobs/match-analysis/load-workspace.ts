@@ -41,10 +41,13 @@ function questionsWithAnswers(
   return normalizeAnalysisScreeningQuestions(raw).map((question) => {
     const baseKey = aiScreeningQuestionKey(question.priority, question.question);
     const key = stage === "call_pack" ? baseKey : `${stage}:${baseKey}`;
+    // Prefer the staged key, then fall back to exact question text so reworded
+    // regenerations do not hide notes the recruiter already recorded.
     const saved =
-      stage === "call_pack"
-        ? matchSavedAiScreeningAnswer(answersByKey, key, question.question)
-        : answersByKey.get(key);
+      matchSavedAiScreeningAnswer(answersByKey, key, question.question) ??
+      (stage === "call_pack"
+        ? undefined
+        : matchSavedAiScreeningAnswer(answersByKey, baseKey, question.question));
     return {
       key,
       priority: question.priority,

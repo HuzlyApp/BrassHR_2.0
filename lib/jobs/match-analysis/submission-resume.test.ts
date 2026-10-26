@@ -4,8 +4,12 @@ import {
   isSubmissionResumeFileName,
   mergeSubmissionResume,
   parseSubmissionResume,
+  presentSubmissionResume,
   submissionResumeFileName,
   submissionResumeToPlainText,
+  submissionSectionHeading,
+  submissionSkillParagraphs,
+  SUBMISSION_SECTION_DEFAULTS,
 } from "./submission-resume";
 import { renderSubmissionResumePdf } from "./submission-resume-pdf";
 import type { MatchAnalysisResponse } from "./schema";
@@ -140,7 +144,7 @@ describe("submission résumé pack", () => {
       expect.arrayContaining(["Lead Test Professional", "Test Coordinator"])
     );
     expect(resume.experience[0]?.title).toBe("Lead Test Professional");
-    expect(submissionResumeToPlainText(resume)).toContain("PROFESSIONAL SUMMARY");
+    expect(submissionResumeToPlainText(resume)).toContain("Professional summary");
   });
 
   it("truncates overlong skills instead of failing Zod validation", () => {
@@ -162,8 +166,19 @@ describe("submission résumé pack", () => {
     });
 
     expect(parsed).not.toBeNull();
-    expect(parsed!.skills[0]).toHaveLength(80);
-    expect(parsed!.skills.every((item) => item.length <= 80)).toBe(true);
+    expect(parsed!.skills[0]).toBe(longSkill);
+    expect(parsed!.skills.every((item) => item.length <= 500)).toBe(true);
+
+    const huge = parseSubmissionResume({
+      fullName: "Chris Onyekaba",
+      headline: "IT Project Coordinator",
+      summary: "Experienced PM.",
+      skills: ["S".repeat(600)],
+      experience: [],
+      education: [],
+      licenses: [],
+    });
+    expect(huge!.skills[0]).toHaveLength(500);
 
     const withLongRequirements = analysisFixture();
     withLongRequirements.mandatory_requirements = [
@@ -220,8 +235,100 @@ describe("submission résumé pack", () => {
     expect(parsed!.experience[11]?.company).toBe("Employer 12");
     expect(parsed!.skills).toHaveLength(18);
     expect(parsed!.experience[0]?.location).toBe("Austin, TX");
-    expect(submissionResumeToPlainText(parsed!)).toContain("PROFESSIONAL EXPERIENCE");
+    expect(submissionResumeToPlainText(parsed!)).toContain("Professional experience");
     expect(submissionResumeToPlainText(parsed!)).not.toContain("RELEVANT EXPERIENCE");
+  });
+
+  it("keeps a long skill line, a source heading, and a long bullet list", () => {
+    const skillLine =
+      "Business Analysis: Lean Six Sigma Professional (Yellow Belt), PMP, Excel, Access, Visio, SQL, Data Mapping";
+    const bullets = Array.from({ length: 30 }, (_, index) => `Original bullet ${index + 1} from the source résumé.`);
+    const parsed = parseSubmissionResume({
+      fullName: "Faihad Hassan",
+      headline: "",
+      summaryHeading: "SUMMARY",
+      skillsHeading: "TECHNICAL SKILLS AND CERTIFICATES",
+      experienceHeading: "EXPERIENCE",
+      summary: "15 years of product management.",
+      skills: ["Product Management", skillLine],
+      experience: [
+        {
+          title: "Senior Product Manager",
+          company: "Pacific Gas & Electric (PG&E)",
+          location: "San Francisco, CA",
+          dates: "December 2019 – November 2020",
+          bullets,
+        },
+      ],
+      education: [],
+      licenses: [],
+    });
+
+    expect(parsed).not.toBeNull();
+    expect(parsed!.skills[1]).toBe(skillLine);
+    expect(parsed!.experience[0]?.bullets).toHaveLength(30);
+    expect(submissionSectionHeading(parsed!.summaryHeading, SUBMISSION_SECTION_DEFAULTS.summary)).toBe(
+      "Professional summary"
+    );
+    expect(submissionSectionHeading("", SUBMISSION_SECTION_DEFAULTS.skills)).toBe("Core qualifications");
+    expect(submissionSectionHeading("EXPERIENCE", SUBMISSION_SECTION_DEFAULTS.experience)).toBe(
+      "Professional experience"
+    );
+    expect(submissionSectionHeading("EDUCATION", SUBMISSION_SECTION_DEFAULTS.education)).toBe("Education");
+    expect(submissionSectionHeading("TECHNICAL SKILLS AND CERTIFICATES", SUBMISSION_SECTION_DEFAULTS.licenses)).toBe(
+      "Licenses & certifications"
+    );
+    expect(submissionSkillParagraphs(["PMP", "Jira", "SQL"])).toEqual(["PMP  ·  Jira  ·  SQL"]);
+    expect(submissionSkillParagraphs(["Product Management", skillLine])).toEqual([
+      "Product Management",
+      skillLine,
+    ]);
+    expect(submissionResumeToPlainText(parsed!)).toContain("Professional summary");
+    expect(submissionResumeToPlainText(parsed!)).toContain("Core qualifications");
+  });
+
+  it("keeps the target job title as the headline and cleans symbol-font bullets", () => {
+    const presented = presentSubmissionResume(
+      {
+        fullName: "Faihad Hassan",
+        headline: "IT Project Coordinator / Project Manager",
+        email: "",
+        phone: "",
+        location: "",
+        linkedin: "",
+        summaryHeading: "",
+        skillsHeading: "",
+        experienceHeading: "",
+        educationHeading: "",
+        licensesHeading: "",
+        summary: "\uF0B7 15 years of product management.",
+        skills: ["\u25A1 Product Management", "Business Analysis: Lean Six Sigma"],
+        experience: [
+          {
+            title: "Program Manager III",
+            company: "Western Digital",
+            location: "",
+            dates: "",
+            bullets: ["\uF0B7 Led AI/ML initiatives.", "o Daily scrum with the team."],
+          },
+        ],
+        education: [],
+        licenses: [],
+      },
+      "IT Project Coordinator / Project Manager"
+    );
+
+    expect(presented.headline).toBe("IT Project Coordinator / Project Manager");
+    expect(
+      presentSubmissionResume({ ...presented, headline: "" }, "IT Project Coordinator / Project Manager").headline
+    ).toBe("IT Project Coordinator / Project Manager");
+    expect(presented.summary.startsWith("•")).toBe(true);
+    expect(presented.summary).not.toContain("?");
+    expect(presented.skills[0]).toBe("Product Management");
+    expect(presented.experience[0]?.bullets).toEqual([
+      "Led AI/ML initiatives.",
+      "Daily scrum with the team.",
+    ]);
   });
 
   it("keeps identity from the fallback when the model omits contact fields", () => {

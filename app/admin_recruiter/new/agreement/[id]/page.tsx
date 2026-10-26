@@ -569,7 +569,6 @@ export default function NewApplicantAgreementPage() {
                 <DetailedCandidateHeader
                   name={candidateName}
                   role={candidateRole}
-                  status={applicant?.status_label}
                   profilePhotoUrl={applicant?.profile_photo_url}
                   workerId={applicantId}
                   candidateEmail={applicant?.email ?? null}

@@ -14,7 +14,10 @@ import {
   useMarkStepInProgressIfPending,
 } from "@/lib/onboarding/use-mark-step-in-progress-if-pending"
 import { skipOnboardingStep } from "@/lib/onboarding/skip-onboarding-step"
-import { resolveLegacyAddReferencesTarget } from "@/lib/onboarding/legacy-add-references-redirect"
+import {
+  isReferencesWorkflowStep,
+  resolveLegacyAddReferencesTarget,
+} from "@/lib/onboarding/legacy-add-references-redirect"
 import { ensureApplicantWorker } from "@/lib/onboarding/ensure-applicant-worker"
 import { isDraftPreviewApplicantId, isOnboardingDraftPreview } from "@/lib/onboarding/is-draft-preview"
 import { resolveClientOnboardingTenantSlug } from "@/lib/tenant/client-onboarding-slug"
@@ -101,8 +104,8 @@ export default function ReferencesPage() {
   const [redirecting, setRedirecting] = useState(false)
 
   const referencesStep =
-    nav.currentStep ??
-    nav.enabledSteps?.find((s) => s.step_type === "references" || s.step_key === "references") ??
+    (nav.currentStep && isReferencesWorkflowStep(nav.currentStep) ? nav.currentStep : null) ??
+    nav.enabledSteps?.find((step) => isReferencesWorkflowStep(step)) ??
     null
 
   const minCount = useMemo(() => {
@@ -200,10 +203,7 @@ export default function ReferencesPage() {
       step: referencesStep,
       updateStepStatus: nav.updateStepStatus,
       completingRef,
-      onNavigate: () => {
-        if (nav.nextRoute) nav.push(nav.nextRoute)
-        else router.push(applicationPath(APPLICATION_ROUTES.applicationSummary))
-      },
+      onNavigate: () => nav.goNext("skipped"),
     })
   }
 
@@ -307,11 +307,7 @@ export default function ReferencesPage() {
       }
     }
 
-    if (nav.nextRoute) {
-      nav.push(nav.nextRoute)
-    } else {
-      router.push(applicationPath(APPLICATION_ROUTES.applicationSummary))
-    }
+    nav.goNext()
     setSaving(false)
   }
 

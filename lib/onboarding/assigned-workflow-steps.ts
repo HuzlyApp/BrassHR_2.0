@@ -1,3 +1,4 @@
+import { isCandidateCheckboxStep, isI9CheckboxStep } from "@/lib/onboarding/candidate-checkbox-steps";
 import { workflowStepIdToOnboardingType } from "@/lib/onboarding/workflow-step-mapping";
 import type { OnboardingStepStatus, TenantOnboardingStep } from "@/lib/onboarding/types";
 import { readStepLifecyclePhase } from "@/lib/onboarding/workflow-phase";
@@ -8,6 +9,7 @@ import {
 import {
   isApplicantCompletionOwner,
   isInternalLibraryStepId,
+  isWorkerVisibleStep,
 } from "@/lib/onboarding/workflow-settings";
 import {
   decisionLabel,
@@ -144,6 +146,11 @@ export type MappedAssignedStep = {
   interview?: InterviewStepSummary | null;
   reviewDecision?: string | null;
   reviewNote?: string | null;
+  /** The candidate completes this step in their portal (not a recruiter / internal step). */
+  candidateOwned?: boolean;
+  /** When a recruiter verified the candidate's submission; null while it awaits review. */
+  verifiedAt?: string | null;
+  verifiedByName?: string | null;
 };
 
 function asText(value: unknown): string | null {
@@ -187,6 +194,119 @@ export function mapProgressToDisplayStatus(
   if (status === "rejected") return "rejected";
   if (status === "blocked") return "blocked";
   return "not_started";
+}
+
+const VERIFIABLE_DISPLAY_STATUSES: ReadonlySet<WorkflowStepDisplayStatus> = new Set([
+  "submitted",
+  "completed",
+  "approved",
+]);
+
+const RECRUITER_REVIEW_LIBRARY_IDS = new Set([
+  "document-upload",
+  "credential-license-verification",
+  "certification-upload",
+  "ssn-identity-verification",
+  "tax-forms",
+  "employee-agreement",
+  "agreement-esign",
+  "agreement-signature",
+  "welcome-packet-esign",
+  "policy-acknowledgment",
+  "background-check",
+  "authorization-esign",
+]);
+
+function libraryTokens(step: {
+  snapshotStepId?: string | null;
+  stepKey?: string | null;
+  stepType?: string | null;
+}): string[] {
+  return [step.snapshotStepId, step.stepKey, step.stepType]
+    .map((value) => String(value ?? "").trim().toLowerCase().replaceAll("_", "-"))
+    .filter(Boolean);
+}
+
+/**
+ * Agreement / signature and document steps stay Submitted until a recruiter verifies them.
+ * Checkbox, typed answers, and resume steps do not: the candidate finishing them is completion.
+ */
+export function candidateStepRequiresRecruiterReview(step: {
+  snapshotStepId?: string | null;
+  stepKey?: string | null;
+  stepType?: string | null;
+  onboardingType?: string | null;
+  title?: string | null;
+}): boolean {
+  if (isResumeLikeAssignedStep(step)) return false;
+  const checkboxLike = {
+    step_key: step.stepKey ?? step.stepType,
+    title: step.title,
+    metadata: { workflow_step_id: step.stepType ?? step.snapshotStepId ?? "" },
+  };
+  if (isCandidateCheckboxStep(checkboxLike) || isI9CheckboxStep({ ...step, ...checkboxLike })) return false;
+
+  const onboarding = String(step.onboardingType ?? "").trim().toLowerCase();
+  if (
+    onboarding === "document_upload" ||
+    onboarding === "professional_license" ||
+    onboarding === "authorizations"
+  ) {
+    return true;
+  }
+
+  const tokens = libraryTokens(step);
+  if (tokens.some((token) => RECRUITER_REVIEW_LIBRARY_IDS.has(token) || [...RECRUITER_REVIEW_LIBRARY_IDS].some((id) => token.includes(id)))) {
+    return true;
+  }
+
+  const title = String(step.title ?? "").trim().toLowerCase();
+  if (
+    /collect documents|document upload|upload documents|certification|credential|licen[cs]e|tax form|identity verification/.test(
+      title
+    )
+  ) {
+    return true;
+  }
+  return /agreement|e-sign|esign|\bsignature\b/.test(title);
+}
+
+/**
+ * Document and agreement steps the candidate finished read Submitted until a recruiter
+ * marks them complete. Checkbox, input, and resume steps read Completed immediately.
+ * Progress stays `completed`, so the candidate's next step is never held back.
+ */
+export function candidateReviewDisplayStatus(
+  step: Pick<
+    MappedAssignedStep,
+    | "status"
+    | "displayStatus"
+    | "candidateOwned"
+    | "verifiedAt"
+    | "snapshotStepId"
+    | "stepKey"
+    | "stepType"
+    | "onboardingType"
+    | "title"
+  >
+): WorkflowStepDisplayStatus {
+  if (!step.candidateOwned) return step.displayStatus;
+  if (candidateStepRequiresRecruiterReview(step)) {
+    if (step.status !== "completed") return step.displayStatus;
+    if (!VERIFIABLE_DISPLAY_STATUSES.has(step.displayStatus)) return step.displayStatus;
+    return step.verifiedAt ? "completed" : "submitted";
+  }
+  if (
+    step.displayStatus === "rejected" ||
+    step.displayStatus === "needs_revision" ||
+    step.displayStatus === "blocked"
+  ) {
+    return step.displayStatus;
+  }
+  if (step.status === "completed" || step.displayStatus === "submitted" || step.displayStatus === "approved") {
+    return "completed";
+  }
+  return step.displayStatus;
 }
 
 /** Resume / profile collection steps often have evidence in worker_resumes, not step_progress. */
@@ -247,7 +367,10 @@ export function enrichAssignedStepsDisplayFromEvidence(params: {
 
     if (!docStatus) return step;
 
-    const displayStatus = mapProgressToDisplayStatus(step.status, docStatus);
+    const displayStatus = candidateReviewDisplayStatus({
+      ...step,
+      displayStatus: mapProgressToDisplayStatus(step.status, docStatus),
+    });
     if (displayStatus === step.displayStatus) return step;
     return { ...step, displayStatus };
   });
@@ -325,6 +448,7 @@ export function stepStatusPill(step: StepStatusInput): { label: string; tone: St
   if (step.displayStatus === "rejected" || step.displayStatus === "blocked") {
     return { label: "Rejected", tone: "danger" };
   }
+  if (step.displayStatus === "submitted") return { label: "Submitted", tone: "info" };
   return null;
 }
 
@@ -387,12 +511,14 @@ function tenantWorkflowStepId(step: TenantOnboardingStep): string | null {
  * Order: explicit settings id → workflow_node_id → step-{key} → unique library id + phase → unique type + phase.
  *
  * Exact links also consider disabled tenant steps: job workflows keep writing progress to steps
- * that a later publish of a different flow disabled. Heuristic fallbacks stay on enabled steps.
+ * that a later publish of a different flow disabled. Heuristic fallbacks stay on enabled steps,
+ * except a disabled step with the same library id that the candidate has progress on.
  */
 export function matchTenantStepForAssignedRecord(
   record: AssignedStepRecordInput,
   tenantSteps: TenantOnboardingStep[],
-  usedIds: Set<string>
+  usedIds: Set<string>,
+  hasProgress?: (tenantStepId: string) => boolean
 ): TenantOnboardingStep | null {
   const unused = tenantSteps.filter((step) => !usedIds.has(step.id));
   const available = unused.filter((step) => step.is_enabled !== false);
@@ -417,6 +543,16 @@ export function matchTenantStepForAssignedRecord(
   const libraryId = asText(record.step_type);
   const phase = parseAssignedStepPhase(record);
   if (libraryId) {
+    if (hasProgress) {
+      const withProgress = exactCandidates.filter(
+        (step) => tenantWorkflowStepId(step) === libraryId && hasProgress(step.id)
+      );
+      const enabledWithProgress = withProgress.filter((step) => step.is_enabled !== false);
+      if (enabledWithProgress.length === 1) return enabledWithProgress[0];
+      if (!enabledWithProgress.length && withProgress.length) {
+        return [...withProgress].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))[0];
+      }
+    }
     const byLibrary = available.filter((step) => tenantWorkflowStepId(step) === libraryId);
     if (byLibrary.length === 1) return byLibrary[0];
     const byLibraryPhase = byLibrary.filter((step) => readStepLifecyclePhase(step) === phase);
@@ -427,9 +563,11 @@ export function matchTenantStepForAssignedRecord(
   }
 
   const onboardingType = workflowStepIdToOnboardingType(libraryId ?? "");
-  const byTypePhase = available.filter(
-    (step) => step.step_type === onboardingType && readStepLifecyclePhase(step) === phase
-  );
+  const byTypePhase = available.filter((step) => {
+    if (step.step_type !== onboardingType || readStepLifecyclePhase(step) !== phase) return false;
+    const stepLibraryId = tenantWorkflowStepId(step);
+    return !libraryId || !stepLibraryId || stepLibraryId === libraryId;
+  });
   if (byTypePhase.length === 1) return byTypePhase[0];
   return null;
 }
@@ -457,6 +595,74 @@ export function isStaffOwnedAssignedRecord(
 ): boolean {
   if (isInternalLibraryStepId(record.step_type)) return true;
   return !isApplicantCompletionOwner(asText(record.settings?.completionOwner));
+}
+
+/** Same split as staff step eligibility: worker-visible tenant steps, or unlinked records the applicant owns. */
+export function isCandidateOwnedAssignedStep(
+  record: Pick<AssignedStepRecordInput, "settings" | "step_type">,
+  tenantStep: TenantOnboardingStep | null
+): boolean {
+  if (tenantStep) return isWorkerVisibleStep(tenantStep);
+  if (isParameterizedJobApplicationStepType(record.step_type)) return false;
+  return !isStaffOwnedAssignedRecord(record);
+}
+
+/**
+ * Authorization and background-check signing refresh `completed_at` after the candidate
+ * has already submitted (Firma status, a second save of the same signature). That refresh
+ * is not a new submission, so a recruiter verification on these steps stays Completed.
+ */
+export function recruiterVerificationStaysAfterRefresh(step: {
+  snapshotStepId?: string | null;
+  stepKey?: string | null;
+  stepType?: string | null;
+  title?: string | null;
+}): boolean {
+  const hay = [step.snapshotStepId, step.stepKey, step.stepType]
+    .map((value) => String(value ?? "").trim().toLowerCase())
+    .join(" ");
+  if (
+    hay.includes("background-check") ||
+    hay.includes("background_check") ||
+    hay.includes("employee-agreement") ||
+    hay.includes("agreement-esign") ||
+    hay.includes("agreement_signature") ||
+    hay.includes("authorization")
+  ) {
+    return true;
+  }
+  const title = String(step.title ?? "").trim().toLowerCase();
+  return (
+    title.includes("auth release") ||
+    title.includes("authorization") ||
+    title.includes("agreement e")
+  );
+}
+
+/** A recruiter's Mark as complete on a candidate step holds until the candidate submits it again. */
+export function candidateStepVerifiedAt(
+  record: Pick<
+    AssignedStepRecordInput,
+    "review_decision" | "status_changed_at" | "snapshot_step_id" | "step_type" | "title"
+  >,
+  progress: Pick<ProgressRowInput, "completed_at"> | undefined
+): string | null {
+  if (asText(record.review_decision) !== "complete") return null;
+  const verifiedAt = timeOf(record.status_changed_at);
+  if (Number.isNaN(verifiedAt)) return null;
+  const submittedAt = timeOf(progress?.completed_at);
+  if (
+    !recruiterVerificationStaysAfterRefresh({
+      snapshotStepId: record.snapshot_step_id,
+      stepType: record.step_type,
+      title: record.title,
+    }) &&
+    !Number.isNaN(submittedAt) &&
+    submittedAt > verifiedAt
+  ) {
+    return null;
+  }
+  return record.status_changed_at ?? null;
 }
 
 /**
@@ -509,7 +715,9 @@ export function mapAssignedStepRecords(params: {
 }): MappedAssignedStep[] {
   const usedIds = new Set<string>();
   return params.records.map((record) => {
-    let matched = matchTenantStepForAssignedRecord(record, params.tenantSteps, usedIds);
+    let matched = matchTenantStepForAssignedRecord(record, params.tenantSteps, usedIds, (id) =>
+      params.progressByStepId.has(id)
+    );
     let progress = matched ? params.progressByStepId.get(matched.id) : undefined;
 
     if (!progress && isParameterizedJobApplicationStepType(record.step_type)) {
@@ -571,10 +779,15 @@ export function mapAssignedStepRecords(params: {
       record.settings && typeof record.settings === "object" && !Array.isArray(record.settings)
         ? record.settings
         : null;
+    const tenantStepId = matched?.id ?? (hasLinkedProgress ? asText(progress?.onboarding_step_id) : null);
+    const ownerStep =
+      matched ?? (tenantStepId ? params.tenantSteps.find((step) => step.id === tenantStepId) ?? null : null);
+    const candidateOwned = isCandidateOwnedAssignedStep(record, ownerStep);
+    const verifiedAt = candidateOwned ? candidateStepVerifiedAt(record, progress) : null;
     return {
       id: record.id,
       snapshotStepId: record.snapshot_step_id,
-      tenantStepId: matched?.id ?? (hasLinkedProgress ? asText(progress?.onboarding_step_id) : null),
+      tenantStepId,
       title: record.title,
       stepKey: matched?.step_key ?? snapshotStepKey(record.snapshot_step_id),
       stepType: record.step_type,
@@ -582,7 +795,17 @@ export function mapAssignedStepRecords(params: {
       phase: parseAssignedStepPhase(record),
       required: record.is_required !== false && !isAlwaysOptionalStep({ stepType: record.step_type }),
       status: normalizedStatus,
-      displayStatus: mapProgressToDisplayStatus(normalizedStatus),
+      displayStatus: candidateReviewDisplayStatus({
+        status: normalizedStatus,
+        displayStatus: mapProgressToDisplayStatus(normalizedStatus),
+        candidateOwned,
+        verifiedAt,
+        snapshotStepId: record.snapshot_step_id,
+        stepKey: matched?.step_key ?? snapshotStepKey(record.snapshot_step_id),
+        stepType: record.step_type,
+        onboardingType: matched?.step_type ?? workflowStepIdToOnboardingType(record.step_type),
+        title: record.title,
+      }),
       inspectable: true,
       unmatched,
       // Staff-owned unmatched steps are reviewed on the record itself, so only candidate steps lose data.
@@ -595,6 +818,9 @@ export function mapAssignedStepRecords(params: {
       settings,
       reviewDecision: record.review_decision ?? null,
       reviewNote: record.review_note ?? null,
+      candidateOwned,
+      verifiedAt,
+      verifiedByName: verifiedAt ? record.status_changed_by_name ?? null : null,
     };
   });
 }

@@ -77,11 +77,15 @@ function deepApiTimeoutMs(): number {
   );
 }
 
-/** Primary Grok Deep Match attempt — leave headroom for Gemini fallback within maxDuration. */
+/**
+ * Primary Grok Deep Match attempt. Default matches the deep-provider timeout (120s)
+ * so grok-4.6 can finish. The match-analysis route allows 300s, which still leaves
+ * a full Gemini fallback after this attempt.
+ */
 function deepGrokAttemptTimeoutMs(): number {
   return Math.min(
     deepApiTimeoutMs(),
-    readTimeoutMs("MATCH_ANALYSIS_DEEP_GROK_TIMEOUT_MS", 60_000)
+    readTimeoutMs("MATCH_ANALYSIS_DEEP_GROK_TIMEOUT_MS", DEFAULT_DEEP_API_TIMEOUT_MS)
   );
 }
 

@@ -23,6 +23,8 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTenantBranding } from "@/app/components/tenant/TenantBrandingContext";
+import { useHireJourneyTheme } from "@/app/admin_recruiter/components/hire-stage/HireJourneyTheme";
+import { hireJourneyThemeCssVars } from "@/lib/tenant/hire-journey-theme";
 import { brandingToCssVars, readableTextOnBrand } from "@/lib/tenant/tenant-branding";
 import type {
   WorkflowStepInspection,
@@ -32,6 +34,7 @@ import {
   stepDisplayStatusLabel,
   type WorkflowStepDisplayStatus,
 } from "@/lib/onboarding/assigned-workflow-steps";
+import { isAgreementEsignStep, isAuthorizationEsignStep } from "@/lib/onboarding/lock-post-hire";
 import {
   decisionLabel,
   isDecisionVariant,
@@ -43,7 +46,7 @@ import {
 } from "@/lib/onboarding/staff-step-review-shared";
 import { lifecyclePhaseLabel } from "@/lib/onboarding/workflow-phase-groups";
 import { workflowStepOwnershipCopy } from "@/lib/onboarding/workflow-step-ownership-copy";
-import { RECRUITER_SCREENING_STEP_TYPE } from "@/lib/onboarding/recruiter-screening-progress";
+import { isNamedRecruiterScreeningStep } from "@/lib/onboarding/recruiter-screening-progress";
 import {
   candidateInterviewStatusLabel,
   candidateInterviewStatusTone,
@@ -57,8 +60,8 @@ import OfferAcceptanceSection from "./OfferAcceptanceSection";
 import RecruiterScreeningAiSection from "./RecruiterScreeningAiSection";
 import SkillAssessmentResults from "./SkillAssessmentResults";
 import WorkflowStepStaffActionModal from "./WorkflowStepStaffActionModal";
-import { CandidateApplicationStatusControl } from "./CandidateApplicationStatusControl";
-import { StageStatusSequenceButtons } from "./StageStatusSequenceButtons";
+import StepDocumentUploadsSection, { ExtraFilesSection } from "./StepDocumentUploadsSection";
+import type { StepUploadSlot } from "@/lib/onboarding/staff-step-documents";
 import { StageContextNotesSection } from "./StageContextNotesSection";
 import { hireStageLabelForStep } from "@/lib/onboarding/hire-stage-groups";
 import { isPreHireStatusStageName } from "@/lib/jobs/application-statuses/stage-assignments";
@@ -104,6 +107,34 @@ const STATUS_TONE: Record<WorkflowStepDisplayStatus, BadgeTone> = {
   not_applicable: "neutral",
   blocked: "danger",
 };
+
+function recruiterSignedDocumentHref(input: {
+  directUrl?: string | null;
+  workerId?: string | null;
+  stepId?: string | null;
+  signingRequestId?: string | null;
+  signed: boolean;
+  download: boolean;
+  filename: string;
+}): string | null {
+  const direct = input.directUrl?.trim();
+  if (direct) return direct;
+  if (!input.signed) return null;
+  const signingRequestId = input.signingRequestId?.trim() ?? "";
+  const workerId = input.workerId?.trim() ?? "";
+  const stepId = input.stepId?.trim() ?? "";
+  if (!signingRequestId && !(workerId && stepId)) return null;
+  const params = new URLSearchParams();
+  if (workerId) params.set("workerId", workerId);
+  if (stepId) params.set("stepId", stepId);
+  if (signingRequestId) params.set("signingRequestId", signingRequestId);
+  params.set("redirect", "true");
+  if (input.download) {
+    params.set("download", "true");
+    params.set("filename", input.filename);
+  }
+  return `/api/onboarding/firma-sign/download?${params.toString()}`;
+}
 
 function StatusBadge({
   tone,
@@ -207,6 +238,17 @@ function formatAnswer(value: unknown): string {
     return JSON.stringify(value, null, 2);
   } catch {
     return String(value);
+  }
+}
+
+function responseFileUrl(value: unknown): string | null {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!/^https?:\/\//i.test(text)) return null;
+  try {
+    const url = new URL(text);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
   }
 }
 
@@ -378,22 +420,30 @@ export default function CandidateWorkflowStepModal({
   onScheduleInterview?: () => void;
 }) {
   const branding = useTenantBranding();
+  const hireJourneyTheme = useHireJourneyTheme();
   const [activeInspectionOverride, setActiveInspectionOverride] = useState<WorkflowStepInspection | null>(null);
   const inspection = activeInspectionOverride ?? initialInspection;
   const currentInspection = inspection;
-  const title = inspection?.step.title ?? "Step details";
+  const title = inspection?.step.title ?? "Notes";
   const stepId = inspection?.step.id ?? null;
   const [pendingAction, setPendingAction] = useState<StaffStepAction | null>(null);
+  const [pendingOnBehalf, setPendingOnBehalf] = useState(false);
+  const [pendingVerify, setPendingVerify] = useState(false);
+  const [uploadingKey, setUploadingKey] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: "success" | "warning"; message: string } | null>(null);
   const [resyncing, setResyncing] = useState(false);
   const [resyncNotice, setResyncNotice] = useState<{ tone: "success" | "warning"; message: string } | null>(null);
-  const [statusRevision, setStatusRevision] = useState(0);
 
   useEffect(() => {
     setActiveInspectionOverride(null);
     setPendingAction(null);
+    setPendingOnBehalf(false);
+    setPendingVerify(false);
+    setUploadingKey(null);
+    setUploadError(null);
     setActionError(null);
     setNotice(null);
     setResyncNotice(null);
@@ -439,17 +489,21 @@ export default function CandidateWorkflowStepModal({
   // Radix portals render outside the branding wrapper, so re-declare the vars here
   // and drive the header/button colours straight from the tenant palette. The header
   // stays a light brand wash so the secondary-coloured title keeps its contrast.
-  const brandStyle = useMemo(
-    () => ({
+  const brandStyle = useMemo(() => {
+    const modalButton = hireJourneyTheme?.modalButtonColor;
+    const buttonCustomized = Boolean(modalButton && modalButton.toUpperCase() !== branding.primaryHex.toUpperCase());
+    return {
       ...brandingToCssVars(branding),
+      ...(hireJourneyTheme ? hireJourneyThemeCssVars(hireJourneyTheme) : {}),
       "--step-modal-header": `linear-gradient(135deg, color-mix(in srgb, ${branding.primaryHex} 16%, white) 0%, color-mix(in srgb, ${branding.secondaryHex} 8%, white) 100%)`,
-      "--step-modal-cta": `linear-gradient(90deg, ${branding.primaryHex} 0%, color-mix(in srgb, ${branding.primaryHex} 74%, white) 100%)`,
+      "--step-modal-cta": buttonCustomized
+        ? modalButton
+        : `linear-gradient(90deg, ${branding.primaryHex} 0%, color-mix(in srgb, ${branding.primaryHex} 74%, white) 100%)`,
       "--step-modal-icon": `linear-gradient(135deg, ${branding.primaryHex} 0%, color-mix(in srgb, ${branding.primaryHex} 65%, white) 100%)`,
-      "--step-modal-on-primary": readableTextOnBrand(branding.primaryHex),
+      "--step-modal-on-primary": readableTextOnBrand(buttonCustomized ? modalButton! : branding.primaryHex),
       "--step-modal-on-secondary": readableTextOnBrand(branding.secondaryHex),
-    }) as React.CSSProperties,
-    [branding]
-  );
+    } as React.CSSProperties;
+  }, [branding, hireJourneyTheme]);
 
   const staffAction = currentInspection?.staffAction;
   const staffReview = currentInspection?.staffReview ?? null;
@@ -485,14 +539,67 @@ export default function CandidateWorkflowStepModal({
       interviewState.key !== "completed" &&
       interviewState.key !== "rejected"
   );
+  const documentUploads = currentInspection?.documentUploads ?? null;
+  const candidateUploadStep = Boolean(documentUploads && !staffAction?.allowed);
+  const candidateReview = currentInspection?.candidateReview ?? null;
+  const authorizationEsign = Boolean(
+    inspection &&
+      inspection.phase !== "post_hire" &&
+      isAgreementEsignStep({
+        snapshotStepId: inspection.step.snapshotStepId,
+        stepKey: inspection.step.stepKey,
+        stepType: inspection.step.stepType,
+        title: inspection.step.title,
+      })
+  );
+  const authorizationConfirmation = Boolean(
+    inspection &&
+      inspection.phase !== "post_hire" &&
+      isAuthorizationEsignStep({
+        snapshotStepId: inspection.step.snapshotStepId,
+        stepKey: inspection.step.stepKey,
+        stepType: inspection.step.stepType,
+        title: inspection.step.title,
+      })
+  );
+  const authorizationAwaitingSignature = Boolean(
+    authorizationEsign && !inspection?.agreement?.isSigned
+  );
+  const canVerifyCandidate = Boolean(
+    workerId &&
+      candidateReview?.canVerify &&
+      (authorizationConfirmation || !authorizationEsign || inspection?.agreement?.isSigned)
+  );
+  const canCompleteForCandidate = Boolean(
+    workerId &&
+      !canVerifyCandidate &&
+      !authorizationEsign &&
+      (candidateReview?.canComplete || documentUploads?.canCompleteForCandidate)
+  );
+  // The candidate re-submitted after an earlier verification, so that verification no longer applies.
+  const staleCandidateVerification = Boolean(
+    candidateReview && !candidateReview.verified && staffReview?.decision === "complete"
+  );
+  const slotDocumentIds = useMemo(
+    () => new Set((documentUploads?.slots ?? []).flatMap((slot) => (slot.documentId ? [slot.documentId] : []))),
+    [documentUploads]
+  );
+  const otherDocuments = useMemo(
+    () => (inspection?.documents ?? []).filter((doc) => !slotDocumentIds.has(doc.id)),
+    [inspection?.documents, slotDocumentIds]
+  );
   const ownership = workflowStepOwnershipCopy({
     kind: currentInspection?.kind,
     staffCanAct: Boolean(staffAction?.allowed),
     displayStatus: currentInspection?.step.displayStatus,
+    staffCanUpload: candidateUploadStep && Boolean(documentUploads?.canUpload),
+    candidateReview: candidateReview?.verified ? "verified" : candidateReview?.canVerify ? "awaiting" : null,
   });
   const stepSideLabel = ownership.badge;
   const screeningApplicationId =
-    currentInspection?.step.stepType === RECRUITER_SCREENING_STEP_TYPE ? currentInspection.applicationId : null;
+    currentInspection && isNamedRecruiterScreeningStep(currentInspection.step)
+      ? currentInspection.applicationId
+      : null;
   const formQuestions = useMemo(() => {
     const questions = inspection?.form?.questions ?? [];
     return screeningApplicationId
@@ -515,15 +622,86 @@ export default function CandidateWorkflowStepModal({
     Boolean(hireStageName && isPreHireStatusStageName(hireStageName));
   const isWelcomeEmailStep =
     inspection ? isWelcomeEmailWorkflowStep(inspection.step.stepType) : false;
+  const signedDocumentTitle =
+    inspection?.agreement?.documentName.trim() || inspection?.step.title.trim() || "Signed document";
+  const signedDocumentStepId = inspection?.step.tenantStepId ?? stepId;
+  const signedPreviewHref = inspection?.agreement
+    ? recruiterSignedDocumentHref({
+        directUrl: inspection.agreement.completedDocumentUrl,
+        workerId,
+        stepId: signedDocumentStepId,
+        signingRequestId: inspection.agreement.signingRequestId,
+        signed: inspection.agreement.isSigned,
+        download: false,
+        filename: signedDocumentTitle,
+      })
+    : null;
+  const signedDownloadHref = inspection?.agreement
+    ? recruiterSignedDocumentHref({
+        directUrl: inspection.agreement.downloadUrl || inspection.agreement.completedDocumentUrl,
+        workerId,
+        stepId: signedDocumentStepId,
+        signingRequestId: inspection.agreement.signingRequestId,
+        signed: inspection.agreement.isSigned,
+        download: true,
+        filename: signedDocumentTitle,
+      })
+    : null;
+  const agreementPendingReview = Boolean(authorizationEsign && !candidateReview?.verified);
+  const authorizationOpen = Boolean(authorizationConfirmation && !candidateReview?.verified);
   const canEmailCandidate = Boolean(
     workerId &&
       inspection &&
-      ((isWelcomeEmailStep && inspection.phase === "post_hire") ||
+      (authorizationOpen ||
+        authorizationAwaitingSignature ||
+        agreementPendingReview ||
+        (isWelcomeEmailStep && inspection.phase === "post_hire") ||
         (!staffAction?.allowed &&
           CANDIDATE_EMAIL_STATUSES.has(inspection.step.displayStatus)))
   );
   const showFooter =
-    !loading && !error && (canSchedule || (canAct && staffAction) || canEmailCandidate);
+    !loading &&
+    !error &&
+    (canSchedule ||
+      (canAct && staffAction) ||
+      canEmailCandidate ||
+      canCompleteForCandidate ||
+      canVerifyCandidate);
+
+  async function uploadStepDocument(
+    slot: StepUploadSlot,
+    file: File,
+    dates?: { issuedDate: string; expiryDate: string }
+  ) {
+    if (!workerId || !stepId || uploadingKey) return;
+    setUploadingKey(slot.key);
+    setUploadError(null);
+    setNotice(null);
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      body.append("slotKey", slot.key);
+      if (dates?.issuedDate) body.append("issuedDate", dates.issuedDate);
+      if (dates?.expiryDate) body.append("expiryDate", dates.expiryDate);
+      const res = await fetch(
+        `/api/admin/candidates/${encodeURIComponent(workerId)}/workflow-steps/${encodeURIComponent(stepId)}/documents`,
+        { method: "POST", credentials: "include", body }
+      );
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        inspection?: WorkflowStepInspection | null;
+      };
+      if (!res.ok) throw new Error(json.error || "Failed to upload the document.");
+      if (json.inspection) setActiveInspectionOverride(json.inspection);
+      setNotice({ tone: "success", message: `${slot.title} uploaded for the candidate.` });
+      await onStepUpdated?.();
+      if (onStepUpdated) setActiveInspectionOverride(null);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Failed to upload the document.");
+    } finally {
+      setUploadingKey(null);
+    }
+  }
 
   async function sendCandidateEmail() {
     if (!workerId || !stepId) return;
@@ -556,9 +734,14 @@ export default function CandidateWorkflowStepModal({
     }
   }
 
-  async function submitAction(input: { note: string; notifyCandidate: boolean }) {
-    if (!workerId || !stepId || !pendingAction) return;
-    const action = pendingAction;
+  async function submitAction(
+    input: { note: string; notifyCandidate: boolean },
+    direct?: { action: StaffStepAction; onBehalf: boolean; verify: boolean }
+  ) {
+    const action = direct?.action ?? pendingAction;
+    const onBehalf = direct?.onBehalf ?? pendingOnBehalf;
+    const verify = direct?.verify ?? pendingVerify;
+    if (!workerId || !stepId || !action) return;
     setSubmitting(true);
     setActionError(null);
     try {
@@ -573,6 +756,8 @@ export default function CandidateWorkflowStepModal({
             note: input.note || null,
             notifyCandidate: input.notifyCandidate,
             clientOrigin: window.location.origin,
+            ...(onBehalf ? { onBehalfOfCandidate: true } : {}),
+            ...(verify ? { verifyCandidateSubmission: true } : {}),
           }),
         }
       );
@@ -583,11 +768,16 @@ export default function CandidateWorkflowStepModal({
       };
       if (!res.ok) throw new Error(json.error || "Failed to update this step.");
       setPendingAction(null);
+      setPendingOnBehalf(false);
+      setPendingVerify(false);
+      if (action === "complete") {
+        onOpenChange(false);
+        await onStepUpdated?.();
+        return;
+      }
       const resultNotice =
         action === "reject" && variant === "default" && inspection && !inspection.step.required
           ? { tone: "success" as const, message: "Step rejected. It's optional, so it doesn't block the candidate's next stage." }
-          : action === "complete" && variant === "interview" && !json.email
-            ? { tone: "success" as const, message: "Interview marked as completed." }
           : staffActionResultMessage(action, json.email ?? null, variant);
       const statusName = json.applicationStatus?.statusName;
       setNotice(
@@ -596,11 +786,20 @@ export default function CandidateWorkflowStepModal({
           : resultNotice
       );
       await onStepUpdated?.();
+      if (onStepUpdated) setActiveInspectionOverride(null);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to update this step.");
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function markCompleteNow(flags: { onBehalf: boolean; verify: boolean }) {
+    setActionError(null);
+    void submitAction(
+      { note: "", notifyCandidate: false },
+      { action: "complete", onBehalf: flags.onBehalf, verify: flags.verify }
+    );
   }
 
   return (
@@ -609,7 +808,7 @@ export default function CandidateWorkflowStepModal({
         <Dialog.Overlay className="fixed inset-0 z-[100] bg-slate-950/50 backdrop-blur-[2px]" />
         <Dialog.Content
           style={brandStyle}
-          className="fixed left-1/2 top-1/2 z-[101] flex max-h-[calc(100dvh-2rem)] w-[min(58rem,calc(100vw-1.5rem))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl bg-white shadow-2xl outline-none"
+          className="fixed left-1/2 top-1/2 z-[101] flex max-h-[calc(100dvh-2rem)] w-[min(58rem,calc(100vw-1.5rem))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl bg-white outline-none"
           aria-describedby="workflow-step-inspection-desc"
         >
           <div
@@ -654,6 +853,11 @@ export default function CandidateWorkflowStepModal({
               {currentInspection ? (
                 <p className="mt-2 text-xs text-slate-600">{ownership.note}</p>
               ) : null}
+              {currentInspection?.completedBy && currentInspection.step.displayStatus === "completed" ? (
+                <p className="mt-1 text-xs font-medium text-slate-700">
+                  Completed by {currentInspection.completedBy}
+                </p>
+              ) : null}
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
@@ -676,6 +880,11 @@ export default function CandidateWorkflowStepModal({
           </div>
 
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-[#F8FAFC] px-5 py-4">
+            {actionError && !pendingAction ? (
+              <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                {actionError}
+              </div>
+            ) : null}
             {notice ? (
               <div
                 role="status"
@@ -714,28 +923,6 @@ export default function CandidateWorkflowStepModal({
                     <p className="mt-1 text-sm text-slate-600">
                       Stage · <span className="font-semibold text-slate-900">{hireStageName}</span>
                     </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      The filled button is the next primary status. Alternate and Closing are optional
-                      for this stage.
-                    </p>
-                    <div className="mt-3">
-                      <StageStatusSequenceButtons
-                        key={`${hireStageName}-${statusRevision}`}
-                        applicationId={inspection.applicationId}
-                        stageName={hireStageName}
-                        onStatusChanged={() => setStatusRevision((revision) => revision + 1)}
-                      />
-                    </div>
-                    <div className="mt-4 max-w-sm">
-                      <p className="mb-1 text-xs font-medium text-slate-500">Advanced — correction only</p>
-                      <CandidateApplicationStatusControl
-                        key={`status-${hireStageName}-${statusRevision}`}
-                        applicationId={inspection.applicationId}
-                        stageName={hireStageName}
-                        compact={false}
-                        onStatusChanged={() => setStatusRevision((revision) => revision + 1)}
-                      />
-                    </div>
                   </section>
                 ) : null}
 
@@ -760,6 +947,20 @@ export default function CandidateWorkflowStepModal({
                     {inspection.emptyState}
                   </p>
                 ) : null}
+
+                {documentUploads ? (
+                  <StepDocumentUploadsSection
+                    uploads={documentUploads}
+                    documents={inspection.documents}
+                    candidateStep={candidateUploadStep}
+                    canEdit={Boolean(workerId)}
+                    uploadingKey={uploadingKey}
+                    error={uploadError}
+                    onUpload={(slot, file, dates) => void uploadStepDocument(slot, file, dates)}
+                  />
+                ) : null}
+
+                {inspection.extraFiles ? <ExtraFilesSection files={inspection.extraFiles} /> : null}
 
                 {interviews ? (
                   <Section title="Interviews" count={activeInterviewCount}>
@@ -838,25 +1039,6 @@ export default function CandidateWorkflowStepModal({
                   </Section>
                 ) : null}
 
-                <Section title="Overview">
-                  <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    <Meta label="Step name" value={inspection.step.title} />
-                    <Meta label="Step type" value={titleCase(inspection.step.stepType)} />
-                    <Meta label="Phase" value={lifecyclePhaseLabel(inspection.phase)} />
-                    <Meta
-                      label="Requirement"
-                      value={inspection.step.required ? "Required" : "Optional"}
-                    />
-                    <Meta label="Completed by" value={inspection.completedBy} />
-                    <Meta label="Step for" value={ownership.stepFor} />
-                    <Meta label="Workflow" value={inspection.workflowName} />
-                    <Meta label="Workflow version" value={inspection.workflowVersion} />
-                    {inspection.reviewable ? (
-                      <Meta label="Approved or rejected by" value={inspection.approvedOrRejectedBy} />
-                    ) : null}
-                  </dl>
-                </Section>
-
                 {/* Timeline hidden from step details.
                 <Section title="Timeline">
                   <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -872,8 +1054,16 @@ export default function CandidateWorkflowStepModal({
                 </Section>
                 */}
 
-                {staffReview ? (
-                  <Section title={variant === "interview" ? "Interview outcome" : "Internal review"}>
+                {staffReview && !staleCandidateVerification ? (
+                  <Section
+                    title={
+                      variant === "interview"
+                        ? "Interview outcome"
+                        : candidateReview
+                          ? "Recruiter verification"
+                          : "Internal review"
+                    }
+                  >
                     <dl className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                       <Meta
                         label="Decision"
@@ -881,7 +1071,7 @@ export default function CandidateWorkflowStepModal({
                           isDecisionVariant(variant) && staffReview.decision !== "reopen"
                             ? decisionLabel(variant, staffReview.decision)
                             : staffReview.decision === "complete"
-                              ? "Completed"
+                              ? candidateReview ? "Verified · Completed" : "Completed"
                               : staffReview.decision === "reject"
                                 ? "Rejected"
                                 : titleCase(staffReview.decision)
@@ -904,14 +1094,17 @@ export default function CandidateWorkflowStepModal({
                   </Section>
                 ) : null}
 
-                {inspection.documents.length > 0 ? (
-                  <Section title="Uploaded documents" count={inspection.documents.length}>
+                {otherDocuments.length > 0 ? (
+                  <Section title="Uploaded documents" count={otherDocuments.length}>
                     <ul className="space-y-3">
-                      {inspection.documents.map((doc) => (
+                      {otherDocuments.map((doc) => (
                         <li key={doc.id} className="rounded-lg border border-slate-200 px-3 py-2">
                           <p className="break-words text-sm font-medium text-slate-900">
-                            {doc.originalFileName || "Uploaded file"}
+                            {doc.documentName || doc.originalFileName || "Uploaded file"}
                           </p>
+                          {doc.documentName && doc.originalFileName ? (
+                            <p className="break-words text-xs text-slate-600">{doc.originalFileName}</p>
+                          ) : null}
                           <dl className="mt-2 grid grid-cols-1 gap-1 text-xs text-slate-600 sm:grid-cols-2">
                             <div>Type: {doc.documentType || "—"}</div>
                             <div>Size: {formatBytes(doc.fileSize)}</div>
@@ -986,6 +1179,7 @@ export default function CandidateWorkflowStepModal({
                           /authoriz|consent|agreement|confirm/i.test(question.label);
                         const isAuthorized =
                           isCheckbox && /authoriz|yes|true|confirmed/i.test(String(question.answer ?? ""));
+                        const fileUrl = isCheckbox ? null : responseFileUrl(question.answer);
                         return (
                           <li
                             key={`${question.label}-${index}`}
@@ -1005,13 +1199,44 @@ export default function CandidateWorkflowStepModal({
                                   {formatAnswer(question.answer)}
                                 </span>
                               </div>
+                            ) : fileUrl ? (
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <a
+                                  href={fileUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1.5 rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold transition hover:brightness-95"
+                                  style={{
+                                    borderColor: "var(--brand-primary)",
+                                    color: "var(--brand-primary)",
+                                    backgroundColor: "color-mix(in srgb, var(--brand-primary) 6%, white)",
+                                  }}
+                                >
+                                  <Eye className="h-3.5 w-3.5" aria-hidden />
+                                  Preview
+                                </a>
+                                <a
+                                  href={fileUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  download
+                                  className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition hover:brightness-[0.97]"
+                                  style={{
+                                    background: "var(--step-modal-cta)",
+                                    color: "var(--step-modal-on-primary)",
+                                  }}
+                                >
+                                  <Download className="h-3.5 w-3.5" aria-hidden />
+                                  Download
+                                </a>
+                              </div>
                             ) : (
                               <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-700">
                                 {formatAnswer(question.answer)}
                               </p>
                             )}
                             <p className="mt-2 text-[11px] text-slate-500">
-                              {isCheckbox ? "Confirmation checkbox" : question.fieldType}
+                              {fileUrl ? "Document" : isCheckbox ? "Confirmation checkbox" : question.fieldType}
                               {question.submittedAt ? ` · ${formatDateTime(question.submittedAt)}` : ""}
                             </p>
                           </li>
@@ -1070,7 +1295,7 @@ export default function CandidateWorkflowStepModal({
                 ) : null}
 
                 {inspection.agreement ? (
-                  <Section title="Signed Agreement & eSignature">
+                  <Section title={signedDocumentTitle}>
                     <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                       <Meta label="Agreement" value={inspection.agreement.documentName} />
                       <div className="min-w-0">
@@ -1116,9 +1341,9 @@ export default function CandidateWorkflowStepModal({
 
                     {/* Action buttons: Preview, Download, and Re-sync Recovery */}
                     <div className="mt-4 flex flex-wrap items-center gap-2.5 pt-3 border-t border-slate-100">
-                      {inspection.agreement.completedDocumentUrl ? (
+                      {signedPreviewHref ? (
                         <a
-                          href={inspection.agreement.completedDocumentUrl}
+                          href={signedPreviewHref}
                           target="_blank"
                           rel="noreferrer"
                           className="inline-flex items-center gap-1.5 rounded-lg border bg-white px-3.5 py-2 text-xs font-semibold shadow-sm transition hover:brightness-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
@@ -1129,16 +1354,16 @@ export default function CandidateWorkflowStepModal({
                           }}
                         >
                           <Eye className="h-3.5 w-3.5" aria-hidden />
-                          Preview Signed Agreement
+                          Preview
                         </a>
                       ) : null}
 
-                      {inspection.agreement.downloadUrl || inspection.agreement.completedDocumentUrl ? (
+                      {signedDownloadHref ? (
                         <a
-                          href={inspection.agreement.downloadUrl || inspection.agreement.completedDocumentUrl!}
+                          href={signedDownloadHref}
                           target="_blank"
                           rel="noreferrer"
-                          download={`${inspection.agreement.documentName || "Signed_Agreement"}.pdf`}
+                          download={`${signedDocumentTitle}.pdf`}
                           className="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold shadow-sm transition hover:brightness-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                           style={{
                             background: "var(--step-modal-cta)",
@@ -1146,7 +1371,7 @@ export default function CandidateWorkflowStepModal({
                           }}
                         >
                           <Download className="h-3.5 w-3.5" aria-hidden />
-                          Download Signed Agreement
+                          Download
                         </a>
                       ) : null}
 
@@ -1240,7 +1465,13 @@ export default function CandidateWorkflowStepModal({
                     }}
                   >
                     <Mail className="h-4 w-4" aria-hidden />
-                    {submitting ? "Sending…" : isWelcomeEmailStep ? "Send Welcome Email" : "Send Email"}
+                    {submitting
+                      ? "Sending…"
+                      : authorizationAwaitingSignature || authorizationConfirmation
+                        ? "Send email to candidate"
+                        : isWelcomeEmailStep
+                          ? "Send Welcome Email"
+                          : "Send Email"}
                   </button>
                 ) : null}
                 {canSchedule ? (
@@ -1258,12 +1489,61 @@ export default function CandidateWorkflowStepModal({
                     {activeInterviewCount > 0 ? "Schedule Another Interview" : "Schedule Interview"}
                   </button>
                 ) : null}
-                {(canAct ? staffAction?.actions ?? [] : []).map((action) => (
+                {canVerifyCandidate || authorizationOpen ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const verify = Boolean(
+                        canVerifyCandidate || inspection?.step.displayStatus === "submitted"
+                      );
+                      markCompleteNow({ onBehalf: !verify, verify });
+                    }}
+                    disabled={submitting}
+                    className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold shadow-sm transition hover:brightness-[0.97] disabled:opacity-50"
+                    style={{ background: "var(--step-modal-cta)", color: "var(--step-modal-on-primary)" }}
+                  >
+                    <CheckCircle2 className="h-4 w-4" aria-hidden />
+                    Mark as complete
+                  </button>
+                ) : agreementPendingReview ? (
+                  <button
+                    type="button"
+                    disabled
+                    title="Available after the candidate signs the agreement"
+                    className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold shadow-sm opacity-50"
+                    style={{ background: "var(--step-modal-cta)", color: "var(--step-modal-on-primary)" }}
+                  >
+                    <CheckCircle2 className="h-4 w-4" aria-hidden />
+                    Mark as complete
+                  </button>
+                ) : null}
+                {/* Authorization e-sign already shows Mark as complete above. */}
+                {canCompleteForCandidate && !authorizationOpen ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      markCompleteNow({ onBehalf: true, verify: false });
+                    }}
+                    disabled={submitting || uploadingKey != null}
+                    className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold shadow-sm transition hover:brightness-[0.97] disabled:opacity-50"
+                    style={{ background: "var(--step-modal-cta)", color: "var(--step-modal-on-primary)" }}
+                  >
+                    <CheckCircle2 className="h-4 w-4" aria-hidden />
+                    Mark as complete
+                  </button>
+                ) : null}
+                {(canAct ? staffAction?.actions ?? [] : [])
+                  .filter((action) => !(authorizationEsign && action === "complete" && !inspection?.agreement?.isSigned))
+                  .map((action) => (
                   <button
                     key={action}
                     type="button"
                     onClick={() => {
                       setActionError(null);
+                      if (action === "complete") {
+                        markCompleteNow({ onBehalf: false, verify: false });
+                        return;
+                      }
                       setPendingAction(action);
                     }}
                     disabled={submitting}
@@ -1293,15 +1573,20 @@ export default function CandidateWorkflowStepModal({
           ) : null}
         </Dialog.Content>
       </Dialog.Portal>
+      {/* Reject, Need to Review, and Reopen. Mark as complete skips this dialog. */}
       <WorkflowStepStaffActionModal
-        action={pendingAction}
+        action={pendingAction === "complete" ? null : pendingAction}
         variant={variant}
         optional={inspection ? !inspection.step.required : false}
+        onBehalf={pendingOnBehalf}
+        verifySubmission={pendingVerify}
         stepTitle={title}
         submitting={submitting}
         error={actionError}
         onCancel={() => {
           setPendingAction(null);
+          setPendingOnBehalf(false);
+          setPendingVerify(false);
           setActionError(null);
         }}
         onConfirm={(input) => void submitAction(input)}

@@ -26,8 +26,21 @@ export {
   listApplicationStatusStageNotes,
   findOrCreateApplicationStatusStageNote,
   listApplicationStatusStageButtons,
+  getApplicationStatusButtonLabels,
+  saveApplicationStatusButtonLabels,
   replaceGroupButtonLanes,
 } from "./service";
+export {
+  assertApplicationStatusInTenant,
+  listApplicationStatusUsage,
+  listApplicationStatusVersions,
+  statusDeleteBlockReason,
+} from "./status-catalog-audit";
+export type {
+  ApplicationStatusUsage,
+  ApplicationStatusUsageRecord,
+  ApplicationStatusVersionRecord,
+} from "./types";
 export {
   getApplicationStatusSummariesForWorkers,
   getApplicationStatusSummaryForWorker,
@@ -66,13 +79,16 @@ export {
   AI_MATCH_STATUS_STAGES,
   AI_MATCH_STAGE_BY_STEP_ID,
   DEFAULT_GROUP_PRE_HIRE_STAGES,
-  DEFAULT_GROUP_AI_MATCH_STAGES,
   isPreHireStatusStageName,
   isAiMatchStatusStageName,
   isAssignableStatusStageName,
   aiMatchStatusStageName,
   isAssignableCatalogGroupKey,
 } from "./stage-assignments";
+export {
+  resolvePreHireStageNameFromStatusLanes,
+  resolvePreHireStatusStageForActions,
+} from "./resolve-pre-hire-stage";
 export type {
   PreHireStatusStageName,
   AiMatchStatusStageName,
@@ -92,6 +108,8 @@ export {
   isStageStatusLane,
   normalizeStageStatusLane,
   applyStageButtonVisibility,
+  normalizeStageButtonLabel,
+  resolveStageButtonLabel,
   resolveConfiguredStageStatusLanes,
   resolveGroupStatusLanes,
   resolveStageStatusLanes,
@@ -101,7 +119,13 @@ export {
 } from "./stage-status-lanes";
 export type {
   SavedStageStatusLane,
+  StageActionButtonLane,
   StageButtonVisibility,
   StageLaneStatus,
   StageStatusLane,
+} from "./stage-status-lanes";
+export {
+  DEFAULT_ALTERNATE_BUTTON_LABEL,
+  DEFAULT_CLOSED_BUTTON_LABEL,
+  STAGE_BUTTON_LABEL_MAX,
 } from "./stage-status-lanes";

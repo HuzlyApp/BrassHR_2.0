@@ -173,6 +173,7 @@ export default function TenantOnboardingWorkflowBuilder({
   const templateIdFromUrl = searchParams.get("template")?.trim() || null;
   const flowIdFromUrl = searchParams.get("flow")?.trim() || null;
   const templateViewOnly = searchParams.get("view") === "1";
+  const flowViewOnly = templateViewOnly && Boolean(flowIdFromUrl) && !templateIdFromUrl;
   const queryClient = useQueryClient();
   const prevPathnameRef = useRef<string | null>(null);
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -212,6 +213,7 @@ export default function TenantOnboardingWorkflowBuilder({
   );
   const [templateUpdatedAt, setTemplateUpdatedAt] = useState<string | null>(null);
   const [pastingWorkflow, setPastingWorkflow] = useState(false);
+  const [deletingWorkflow, setDeletingWorkflow] = useState(false);
   const [successModal, setSuccessModal] = useState<SuccessModalState>({
     open: false,
     title: "Success!",
@@ -677,7 +679,7 @@ export default function TenantOnboardingWorkflowBuilder({
         saveGeneration?: number;
       }
     ) => {
-      if (editingTemplate?.isViewOnly) return;
+      if (editingTemplate?.isViewOnly || flowViewOnly) return;
       const saveGeneration = options.saveGeneration;
       const effectiveFlowName = (options.flowName ?? flowTitleRef.current).trim();
       if (!options.silent) {
@@ -688,7 +690,7 @@ export default function TenantOnboardingWorkflowBuilder({
       lastPersistOptionsRef.current = options;
       try {
         const persistTarget = resolveWorkflowPersistTarget({
-          viewOnly: editingTemplate?.isViewOnly,
+          viewOnly: editingTemplate?.isViewOnly || flowViewOnly,
           editingTemplate: editingTemplate
             ? { id: editingTemplate.id, isReadOnly: editingTemplate.isReadOnly }
             : null,
@@ -768,7 +770,10 @@ export default function TenantOnboardingWorkflowBuilder({
           }
 
           const library = data?.stepLibrary ?? stepLibrary;
-          const savedCanvas = hydrateCanvasFromBuilderDraft(builderDraft, library);
+          const savedCanvas = hydrateCanvasFromBuilderDraft(builderDraft, library, {
+            allowEmpty: true,
+            enforceResumeFirst: false,
+          });
           setInitialNodes(savedCanvas.nodes);
           setInitialEdges(savedCanvas.edges);
           skipNextChange.current = true;
@@ -900,7 +905,7 @@ export default function TenantOnboardingWorkflowBuilder({
         }
       }
     },
-    [editingFlow, editingTemplate, flowIdFromUrl, loadTemplateLists, persistNewTemplate, persistTemplateUpdate, queryClient, data?.payload, data?.stepLibrary, stepLibrary, tenantId]
+    [editingFlow, editingTemplate, flowIdFromUrl, flowViewOnly, loadTemplateLists, persistNewTemplate, persistTemplateUpdate, queryClient, data?.payload, data?.stepLibrary, stepLibrary, tenantId]
   );
 
   const handlePreview = useCallback(
@@ -968,7 +973,7 @@ export default function TenantOnboardingWorkflowBuilder({
   const handleDraftChange = useCallback(
     (state: WorkflowState) => {
       latestStateRef.current = state;
-      if (editingTemplate?.isViewOnly) return;
+      if (editingTemplate?.isViewOnly || flowViewOnly) return;
       if (skipNextChange.current) {
         skipNextChange.current = false;
         return;
@@ -993,12 +998,51 @@ export default function TenantOnboardingWorkflowBuilder({
 
       autosaveTimer.current = setTimeout(runPersist, 900);
     },
-    [editingTemplate?.isViewOnly, persist]
+    [editingTemplate?.isViewOnly, flowViewOnly, persist]
   );
 
+  const handleDeleteWorkflow = useCallback(async () => {
+    if (!flowIdFromUrl || editingTemplate?.isViewOnly || flowViewOnly || deletingWorkflow) return;
+    const name = flowTitleRef.current.trim() || "this workflow";
+    const confirmed = window.confirm(`Delete "${name}"? This cannot be undone.`);
+    if (!confirmed) return;
+
+    setDeletingWorkflow(true);
+    try {
+      const res = await fetch(`/api/admin/onboarding-flows/${flowIdFromUrl}`, {
+        ...(await staffFetchInit()),
+        method: "DELETE",
+        cache: "no-store",
+      });
+      const payload = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(payload.error || "Failed to delete workflow");
+      toast.success(`Deleted ${name}`);
+      void queryClient.invalidateQueries({ queryKey: FLOWS_QUERY_KEY });
+      const flowsPath = pathname.includes("/onboarding-builder")
+        ? pathname.replace("/onboarding-builder", "/onboarding-flows")
+        : "/admin_recruiter/dashboard/onboarding-flows";
+      router.push(flowsPath);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to delete workflow");
+      setDeletingWorkflow(false);
+    }
+  }, [
+    deletingWorkflow,
+    editingTemplate?.isViewOnly,
+    flowViewOnly,
+    flowIdFromUrl,
+    pathname,
+    queryClient,
+    router,
+  ]);
+
   const handleResetCanvas = useCallback(() => {
-    if (editingTemplate?.isViewOnly) return;
-    const confirmed = window.confirm("Clear all steps from the canvas? This stays as draft only and is not saved yet.");
+    if (editingTemplate?.isViewOnly || flowViewOnly) return;
+    const confirmed = window.confirm(
+      flowIdFromUrl
+        ? "Clear every step and start from a blank canvas? The empty workflow is saved."
+        : "Clear all steps from the canvas? This stays as draft only and is not saved yet."
+    );
     if (!confirmed) return;
 
     if (autosaveTimer.current) {
@@ -1011,14 +1055,21 @@ export default function TenantOnboardingWorkflowBuilder({
     latestStateRef.current = { nodes: [], edges: [] };
     setInitialNodes([]);
     setInitialEdges([]);
-    setPublishStatus("draft");
-    setActiveFlowKey(`${tenantId ?? "none"}:reset:${Date.now()}`);
-    toast.success("Canvas cleared — draft only, not saved");
-  }, [editingTemplate?.isViewOnly, tenantId]);
+    setActiveFlowKey(
+      `${tenantId ?? "none"}:${flowIdFromUrl ? `flow:${flowIdFromUrl}:` : ""}blank:${Date.now()}`
+    );
+    if (flowIdFromUrl) {
+      void persist({ nodes: [], edges: [] }, { silent: true });
+      toast.success("Blank canvas saved. Add steps from the library.");
+    } else {
+      setPublishStatus("draft");
+      toast.success("Canvas cleared — draft only, not saved");
+    }
+  }, [editingTemplate?.isViewOnly, flowViewOnly, flowIdFromUrl, persist, tenantId]);
 
   const handleFlowTitleChange = useCallback(
     async (nextTitle: string) => {
-      if (editingTemplate?.isViewOnly) return;
+      if (editingTemplate?.isViewOnly || flowViewOnly) return;
       const trimmed = nextTitle.trim();
       const validation = isValidFlowNameInput(trimmed);
       if (validation) {
@@ -1054,7 +1105,7 @@ export default function TenantOnboardingWorkflowBuilder({
         setFlowTitle(revert);
       }
     },
-    [editingTemplate?.isViewOnly, persist, templateLists.savedTemplates]
+    [editingTemplate?.isViewOnly, flowViewOnly, persist, templateLists.savedTemplates]
   );
 
   const toolbarData = useMemo(
@@ -1176,7 +1227,7 @@ export default function TenantOnboardingWorkflowBuilder({
     <OnboardingBuilderErrorPanel message={loadError} onRetry={handleRetryLoad} />
   ) : null;
 
-  const isViewOnly = editingTemplate?.isViewOnly === true;
+  const isViewOnly = editingTemplate?.isViewOnly === true || flowViewOnly;
 
   const canPasteWorkflow = useMemo(() => {
     if (editingTemplate || isViewOnly) return false;
@@ -1276,7 +1327,7 @@ export default function TenantOnboardingWorkflowBuilder({
           <p className="font-semibold">Draft changes are not live until published</p>
           <p className="mt-1 text-amber-900/90">
             Autosave keeps your workflow canvas as a draft. Applicants and recruiters still see the
-            last published flow until you click <strong>Publish to All</strong>. Use Preview to test
+            last published flow until you click <strong>Publish Workflow</strong>. Use Preview to test
             the draft in a new tab.
           </p>
         </div>
@@ -1324,12 +1375,18 @@ export default function TenantOnboardingWorkflowBuilder({
           pastingWorkflow={pastingWorkflow}
           onPasteWorkflow={() => void handlePasteWorkflow()}
           onResetCanvas={!isViewOnly && !editingTemplate ? handleResetCanvas : undefined}
+          onDeleteWorkflow={
+            !isViewOnly && !editingTemplate && flowIdFromUrl
+              ? () => void handleDeleteWorkflow()
+              : undefined
+          }
+          deletingWorkflow={deletingWorkflow}
           savingTemplate={savingTemplate}
           savingPublish={savingPublish}
           onSaveAsTemplate={(state) => void persist(state, { template: true })}
           onPreview={handlePreview}
           onPublish={(state) => void persist(state, { publish: true })}
-          publishLabel={editingTemplate ? "Publish" : "Publish to All"}
+          publishLabel={editingTemplate ? "Publish" : "Publish Workflow"}
         />
       </div>
 

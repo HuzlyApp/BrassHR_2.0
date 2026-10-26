@@ -26,6 +26,7 @@ import {
 } from "@/app/admin_recruiter/candidates/candidates-typography";
 import {
   candidateApplicantProfileHref,
+  candidateDetailPreHireHref,
   candidateHireJourneyHref,
   candidateProfileHref,
 } from "@/app/admin_recruiter/candidates/candidate-links";
@@ -58,9 +59,17 @@ import {
 import { brandingToCssVars } from "@/lib/tenant/tenant-branding";
 import { ResumeHistoryModal, type ResumeHistoryItem } from "../ResumeHistoryModal";
 import { RemoveFromJobConfirmModal } from "../RemoveFromJobConfirmModal";
-import { CandidateApplicationStatusControl } from "@/app/admin_recruiter/components/CandidateApplicationStatusControl";
 import { StageStatusSequenceButtons } from "@/app/admin_recruiter/components/StageStatusSequenceButtons";
-import { aiMatchStatusStageName } from "@/lib/jobs/application-statuses/stage-assignments";
+import {
+  isPreHireStatusStageName,
+  type PreHireStatusStageName,
+} from "@/lib/jobs/application-statuses/stage-assignments";
+import { resolvePreHireStatusStageForActions } from "@/lib/jobs/application-statuses/resolve-pre-hire-stage";
+import {
+  currentPreHireStatusStageName,
+  groupStepsIntoHireStages,
+} from "@/lib/onboarding/hire-stage-groups";
+import type { CandidateWorkflowPhaseView } from "@/lib/onboarding/candidate-workflow-phase-view";
 import CandidateCommunicationDialog from "@/app/admin_recruiter/components/CandidateCommunicationDialog";
 import {
   DeepMatchConfirmDialog,
@@ -97,8 +106,6 @@ import {
   matchProgressionInitialIndex,
   matchProgressionFollowUpNeedsConfirm,
   matchProgressionStepRequiresDeepConfirm,
-  matchProgressionPrimaryAction,
-  matchProgressionStageFromIndex,
   type QuickMatchFitBand,
 } from "@/lib/jobs/match-analysis/progression";
 import { fitBandFromQuickRoute, quickRouteFromAnalysis } from "@/lib/jobs/match-analysis/quick-route";
@@ -697,7 +704,6 @@ export function AiAnalysisOverviewClient({
     prefill: "verified" | "pending";
   } | null>(null);
   const [dataQualityOpen, setDataQualityOpen] = useState(true);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   /* ── Resume History Modal state ── */
   const [resumeHistoryOpen, setResumeHistoryOpen] = useState(false);
@@ -715,12 +721,12 @@ export function AiAnalysisOverviewClient({
   const [statusName, setStatusName] = useState("");
   const [statusSystemKey, setStatusSystemKey] = useState<string | null>(null);
   const [statusRevision, setStatusRevision] = useState(0);
+  const [preHireStageName, setPreHireStageName] = useState<PreHireStatusStageName>("Intake");
   const [viewedStep, setViewedStep] = useState(0);
   const [userPickedStep, setUserPickedStep] = useState(false);
   const [confirmDeepOpen, setConfirmDeepOpen] = useState(false);
   const [confirmFollowUpOpen, setConfirmFollowUpOpen] = useState(false);
   const [followUpAdvancing, setFollowUpAdvancing] = useState(false);
-  const [talentPoolBusy, setTalentPoolBusy] = useState(false);
   const pendingProgressionScrollRef = useRef<string | null>(null);
   const resumeInputRef = useRef<HTMLInputElement>(null);
   const screeningUploadRef = useRef<HTMLInputElement>(null);
@@ -1016,7 +1022,6 @@ export function AiAnalysisOverviewClient({
           applicationId,
         })
       : null;
-  const primaryAction = matchProgressionPrimaryAction(viewedStep, { hasSubmissionResume });
   const canRunPaidDeep = canRunDeepMatch({
     isAnalyzed,
     unlockedIndex,
@@ -1136,55 +1141,11 @@ export function AiAnalysisOverviewClient({
     void advanceToFollowUp();
   }
 
-  async function handlePrimaryProgressionAction() {
-    if (!primaryAction) return;
-    if (primaryAction.kind === "msp") {
-      setCommOpen(true);
-      return;
-    }
-    if (primaryAction.kind === "draft") {
-      if (!hasDeepMatch) {
-        toast.error("Run Deep Match before drafting the submission résumé.");
-        return;
-      }
-      const drafted = await draftSubmissionResume();
-      if (drafted) selectProgressionStep(4);
-      return;
-    }
-    if (primaryAction.kind === "deep") {
-      requestDeepMatchConfirm();
-      return;
-    }
-    if (primaryAction.nextIndex === 1) {
-      moveToVerifications();
-      return;
-    }
-    if (primaryAction.nextIndex === 2) {
-      moveToFollowUp();
-      return;
-    }
-    if (!canAdvance) {
-      toast.error("This candidate is not qualified to continue. Use Talent Pool.");
-      return;
-    }
-    try {
-      await advanceMatchProgress(matchProgressionStageFromIndex(primaryAction.nextIndex) as "call_pack" | "follow_up");
-      selectProgressionStep(primaryAction.nextIndex);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not continue.");
-    }
-  }
-
   async function handleTalentPool() {
-    setTalentPoolBusy(true);
-    try {
-      const ok = await sendToTalentPool();
-      if (ok) {
-        setStatusName("Not a Fit");
-        setStatusSystemKey("rejected");
-      }
-    } finally {
-      setTalentPoolBusy(false);
+    const ok = await sendToTalentPool();
+    if (ok) {
+      setStatusName("Not a Fit");
+      setStatusSystemKey("rejected");
     }
   }
   const analysisHistory = useMemo(() => {
@@ -1220,6 +1181,85 @@ export function AiAnalysisOverviewClient({
     if (app?.status_name) setStatusName(app.status_name);
     if (app?.status_system_key !== undefined) setStatusSystemKey(app.status_system_key ?? null);
   }, [app?.status_name, app?.status_system_key]);
+
+  // Status actions under This Job use the Pre-Hire catalog for the candidate's
+  // current hire-journey stage — never AI Analysis progression steps.
+  useEffect(() => {
+    const scopedWorkerId = workerId?.trim();
+    if (!scopedWorkerId) {
+      setPreHireStageName("Intake");
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [phaseRes, assignRes, appRes] = await Promise.all([
+          fetch(`/api/admin/candidates/${encodeURIComponent(scopedWorkerId)}/workflow-phases`, {
+            cache: "no-store",
+          }),
+          fetch("/api/admin/application-status-stage-assignments", { cache: "no-store" }),
+          fetch(`/api/admin/job-applications/${encodeURIComponent(applicationId)}`, {
+            cache: "no-store",
+          }),
+        ]);
+        const phaseJson = (await phaseRes.json()) as CandidateWorkflowPhaseView & { error?: string };
+        const assignJson = (await assignRes.json()) as {
+          lanes?: Array<{
+            stageName?: string;
+            statusId?: string;
+            lane?: string;
+            workflowId?: string | null;
+            sortOrder?: number;
+          }>;
+          error?: string;
+        };
+        const appJson = (await appRes.json()) as {
+          application?: { status_id?: string | null; workflow_id?: string | null };
+          error?: string;
+        };
+        if (cancelled) return;
+
+        const journeyStages = groupStepsIntoHireStages(phaseRes.ok ? (phaseJson.preHire?.steps ?? []) : [], "pre_hire");
+        const journeyStage = currentPreHireStatusStageName(journeyStages);
+        const laneRows = Array.isArray(assignJson.lanes)
+          ? assignJson.lanes
+              .filter(
+                (row): row is {
+                  stageName: string;
+                  statusId: string;
+                  lane: string;
+                  workflowId: string | null;
+                  sortOrder: number;
+                } =>
+                  typeof row.stageName === "string" &&
+                  typeof row.statusId === "string" &&
+                  typeof row.lane === "string"
+              )
+              .map((row) => ({
+                stageName: row.stageName,
+                statusId: row.statusId,
+                lane: row.lane as "happy_path" | "alternate" | "closed",
+                workflowId: row.workflowId ?? null,
+                sortOrder: Number(row.sortOrder ?? 0),
+              }))
+          : [];
+        const next = resolvePreHireStatusStageForActions({
+          hireJourneyStageName: journeyStage,
+          statusId: appJson.application?.status_id ?? null,
+          workflowId: appJson.application?.workflow_id ?? null,
+          lanes: laneRows,
+        });
+        if (!cancelled && isPreHireStatusStageName(next)) setPreHireStageName(next);
+      } catch {
+        if (!cancelled) setPreHireStageName("Intake");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workerId, applicationId, statusRevision]);
 
   const noteFeedItems = useMemo(() => {
     const verified = (data?.verifiedInformation ?? []).map((item) => ({
@@ -1442,10 +1482,14 @@ export function AiAnalysisOverviewClient({
                           View Profile
                         </Link>
                         <Link
-                          href={candidateHireJourneyHref(workerId)}
-                          className="inline-flex items-center justify-center rounded-lg border border-[#EAC5A8] bg-white px-4 py-1.5 text-sm font-semibold text-[#D6925A] shadow-sm transition hover:bg-[#FFF7F2]"
+                          href={
+                            embedded
+                              ? candidateDetailPreHireHref(workerId)
+                              : candidateHireJourneyHref(workerId)
+                          }
+                          className="inline-flex items-center justify-center rounded-lg border border-[color:var(--brand-secondary)] bg-[color:var(--brand-secondary)] px-4 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-95"
                         >
-                          Hire Journey
+                          Hiring Journey
                         </Link>
                       </div>
                     ) : null}
@@ -1540,90 +1584,39 @@ export function AiAnalysisOverviewClient({
             <div className="flex flex-col gap-4">
               <div>
                 <h2 className="text-xl font-bold text-[#101828]">This Job</h2>
-                {progressionStep ? (
-                  <p className="mt-2 text-sm text-[#475467]">
-                    Stage · <span className="font-semibold text-[#101828]">{progressionStep.label}</span>
-                  </p>
-                ) : null}
+                <p className="mt-2 text-sm text-[#475467]">
+                  Stage · <span className="font-semibold text-[#101828]">{preHireStageName}</span>
+                </p>
                 {statusName ? (
                   <p className="mt-1 text-sm text-[#475467]">
                     Status · <span className="font-semibold text-[#101828]">{statusName}</span>
                   </p>
                 ) : null}
               </div>
-              {progressionStep && aiMatchStatusStageName(progressionStep.id) ? (
-                <StageStatusSequenceButtons
-                  key={`${aiMatchStatusStageName(progressionStep.id)}-${statusRevision}`}
-                  applicationId={applicationId}
-                  stageName={aiMatchStatusStageName(progressionStep.id) ?? ""}
-                  onStatusChanged={(next) => {
-                    setStatusName(next.statusName);
-                    setStatusSystemKey(null);
-                    setStatusRevision((revision) => revision + 1);
-                  }}
-                  onException={async (status) => {
-                    if (!status.name.toLowerCase().includes("talent pool")) return false;
-                    await handleTalentPool();
-                    setStatusRevision((revision) => revision + 1);
-                    return true;
-                  }}
-                />
-              ) : null}
-              <div className="mt-1">
-                {primaryAction && primaryAction.kind !== "advance" ? (
-                  <button
-                    type="button"
-                    className="inline-flex items-center justify-center rounded-full bg-[color:var(--brand-primary)] px-5 py-2 text-sm font-semibold text-white transition hover:brightness-95 disabled:opacity-60"
-                    disabled={
-                      analyzing ||
-                      talentPoolBusy ||
-                      draftingSubmissionResume ||
-                      (primaryAction.kind !== "msp" &&
-                        primaryAction.kind !== "draft" &&
-                        !canAdvance &&
-                        primaryAction.kind !== "deep") ||
-                      (primaryAction.kind === "deep" && !canRunPaidDeep) ||
-                      (primaryAction.kind === "draft" && !hasDeepMatch)
-                    }
-                    onClick={() => void handlePrimaryProgressionAction()}
-                  >
-                    {draftingSubmissionResume && primaryAction.kind === "draft"
-                      ? "Drafting résumé…"
-                      : primaryAction.label}
-                  </button>
-                ) : null}
-              </div>
-
-              <div className="mt-4 flex flex-col gap-4 border-t border-[color:color-mix(in_srgb,var(--brand-primary)_20%,transparent)] pt-4 sm:flex-row sm:items-start sm:justify-between">
-                <div className="flex flex-col items-start gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setAdvancedOpen((prev) => !prev)}
-                    className="flex h-6 items-center gap-2 text-sm text-[#475467] transition hover:text-[#101828] focus:outline-none"
-                  >
-                    <span className="text-[10px] transition-transform duration-200" style={{ transform: advancedOpen ? 'rotate(90deg)' : 'none' }}>▶</span>
-                    <span>Advanced - Correction only</span>
-                  </button>
-                  {advancedOpen && progressionStep && aiMatchStatusStageName(progressionStep.id) ? (
-                    <CandidateApplicationStatusControl
-                      key={`status-${aiMatchStatusStageName(progressionStep.id)}-${statusRevision}`}
-                      applicationId={applicationId}
-                      stageName={aiMatchStatusStageName(progressionStep.id)}
-                      buttonClassName="h-9 min-w-[180px] flex items-center justify-between gap-2 rounded-lg border border-[#D0D5DD] bg-white px-3 text-sm font-medium text-[#101828] shadow-sm transition hover:bg-gray-50"
-                      onStatusChanged={(next) => {
-                        setStatusName(next.statusName);
-                        setStatusSystemKey(null);
-                        setStatusRevision((revision) => revision + 1);
-                      }}
-                    />
-                  ) : null}
-                </div>
-                {parkedInTalentPool ? (
-                  <div className="flex h-6 items-center text-sm font-semibold text-[color:var(--brand-primary)]">
-                    In Talent Pool
-                  </div>
-                ) : null}
-              </div>
+              <StageStatusSequenceButtons
+                key={`${preHireStageName}-${statusRevision}`}
+                applicationId={applicationId}
+                stageName={preHireStageName}
+                showHiringJourneyHint
+                hiringJourneyHref={
+                  workerId
+                    ? embedded
+                      ? candidateDetailPreHireHref(workerId)
+                      : candidateHireJourneyHref(workerId)
+                    : null
+                }
+                onStatusChanged={(next) => {
+                  setStatusName(next.statusName);
+                  setStatusSystemKey(null);
+                  setStatusRevision((revision) => revision + 1);
+                }}
+                onException={async (status) => {
+                  if (!status.name.toLowerCase().includes("talent pool")) return false;
+                  await handleTalentPool();
+                  setStatusRevision((revision) => revision + 1);
+                  return true;
+                }}
+              />
             </div>
           </section>
 

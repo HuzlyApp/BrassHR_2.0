@@ -57,6 +57,20 @@ function resolveFileType(file: Pick<File, "name" | "type">): string {
   return "unknown"
 }
 
+function readThrownMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) return error.message
+  if (
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof (error as { message?: unknown }).message === "string" &&
+    (error as { message: string }).message.trim()
+  ) {
+    return (error as { message: string }).message
+  }
+  return fallback
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
   return Promise.race([
@@ -467,6 +481,8 @@ export async function POST(req: Request) {
         uploadedByUserId: applicantId,
         uploaderRole: "worker",
         enforceUploadLimit: false,
+        workerId: workerCtx.workerId,
+        tenantId: workerCtx.tenantId,
       }),
       RESUME_DB_TIMEOUT_MS,
       "Resume record persistence",
@@ -481,7 +497,7 @@ export async function POST(req: Request) {
       resumeId,
     })
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Failed to save resume record"
+    const msg = readThrownMessage(e, "Failed to save resume record")
     console.error("[upload-resume] worker_resumes", e)
     await discardNewApplication()
     return NextResponse.json(

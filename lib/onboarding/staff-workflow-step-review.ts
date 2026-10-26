@@ -6,6 +6,11 @@ import {
   contextToTemplateVariables,
 } from "@/lib/email/applicant-email-context";
 import { sendStepReadyEmail } from "@/lib/onboarding/step-ready-email";
+import { sendConfiguredStepCompletionEmail, readStepEmailTemplateKey } from "@/lib/onboarding/step-completion-email";
+import {
+  notifyHrFinalApprovalCompleted,
+  unlockPostHireWhenRequiredComplete,
+} from "@/lib/onboarding/unlock-post-hire-when-ready";
 import {
   ASSIGNED_STEP_RECORD_COLUMNS,
   POST_HIRE_NOT_AVAILABLE_CODE,
@@ -26,6 +31,7 @@ import { loadApplicantConfigForJobToken } from "@/lib/onboarding/load-config-for
 import { loadTenantOnboardingConfig } from "@/lib/onboarding/load-tenant-config";
 import { canStaffAccessPostHireSteps } from "@/lib/onboarding/resolve-candidate-hire-gate";
 import { ensureCandidateConvertedIfAgreementCompleted } from "@/lib/onboarding/auto-convert-after-agreement";
+import { isAgreementEsignStep } from "@/lib/onboarding/lock-post-hire";
 import { loadApplicationWorkflowPhase } from "@/lib/onboarding/resolve-application-workflow-phase";
 import { resolveInstanceApplicationId } from "@/lib/onboarding/scoped-step-progress";
 import { RECRUITER_SCREENING_STEP_TYPE } from "@/lib/onboarding/recruiter-screening-progress";
@@ -45,6 +51,10 @@ import {
   staffStepVariantForLibraryId,
   type StaffStepVariant,
 } from "@/lib/onboarding/staff-step-review-shared";
+import {
+  approveStepDocumentsOnCompletion,
+  loadStepDocumentUploads,
+} from "@/lib/onboarding/staff-step-documents";
 import { getEnabledTenantSteps } from "@/lib/onboarding/tenant-step-navigation";
 import type {
   OnboardingStepStatus,
@@ -601,7 +611,7 @@ async function notifyCandidateNextStep(
   }
 }
 
-async function buildStaffReview(
+export async function buildStaffReview(
   supabase: SupabaseClient,
   params: {
     action: StaffStepAction;
@@ -649,19 +659,21 @@ function withStaffReview(
 }
 
 /** The step record is the source of truth for staff decisions; every change is also appended to the event log. */
-async function writeStepRecordDecision(
+export async function writeStepRecordDecision(
   supabase: SupabaseClient,
   params: {
-    ctx: StaffStepContext;
+    recordId: string;
+    instanceId: string;
     tenantId: string;
     action: StaffStepAction;
     previousStatus: string;
     nextStatus: OnboardingStepStatus;
     review: StaffStepReview;
+    /** Keeps the candidate's own completion time when staff only verify the step. */
+    completedAt?: string | null;
   }
 ): Promise<void> {
-  const { ctx, tenantId, review, nextStatus } = params;
-  const recordId = String(ctx.record.id);
+  const { recordId, tenantId, review, nextStatus } = params;
   // Actor ids reference public.users; an auth user without a profile row is stored by name only.
   const isMissingUser = (error: { code?: string } | null) => error?.code === "23503";
 
@@ -670,7 +682,7 @@ async function writeStepRecordDecision(
       .from("applicant_workflow_step_records")
       .update({
         status: nextStatus,
-        completed_at: nextStatus === "completed" ? review.reviewedAt : null,
+        completed_at: nextStatus === "completed" ? params.completedAt ?? review.reviewedAt : null,
         completed_by: nextStatus === "completed" ? actorId : null,
         status_changed_at: review.reviewedAt,
         status_changed_by: actorId,
@@ -688,7 +700,7 @@ async function writeStepRecordDecision(
   const insertEvent = (actorId: string | null) =>
     supabase.from("applicant_workflow_step_events").insert({
       tenant_id: tenantId,
-      workflow_instance_id: String(ctx.instance.id),
+      workflow_instance_id: params.instanceId,
       step_record_id: recordId,
       action: params.action,
       from_status: params.previousStatus,
@@ -747,6 +759,43 @@ function staffEligibilityFor(ctx: StaffStepContext): StaffStepActionEligibility 
   });
 }
 
+/**
+ * Agreement e-sign completed by a recruiter is what hires the candidate.
+ * Authorization e-sign and post-hire e-sign steps do not.
+ */
+export function agreementStepCompletedByStaff(ctx: StaffStepContext): TenantOnboardingStep | null {
+  if (ctx.phase === "post_hire") return null;
+  const snapshotId = ctx.mapped.snapshotStepId;
+  const title = ctx.tenantStep?.title ?? ctx.mapped.title;
+  const stepKey = ctx.tenantStep?.step_key ?? ctx.mapped.stepKey;
+  const workflowStepId = String(ctx.tenantStep?.metadata?.workflow_step_id ?? snapshotId ?? "");
+  if (
+    !isAgreementEsignStep({
+      snapshotStepId: workflowStepId,
+      stepKey,
+      stepType: ctx.mapped.stepType,
+      title,
+    })
+  ) {
+    return null;
+  }
+  if (ctx.tenantStep) return ctx.tenantStep;
+  return {
+    id: ctx.mapped.tenantStepId ?? ctx.mapped.id,
+    step_key: stepKey || "employee-agreement",
+    title,
+    description: null,
+    step_type: "authorizations",
+    sort_order: 0,
+    is_required: ctx.mapped.required,
+    is_enabled: true,
+    metadata: {
+      workflow_step_id: workflowStepId || "employee-agreement",
+      workflow_settings: { phase: "pre_hire" },
+    },
+  };
+}
+
 function notStaffOwned(eligibility: StaffStepActionEligibility): StepFailure {
   return {
     ok: false,
@@ -768,6 +817,10 @@ export async function applyStaffWorkflowStepAction(
     notifyCandidate: boolean;
     origin: string | null;
     request?: Request;
+    /** Staff completing a candidate's upload step after collecting the documents themselves. */
+    onBehalfOfCandidate?: boolean;
+    /** The caller already sent this step's email before marking it complete. */
+    skipConfiguredCompletionEmail?: boolean;
   }
 ): Promise<StaffStepActionResult> {
   const { workerId, tenantId, action } = params;
@@ -784,7 +837,21 @@ export async function applyStaffWorkflowStepAction(
   if (!ctx.ok) return ctx;
 
   const initial = staffEligibilityFor(ctx);
-  if (!initial.allowed) return notStaffOwned(initial);
+  const onBehalf =
+    !initial.allowed &&
+    ctx.mapped.candidateOwned === true &&
+    params.onBehalfOfCandidate === true &&
+    action === "complete";
+  if (action === "complete" && agreementStepCompletedByStaff(ctx)) {
+    return {
+      ok: false,
+      status: 409,
+      code: "AGREEMENT_AWAITING_CANDIDATE_SIGNATURE",
+      error:
+        "The candidate has to sign Agreement e-sign first. After their signature is saved, preview the signed document and mark the step complete.",
+    };
+  }
+  if (!initial.allowed && !onBehalf) return notStaffOwned(initial);
 
   // Unlinked internal steps still gate the candidate on the job workflow's step, so mirror there.
   const tenantStepId =
@@ -812,7 +879,35 @@ export async function applyStaffWorkflowStepAction(
     toAssignedStepRecordInput(ctx.record),
     progressRow ?? undefined
   ).status;
-  if (!allowedStaffActions(currentStatus, initial.variant).includes(action)) {
+  let onBehalfDocumentIds: string[] = [];
+  if (onBehalf) {
+    if (currentStatus === "completed") {
+      return {
+        ok: false,
+        status: 409,
+        code: "INVALID_TRANSITION",
+        error: "This step is already completed. Refresh to see the latest status.",
+      };
+    }
+    const uploads = await loadStepDocumentUploads(supabase, {
+      tenantId,
+      workerId,
+      tenantStepId: ctx.mapped.tenantStepId,
+      stepType: ctx.mapped.stepType,
+      stepKey: ctx.mapped.stepKey,
+      workflowStepId:
+        typeof ctx.tenantStep?.metadata?.workflow_step_id === "string"
+          ? ctx.tenantStep.metadata.workflow_step_id
+          : null,
+      config: ctx.config,
+      candidateOwned: true,
+      stepStatus: currentStatus,
+      uploadsClosed: ctx.mapped.displayStatus === "completed" || Boolean(ctx.mapped.verifiedAt),
+    });
+    onBehalfDocumentIds = uploads.slots.flatMap((slot) =>
+      slot.requiredDocumentId ? [slot.requiredDocumentId] : []
+    );
+  } else if (!allowedStaffActions(currentStatus, initial.variant).includes(action)) {
     return {
       ok: false,
       status: 409,
@@ -826,7 +921,8 @@ export async function applyStaffWorkflowStepAction(
   const review = await buildStaffReview(supabase, { action, note, actor: params.actor, now });
 
   await writeStepRecordDecision(supabase, {
-    ctx,
+    recordId: String(ctx.record.id),
+    instanceId: String(ctx.instance.id),
     tenantId,
     action,
     previousStatus: currentStatus,
@@ -850,6 +946,20 @@ export async function applyStaffWorkflowStepAction(
     }
   }
 
+  if (onBehalf) {
+    try {
+      await approveStepDocumentsOnCompletion(supabase, {
+        tenantId,
+        workerId,
+        requiredDocumentIds: onBehalfDocumentIds,
+        reviewerUserId: params.actor.userId,
+        reviewedAt: now,
+      });
+    } catch (approveError) {
+      console.error("[staff-workflow-step-review] document approval failed", approveError);
+    }
+  }
+
   await writeActivityLog({
     actorUserId: params.actor.userId,
     action: `workflow_step.staff_${action}`,
@@ -864,6 +974,7 @@ export async function applyStaffWorkflowStepAction(
       previous_status: currentStatus,
       status: nextStatus,
       note,
+      ...(onBehalf ? { on_behalf_of_candidate: true } : {}),
     },
     request: params.request,
   });
@@ -910,6 +1021,52 @@ export async function applyStaffWorkflowStepAction(
       } catch (statusError) {
         console.error("[staff-workflow-step-review] selected status update failed", statusError);
       }
+    }
+  }
+
+  const configuredTemplateKey = readStepEmailTemplateKey(ctx.record.settings);
+  const welcomeAlreadySent =
+    params.skipConfiguredCompletionEmail === true && configuredTemplateKey === "welcome";
+  if (action === "complete" && currentStatus !== "completed" && !welcomeAlreadySent) {
+    await sendConfiguredStepCompletionEmail(supabase, {
+      tenantId,
+      workerId,
+      origin: params.origin,
+      settings: ctx.record.settings,
+      stepTitle: ctx.mapped.title,
+      stepId: String(ctx.record.id),
+      request: params.request,
+    });
+  }
+
+  if (
+    nextStatus === "completed" &&
+    ctx.applicationId
+  ) {
+    try {
+      if (action === "complete" && currentStatus !== "completed") {
+        await notifyHrFinalApprovalCompleted(supabase, {
+          tenantId,
+          workerId,
+          origin: params.origin,
+          configuredTemplateKey,
+          step: {
+            snapshotStepId: ctx.mapped.snapshotStepId,
+            stepKey: ctx.mapped.stepKey,
+            stepType: ctx.mapped.stepType,
+            title: ctx.mapped.title,
+          },
+        });
+      }
+      await unlockPostHireWhenRequiredComplete(supabase, {
+        tenantId,
+        workerId,
+        applicationId: ctx.applicationId,
+        workflowInstanceId: asText(ctx.instance.id),
+        origin: params.origin,
+      });
+    } catch (unlockError) {
+      console.error("[staff-workflow-step-review] post-hire unlock failed", unlockError);
     }
   }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getSupabaseUrl } from "@/lib/supabase-env";
+import { loadProfessionDocumentChecklist } from "@/lib/onboarding/profession-document-checklist";
 import { resolveOnboardingWorker } from "@/lib/onboarding/resolve-onboarding-worker";
 import { readOnboardingTenantSlugFromRequest } from "@/lib/onboarding/resolve-onboarding-worker";
 
@@ -58,7 +59,8 @@ export async function GET(req: NextRequest) {
     if (error) {
       if (isMissingExtraFilesTable(error)) {
         console.warn("[extra-files GET] worker_extra_files table is not available yet", error);
-        return NextResponse.json({ files: [] });
+        const checklist = await loadProfessionDocumentChecklist(supabase, ctx.tenantId, ctx.workerId);
+        return NextResponse.json({ files: [], checklist });
       }
       throw error;
     }
@@ -71,7 +73,8 @@ export async function GET(req: NextRequest) {
       created_at: row.created_at,
     }));
 
-    return NextResponse.json({ files });
+    const checklist = await loadProfessionDocumentChecklist(supabase, ctx.tenantId, ctx.workerId);
+    return NextResponse.json({ files, checklist });
   } catch (error) {
     console.error("[extra-files GET]", error);
     return NextResponse.json(

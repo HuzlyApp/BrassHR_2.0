@@ -16,7 +16,19 @@ export async function GET(req: NextRequest) {
 
     let storagePath: string | null = null;
 
-    if (source === "license") {
+    if (source === "credential") {
+      const { data, error } = await auth.supabase
+        .from("worker_credentials")
+        .select("storage_path, document_url")
+        .eq("id", id)
+        .eq("worker_id", auth.applicant.id)
+        .maybeSingle();
+      if (error) throw error;
+      storagePath =
+        (data?.storage_path as string | null)?.trim() ||
+        (data?.document_url as string | null)?.trim() ||
+        null;
+    } else if (source === "license") {
       const { data, error } = await auth.supabase
         .from("worker_license_records")
         .select("storage_path, file_url")

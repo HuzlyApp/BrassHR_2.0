@@ -132,7 +132,10 @@ export function StageContextNotesSection({
             type="button"
             disabled={saving || !draft.trim()}
             onClick={() => void saveNote()}
-            className="inline-flex h-9 items-center rounded-lg bg-[color:var(--brand-primary)] px-3 text-xs font-semibold text-white disabled:opacity-50"
+            className="inline-flex h-9 items-center rounded-lg px-3 text-xs font-semibold text-white disabled:opacity-50"
+            style={{
+              backgroundColor: "var(--hj-modal-button, var(--brand-primary))",
+            }}
           >
             {saving ? "Saving…" : "Add note"}
           </button>

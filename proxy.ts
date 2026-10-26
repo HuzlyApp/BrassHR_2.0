@@ -53,8 +53,16 @@ function withTenantSlugHeader(request: NextRequest, tenantSlug: string | null): 
   return requestHeaders;
 }
 
+function withSessionCookies(from: NextResponse, to: NextResponse): NextResponse {
+  from.cookies.getAll().forEach((cookie) => {
+    to.cookies.set(cookie.name, cookie.value, cookie);
+  });
+  return to;
+}
+
 async function redirectAuthenticatedUser(
   request: NextRequest,
+  sessionResponse: NextResponse,
   user: User,
   destination: string
 ): Promise<NextResponse> {
@@ -63,8 +71,16 @@ async function redirectAuthenticatedUser(
   const proto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
   const protocol = proto === "http" ? "http" : "https";
 
+  const send = (url: string | URL) =>
+    withSessionCookies(
+      sessionResponse,
+      typeof url === "string" && /^https?:\/\//i.test(url)
+        ? NextResponse.redirect(url)
+        : NextResponse.redirect(typeof url === "string" ? new URL(url, request.url) : url)
+    );
+
   if (!svc) {
-    return NextResponse.redirect(new URL(destination, request.url));
+    return send(destination);
   }
 
   try {
@@ -73,13 +89,10 @@ async function redirectAuthenticatedUser(
       currentHostname: host,
       protocol,
     });
-    if (/^https?:\/\//i.test(redirectUrl)) {
-      return NextResponse.redirect(redirectUrl);
-    }
-    return NextResponse.redirect(new URL(redirectUrl, request.url));
+    return send(redirectUrl);
   } catch (error) {
     console.error("[middleware] recruiter vanity redirect failed", error);
-    return NextResponse.redirect(new URL(destination, request.url));
+    return send(destination);
   }
 }
 
@@ -146,7 +159,7 @@ function isPublicApiPath(pathname: string): boolean {
 /**
  * Refreshes Supabase Auth cookies; enforces login + `app_metadata.platform === nexus` for protected UI/APIs.
  */
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const url = getSupabaseUrl();
   const anon = getSupabaseAnonKey();
   const response = NextResponse.next({ request });
@@ -297,7 +310,7 @@ export async function middleware(request: NextRequest) {
             onboardingStatus,
             request.nextUrl.searchParams.get("next")
           );
-          return redirectAuthenticatedUser(request, user, destination);
+          return redirectAuthenticatedUser(request, response, user, destination);
         }
         return response;
       }
@@ -397,7 +410,7 @@ export async function middleware(request: NextRequest) {
         request.nextUrl.searchParams.get("next")
       );
       if (destination !== "/signup") {
-        return redirectAuthenticatedUser(request, user, destination);
+        return redirectAuthenticatedUser(request, response, user, destination);
       }
     }
 
@@ -406,7 +419,7 @@ export async function middleware(request: NextRequest) {
         onboardingStatus,
         request.nextUrl.searchParams.get("next")
       );
-      return redirectAuthenticatedUser(request, user, destination);
+      return redirectAuthenticatedUser(request, response, user, destination);
     }
 
     if (
@@ -425,7 +438,7 @@ export async function middleware(request: NextRequest) {
         onboardingStatus,
         request.nextUrl.searchParams.get("next")
       );
-      return redirectAuthenticatedUser(request, user, destination);
+      return redirectAuthenticatedUser(request, response, user, destination);
     }
   }
 
@@ -487,7 +500,7 @@ export async function middleware(request: NextRequest) {
     );
     const destPath = destination.split("?")[0];
     if (destPath !== pathname) {
-      return redirectAuthenticatedUser(request, user, destination);
+      return redirectAuthenticatedUser(request, response, user, destination);
     }
   }
 
@@ -548,7 +561,7 @@ export async function middleware(request: NextRequest) {
               protocol: proto === "http" ? "http" : "https",
             });
             if (/^https?:\/\//i.test(redirectUrl)) {
-              return NextResponse.redirect(redirectUrl);
+              return withSessionCookies(response, NextResponse.redirect(redirectUrl));
             }
           } catch (error) {
             console.error("[middleware] admin_recruiter vanity redirect", error);

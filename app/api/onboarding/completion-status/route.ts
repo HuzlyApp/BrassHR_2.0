@@ -13,6 +13,8 @@ import { loadTenantOnboardingConfig } from "@/lib/onboarding/load-tenant-config"
 import { resolveTenantIdBySlug } from "@/lib/onboarding/resolve-worker-context";
 import { normalizeJobToken } from "@/lib/jobs/public-application-routing";
 import { evaluateWorkflowCompletion } from "@/lib/onboarding/workflow-completion-check";
+import { requiredPreHireStepsComplete } from "@/lib/onboarding/required-pre-hire-gate";
+import { unlockPostHireWhenRequiredComplete } from "@/lib/onboarding/unlock-post-hire-when-ready";
 import { filterApplicantVisibleSteps } from "@/lib/onboarding/filter-applicant-steps";
 import { routeForApplicantStep } from "@/lib/onboarding/resolve-applicant-step-route";
 import { readStepLifecyclePhase } from "@/lib/onboarding/workflow-phase";
@@ -54,6 +56,39 @@ async function loadFullConfigForContext(
   return null;
 }
 
+/**
+ * Without a job token the tenant default workflow would be evaluated, which can list steps
+ * (e.g. post-hire) that the applicant's job workflow does not have.
+ */
+async function resolveJobTokenForApplicant(
+  supabase: SupabaseClient,
+  params: { tenantId: string; workerId: string; jobRequisitionId: string | null }
+): Promise<string | null> {
+  let jobRequisitionId = params.jobRequisitionId;
+  if (!jobRequisitionId) {
+    const { data } = await supabase
+      .from("job_applications")
+      .select("job_requisition_id")
+      .eq("tenant_id", params.tenantId)
+      .eq("worker_id", params.workerId)
+      .not("job_requisition_id", "is", null)
+      .not("status", "in", '("rejected","withdrawn","archived")')
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    jobRequisitionId = (data as { job_requisition_id?: string | null } | null)?.job_requisition_id ?? null;
+  }
+  if (!jobRequisitionId) return null;
+
+  const { data: job } = await supabase
+    .from("job_requisitions")
+    .select("public_job_token")
+    .eq("tenant_id", params.tenantId)
+    .eq("id", jobRequisitionId)
+    .maybeSingle();
+  return normalizeJobToken((job as { public_job_token?: string | null } | null)?.public_job_token ?? null);
+}
+
 export async function GET(req: NextRequest) {
   try {
     const applicantId = req.nextUrl.searchParams.get("applicantId")?.trim() || "";
@@ -88,9 +123,16 @@ export async function GET(req: NextRequest) {
     });
 
     const scopedApplicationId = applicationId || phaseRecord?.applicationId || null;
+    const workflowJobToken =
+      jobToken ||
+      (await resolveJobTokenForApplicant(supabase, {
+        tenantId: workerCtx.tenantId,
+        workerId: workerCtx.workerId,
+        jobRequisitionId: phaseRecord?.jobRequisitionId ?? null,
+      }));
 
     const [fullConfig, progress] = await Promise.all([
-      loadFullConfigForContext(supabase, tenantSlug, jobToken),
+      loadFullConfigForContext(supabase, tenantSlug, workflowJobToken),
       ensureWorkerOnboardingProgress(
         supabase,
         workerCtx.workerId,
@@ -110,11 +152,17 @@ export async function GET(req: NextRequest) {
       progress,
       tenantSlug,
     });
+    const postHireReady = await requiredPreHireStepsComplete(supabase, {
+      tenantId: workerCtx.tenantId,
+      workerId: workerCtx.workerId,
+      applicationId: scopedApplicationId,
+    });
 
     return NextResponse.json({
       workflowPhase: phaseRecord?.phase ?? "pre_hire",
       applicationId: scopedApplicationId,
       ...completion,
+      postHireReady,
     });
   } catch (err: unknown) {
     console.error("[onboarding/completion-status:GET]", err);
@@ -164,28 +212,42 @@ export async function POST(req: NextRequest) {
     const scopedApplicationId = applicationId || phaseRecord?.applicationId || null;
 
     if (action === "continue_to_post_hire") {
-      const now = new Date().toISOString();
-      if (scopedApplicationId) {
-        await supabase
-          .from("job_applications")
-          .update({
-            workflow_phase: "post_hire",
-            post_hire_activated_at: now,
-            updated_at: now,
-          })
-          .eq("id", scopedApplicationId)
-          .eq("tenant_id", workerCtx.tenantId);
+      const ready = await requiredPreHireStepsComplete(supabase, {
+        tenantId: workerCtx.tenantId,
+        workerId: workerCtx.workerId,
+        applicationId: scopedApplicationId,
+      });
+      if (!ready) {
+        return NextResponse.json(
+          { error: "Post-Hire stays locked until every required Pre-Hire step is complete." },
+          { status: 409 }
+        );
       }
 
-      // Also ensure worker progress points to the post-hire phase
-      const progress = await ensureWorkerOnboardingProgress(
+      if (scopedApplicationId) {
+        await unlockPostHireWhenRequiredComplete(supabase, {
+          tenantId: workerCtx.tenantId,
+          workerId: workerCtx.workerId,
+          applicationId: scopedApplicationId,
+          origin: req.nextUrl.origin,
+        });
+      }
+
+      await ensureWorkerOnboardingProgress(
         supabase,
         workerCtx.workerId,
         workerCtx.tenantId,
         scopedApplicationId
       );
 
-      const fullConfig = await loadFullConfigForContext(supabase, tenantSlug, jobToken);
+      const workflowJobToken =
+        jobToken ||
+        (await resolveJobTokenForApplicant(supabase, {
+          tenantId: workerCtx.tenantId,
+          workerId: workerCtx.workerId,
+          jobRequisitionId: phaseRecord?.jobRequisitionId ?? null,
+        }));
+      const fullConfig = await loadFullConfigForContext(supabase, tenantSlug, workflowJobToken);
       let nextRoute: string | null = null;
 
       if (fullConfig) {

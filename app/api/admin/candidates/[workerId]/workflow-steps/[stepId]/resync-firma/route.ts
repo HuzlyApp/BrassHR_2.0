@@ -17,7 +17,6 @@ import {
 } from "@/lib/onboarding/firma-step-settings";
 import { loadCandidateWorkflowStepInspection } from "@/lib/onboarding/candidate-workflow-step-inspection";
 import { ensureWorkerOnboardingProgress } from "@/lib/onboarding/ensure-worker-progress";
-import { autoConvertCandidateAfterAgreement } from "@/lib/onboarding/auto-convert-after-agreement";
 import { notifyRecruiterOnAgreementStepCompletion } from "@/lib/onboarding/notify-recruiter-on-agreement-step";
 import type { TenantOnboardingStep } from "@/lib/onboarding/types";
 
@@ -192,22 +191,10 @@ export async function POST(req: Request, context: RouteContext) {
       const stepToNotify = (realStep || {
         id: stepId,
         step_key: "agreement",
-        title: "Agreement eSign",
+        title: "Authorization e-sign",
       }) as unknown as TenantOnboardingStep;
 
       const applicationId = (session.application_id as string | null) ?? null;
-      try {
-        await autoConvertCandidateAfterAgreement(supabase, {
-          tenantId,
-          workerId,
-          applicationId,
-          step: stepToNotify,
-          origin: new URL(req.url).origin,
-        });
-      } catch (e) {
-        console.warn("[resync-firma] auto convert warning", e);
-      }
-
       try {
         await notifyRecruiterOnAgreementStepCompletion(supabase, {
           tenantId,

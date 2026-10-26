@@ -463,19 +463,22 @@ export async function guardJobApplicationStatusChange(
       assignedGroupIds,
     });
     if (!assignedToStage) {
-      const { data: laneRow, error: laneError } = await supabase
+      // A stage can have both a default lane and a workflow lane for the same
+      // status. Either row means the status is assigned; maybeSingle throws
+      // when both exist.
+      const { data: laneRows, error: laneError } = await supabase
         .from("application_status_stage_lanes")
         .select("id")
         .eq("tenant_id", input.tenantId)
         .eq("stage_name", stageName)
         .eq("status_id", status.id)
-        .maybeSingle();
+        .limit(1);
       if (laneError) {
         const message = String((laneError as { message?: string }).message ?? laneError);
         if (!/application_status_stage_lanes|schema cache|Could not find/i.test(message)) {
           throw laneError;
         }
-      } else if (laneRow) {
+      } else if ((laneRows ?? []).length > 0) {
         assignedToStage = true;
       }
     }

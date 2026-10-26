@@ -33,7 +33,7 @@ function step(partial: Partial<CandidateWorkflowStepView> & Pick<CandidateWorkfl
 const PRE_HIRE_STEPS = [
   step({ id: "11111111-1111-4111-8111-111111111111", title: "Upload Resume", stepType: "resume-basic-profile", onboardingType: "resume_upload" }),
   step({ id: "22222222-2222-4222-8222-222222222222", title: "Professional License", stepType: "credential-license-verification", onboardingType: "professional_license" }),
-  step({ id: "33333333-3333-4333-8333-333333333333", title: "Employee Agreement / Contract eSign", stepType: "employee-agreement", onboardingType: "authorizations" }),
+  step({ id: "33333333-3333-4333-8333-333333333333", title: "Authorization e-sign", stepType: "employee-agreement", onboardingType: "authorizations" }),
   step({ id: "44444444-4444-4444-8444-444444444444", title: "Skill Assessment", stepType: "skill-qualification-assessment", onboardingType: "skill_assessment" }),
   step({ id: "55555555-5555-4555-8555-555555555555", title: "Authorization / Background Check", stepType: "background-check", onboardingType: "custom_question" }),
   step({ id: "66666666-6666-4666-8666-666666666666", title: "Add Reference", stepType: "references-collection", onboardingType: "references" }),

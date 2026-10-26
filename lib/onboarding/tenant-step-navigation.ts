@@ -1,5 +1,8 @@
 import { createDefaultOnboardingStepDrafts } from "@/lib/onboarding/default-onboarding-steps";
-import { findNavigableStepIndex } from "@/lib/onboarding/applicant-step-navigability";
+import {
+  applicantStepHasNavigableScreen,
+  findNavigableStepIndex,
+} from "@/lib/onboarding/applicant-step-navigability";
 import { routeForApplicantStep } from "@/lib/onboarding/resolve-applicant-step-route";
 import { stepIndexFromPathname } from "@/lib/onboarding/step-index-from-pathname";
 import {
@@ -15,7 +18,12 @@ import { APPLICATION_ROUTES } from "@/lib/onboarding/application-routes";
 import { filterApplicantVisibleSteps } from "@/lib/onboarding/filter-applicant-steps";
 import { withTenant } from "@/lib/tenant/with-tenant";
 import { readStepLifecyclePhase } from "@/lib/onboarding/workflow-phase";
-import { computeMaxAllowedStepIndexFromProgress } from "@/lib/onboarding/compute-max-allowed-from-progress";
+import { isWorkerPerformableStep } from "@/lib/onboarding/workflow-settings";
+import { isTenantStepBlocking } from "@/lib/onboarding/reference-verification";
+import {
+  buildProgressStatusMaps,
+  computeMaxAllowedStepIndexFromProgress,
+} from "@/lib/onboarding/compute-max-allowed-from-progress";
 import { computeCandidateOnboardingFrontier } from "@/lib/onboarding/candidate-onboarding-projection";
 import { resolveApplicantNavBoundaries } from "@/lib/onboarding/farthest-reached-step";
 
@@ -119,28 +127,104 @@ export function adjacentStepRoute(
   return routeForApplicantStep(enabled[nextIdx]!, tenantSlug);
 }
 
-/** Route after completing the current step (next step, review, or applicant status). */
+export type ContinueRouteProgress = {
+  progress?: WorkerOnboardingProgressPayload | null;
+  /** Status just saved for `current`, which may not be in `progress` yet. */
+  savedStepId?: string | null;
+  savedStatus?: string | null;
+};
+
+/**
+ * First required candidate step in this phase that was skipped.
+ * Optional skips are ignored. Used after the last step of a phase so the
+ * candidate finishes those steps before the final screen.
+ */
+export function firstSkippedRequiredCandidateStep(
+  steps: TenantOnboardingStep[],
+  phase: "pre_hire" | "post_hire",
+  progress: WorkerOnboardingProgressPayload | null | undefined,
+  saved?: { stepId?: string | null; status?: string | null }
+): TenantOnboardingStep | null {
+  const statusById = buildProgressStatusMaps(steps, progress ?? null);
+  if (saved?.stepId && saved.status) {
+    statusById.set(saved.stepId, saved.status);
+  }
+  for (const step of steps) {
+    if (readStepLifecyclePhase(step) !== phase) continue;
+    if (!isTenantStepBlocking(step) || !isWorkerPerformableStep(step)) continue;
+    if (String(statusById.get(step.id) ?? "").trim().toLowerCase() !== "skipped") continue;
+    return step;
+  }
+  return null;
+}
+
+function nextRouteInSamePhase(
+  enabled: TenantOnboardingStep[],
+  current: TenantOnboardingStep,
+  tenantSlug?: string | null
+): string | null {
+  const phase = readStepLifecyclePhase(current);
+  const idx = enabled.findIndex((step) => step.id === current.id || step.step_key === current.step_key);
+  for (let i = idx + 1; i < enabled.length; i++) {
+    const step = enabled[i]!;
+    if (readStepLifecyclePhase(step) !== phase) break;
+    if (!applicantStepHasNavigableScreen(step, enabled)) continue;
+    return routeForApplicantStep(step, tenantSlug);
+  }
+  return null;
+}
+
+function completionStatusRoute(
+  phase: "pre_hire" | "post_hire",
+  tenantSlug?: string | null
+): string {
+  const statusUrl = new URLSearchParams({ completion: phase });
+  if (tenantSlug?.trim()) statusUrl.set("tenant", tenantSlug.trim().toLowerCase());
+  return `${APPLICATION_ROUTES.applicationStatus}?${statusUrl.toString()}`;
+}
+
+/** Route after completing the current step (next step, remaining required skip, or final screen). */
 export function resolvePostStepContinueRoute(
   config: TenantOnboardingConfig | null | undefined,
   current: TenantOnboardingStep | null,
-  tenantSlug?: string | null
+  tenantSlug?: string | null,
+  saved?: ContinueRouteProgress
 ): string {
-  const next = adjacentStepRoute(config, current, 1, tenantSlug);
-  if (next) return next;
-
   const enabled = getEnabledTenantSteps(config);
+  const phase =
+    current && readStepLifecyclePhase(current) === "post_hire" ? "post_hire" : "pre_hire";
+
+  if (current) {
+    const nextInPhase = nextRouteInSamePhase(enabled, current, tenantSlug);
+    if (nextInPhase) return nextInPhase;
+  }
+
+  const remaining = firstSkippedRequiredCandidateStep(enabled, phase, saved?.progress, {
+    stepId: saved?.savedStepId ?? current?.id,
+    status: saved?.savedStatus,
+  });
+  if (remaining && remaining.id !== current?.id) {
+    return routeForApplicantStep(remaining, tenantSlug);
+  }
+  if (remaining && saved?.savedStatus?.trim().toLowerCase() === "skipped") {
+    return routeForApplicantStep(remaining, tenantSlug);
+  }
+
+  if (!current) {
+    const next = adjacentStepRoute(config, null, 1, tenantSlug);
+    if (next) return next;
+  }
+
   const reviewStep = enabled.find(
-    (step) => step.step_key === "review_submit" || step.step_type === "review_submit"
+    (step) =>
+      (step.step_key === "review_submit" || step.step_type === "review_submit") &&
+      readStepLifecyclePhase(step) === phase
   );
-  if (reviewStep) {
+  if (reviewStep && reviewStep.id !== current?.id) {
     return routeForApplicantStep(reviewStep, tenantSlug);
   }
 
-  const completion =
-    current && readStepLifecyclePhase(current) === "post_hire" ? "post_hire" : "pre_hire";
-  const statusUrl = new URLSearchParams({ completion });
-  if (tenantSlug?.trim()) statusUrl.set("tenant", tenantSlug.trim().toLowerCase());
-  return `${APPLICATION_ROUTES.applicationStatus}?${statusUrl.toString()}`;
+  return completionStatusRoute(phase, tenantSlug);
 }
 
 export function firstOnboardingStepRoute(

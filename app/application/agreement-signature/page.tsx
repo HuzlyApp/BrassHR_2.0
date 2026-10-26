@@ -57,7 +57,7 @@ export default function AgreementSignaturePage() {
     );
   }
 
-  const pageTitle = step?.title?.trim() || "Agreement eSign";
+  const pageTitle = step?.title?.trim() || "Authorization e-sign";
   const pageDescription = step?.description?.trim() || POST_HIRE_SCREEN_SUBTITLE.acknowledgment;
 
   return (
@@ -80,7 +80,7 @@ export default function AgreementSignaturePage() {
                 tenantSlug={nav.slug || null}
                 updateStepStatus={nav.updateStepStatus}
                 onBack={() => nav.goPrev()}
-                onContinue={() => nav.goNext()}
+                onContinue={(status) => nav.goNext(status)}
               />
             </>
           ) : (

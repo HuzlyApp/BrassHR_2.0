@@ -378,8 +378,8 @@ export async function autoConvertCandidateAfterOfferAccepted(
 }
 
 /**
- * Checks whether a candidate has already completed an Agreement eSign step in pre-hire,
- * and if so, ensures they are converted to an employment worker and post-hire is unlocked.
+ * Converts a candidate after a recruiter marks Agreement e-sign complete.
+ * A candidate signature, including Authorization e-sign, leaves the step submitted and does not hire them.
  * Requires Pay Rate Accepted completion if that step is part of the workflow.
  */
 export async function ensureCandidateConvertedIfAgreementCompleted(
@@ -423,48 +423,59 @@ export async function ensureCandidateConvertedIfAgreementCompleted(
     .eq("worker_id", input.workerId)
     .in("status", ["completed", "approved"]);
 
-  if (!progressRows || !progressRows.length) return null;
-
-  const stepIds = progressRows
+  const stepIds = (progressRows ?? [])
     .map((r) => r.onboarding_step_id)
     .filter((id): id is string => Boolean(id));
 
-  if (!stepIds.length) return null;
+  let hasSignedAgreement = false;
+  if (stepIds.length) {
+    const { data: steps } = await supabase
+      .from("tenant_onboarding_steps")
+      .select("id, step_key, step_type, title, metadata")
+      .in("id", stepIds);
 
-  const { data: steps } = await supabase
-    .from("tenant_onboarding_steps")
-    .select("id, step_key, step_type, title, metadata")
-    .in("id", stepIds);
-
-  let hasSignedAgreement = (steps ?? []).some((step) => {
-    if (readStepLifecyclePhase(step as TenantOnboardingStep) !== "pre_hire") return false;
-    return isAgreementEsignStep({
-      snapshotStepId: String(step.metadata?.workflow_step_id ?? ""),
-      stepKey: step.step_key,
-      stepType: step.step_type,
-      title: step.title,
+    hasSignedAgreement = (steps ?? []).some((step) => {
+      if (readStepLifecyclePhase(step as TenantOnboardingStep) !== "pre_hire") return false;
+      return isAgreementEsignStep({
+        snapshotStepId: String(step.metadata?.workflow_step_id ?? ""),
+        stepKey: step.step_key,
+        stepType: step.step_type,
+        title: step.title,
+      });
     });
-  });
+  }
 
-  if (!hasSignedAgreement) {
+  const { data: instances } = await supabase
+    .from("applicant_workflow_instances")
+    .select("id")
+    .eq("tenant_id", input.tenantId)
+    .eq("worker_id", input.workerId);
+  const instanceIds = (instances ?? []).map((row) => row.id).filter(Boolean);
+  let recruiterVerified = false;
+  if (instanceIds.length) {
     const { data: stepRecords } = await supabase
       .from("applicant_workflow_step_records")
-      .select("step_key, step_type, title, status, metadata, phase")
+      .select("snapshot_step_id, step_type, title, phase, settings, review_decision")
       .eq("tenant_id", input.tenantId)
+      .in("workflow_instance_id", instanceIds)
+      .eq("review_decision", "complete")
       .in("status", ["completed", "approved"]);
-    hasSignedAgreement = (stepRecords ?? []).some((record) => {
+    recruiterVerified = (stepRecords ?? []).some((record) => {
       if (record.phase === "post_hire") return false;
-      const meta = record.metadata as Record<string, unknown> | null | undefined;
+      const settings =
+        record.settings && typeof record.settings === "object" && !Array.isArray(record.settings)
+          ? (record.settings as Record<string, unknown>)
+          : null;
       return isAgreementEsignStep({
-        snapshotStepId: String(meta?.workflow_step_id ?? ""),
-        stepKey: record.step_key,
+        snapshotStepId: String(settings?.workflow_step_id ?? record.snapshot_step_id ?? ""),
+        stepKey: record.step_type,
         stepType: record.step_type,
         title: record.title,
       });
     });
   }
 
-  if (!hasSignedAgreement) return null;
+  if (!hasSignedAgreement || !recruiterVerified) return null;
 
   const convertible = await ensureConvertibleCandidateStatus(supabase, {
     tenantId: input.tenantId,

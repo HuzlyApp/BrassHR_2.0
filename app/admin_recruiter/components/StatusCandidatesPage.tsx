@@ -250,7 +250,11 @@ export function StatusCandidatesPage({ fetchUrl, statusLabel, emptyMessage }: St
       return "";
     }
   }, [fetchUrl]);
-  const { kpiCards, refresh: refreshKpis } = useCandidateKpiMetrics({
+  const {
+    kpiCards,
+    loading: kpiLoading,
+    refresh: refreshKpis,
+  } = useCandidateKpiMetrics({
     status: pipelineStatus || undefined,
   });
   const [advancedSearchOpen, setAdvancedSearchOpen] = useState(false);
@@ -812,6 +816,7 @@ export function StatusCandidatesPage({ fetchUrl, statusLabel, emptyMessage }: St
         jobRoleOptions={jobRoleOptions}
         locationOptions={locationOptions}
         kpiCards={kpiCards}
+        kpiLoading={kpiLoading}
         hideAddCandidate
         hideClaimCandidates
         view={view}

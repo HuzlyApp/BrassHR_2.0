@@ -7,11 +7,14 @@ import { HireFigmaIcon, PRE_HIRE_UI_ICONS } from "./hire-figma-assets";
 /** Keeps the spin visible even when the refresh returns instantly. */
 const MIN_REFRESH_SPIN_MS = 600;
 
-export function PendingStepIcon({ step }: { step: CandidateWorkflowStepView }) {
-  return step.displayStatus === "under_review" ? (
-    <HireFigmaIcon src={PRE_HIRE_UI_ICONS.pendingClock} width={20} height={20} />
-  ) : (
-    <HireFigmaIcon src={PRE_HIRE_UI_ICONS.taskIncomplete} width={24} height={24} />
+/** `size` should match the completed check icon shown in the same spot. */
+export function PendingStepIcon({ step, size = 22 }: { step: CandidateWorkflowStepView; size?: number }) {
+  return (
+    <HireFigmaIcon
+      src={step.displayStatus === "under_review" ? PRE_HIRE_UI_ICONS.pendingClock : PRE_HIRE_UI_ICONS.inProgressClock}
+      width={size}
+      height={size}
+    />
   );
 }
 
@@ -40,12 +43,14 @@ export function StepRefreshButton({
   step,
   refreshingId,
   onRefreshStep,
+  size,
 }: {
   step: CandidateWorkflowStepView;
   refreshingId: string | null;
   onRefreshStep?: (stepId: string) => void;
+  size?: number;
 }) {
-  if (!onRefreshStep) return <PendingStepIcon step={step} />;
+  if (!onRefreshStep) return <PendingStepIcon step={step} size={size} />;
   return (
     <button
       type="button"
@@ -56,7 +61,7 @@ export function StepRefreshButton({
       className="inline-flex size-8 shrink-0 items-center justify-center rounded-full transition hover:bg-slate-100 disabled:cursor-wait"
     >
       <span className={`inline-flex ${refreshingId === step.id ? "animate-spin" : ""}`}>
-        <PendingStepIcon step={step} />
+        <PendingStepIcon step={step} size={size} />
       </span>
     </button>
   );

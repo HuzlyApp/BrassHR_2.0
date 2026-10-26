@@ -4,6 +4,7 @@ import {
 } from "@/lib/onboarding/job-application-parameters";
 import type { JobApplicationStepView } from "@/lib/onboarding/job-application-step";
 import {
+  candidateReviewDisplayStatus,
   mapProgressToDisplayStatus,
   resolveAssignedStepStatus,
   type MappedAssignedStep,
@@ -29,7 +30,11 @@ function mergeStepWithResolvedStatus(
   step: MappedAssignedStep,
   resolved: { status: OnboardingStepStatus; completedAt: string | null }
 ): MappedAssignedStep {
-  const displayStatus = mapProgressToDisplayStatus(resolved.status);
+  const displayStatus = candidateReviewDisplayStatus({
+    ...step,
+    status: resolved.status,
+    displayStatus: mapProgressToDisplayStatus(resolved.status),
+  });
   return {
     ...step,
     status: resolved.status,

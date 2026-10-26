@@ -307,6 +307,10 @@
   padding: 7px 0.75rem 7px 0;
 }
 
+.admin-recruiter-sidebar-submenu-nested {
+  padding-left: 1rem;
+}
+
 /* Tenant branding remap for legacy utility colors in recruiter pages. */
 .admin-recruiter-shell .text-teal-700,
 .admin-recruiter-shell .text-teal-600,

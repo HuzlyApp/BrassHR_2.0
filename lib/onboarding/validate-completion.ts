@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadTenantOnboardingConfig } from "@/lib/onboarding/load-tenant-config";
 import { isValidStep1Email } from "@/lib/onboardingStep1Validation";
+import { isTenantStepBlocking } from "@/lib/onboarding/reference-verification";
 import type { StepProgressRow } from "@/lib/onboarding/types";
 
 export type CompletionValidationResult =
@@ -21,7 +22,7 @@ export async function validateWorkerOnboardingComplete(
   const progressByStep = new Map(stepProgress.map((s) => [s.onboarding_step_id, s]));
   const missing: { stepKey: string; reason: string }[] = [];
 
-  const requiredSteps = config.steps.filter((s) => s.is_enabled && s.is_required);
+  const requiredSteps = config.steps.filter((s) => s.is_enabled && isTenantStepBlocking(s));
 
   for (const step of requiredSteps) {
     const prog = progressByStep.get(step.id);
@@ -76,14 +77,22 @@ export async function validateWorkerOnboardingComplete(
     ) {
       const docs = config.requiredDocuments.filter((d) => d.onboarding_step_id === step.id && d.is_required);
       if (docs.length) {
-        const { data: uploads } = await supabase
-          .from("worker_submitted_documents")
-          .select("required_document_id, status")
-          .eq("worker_id", workerId);
+        const [{ data: uploads }, { data: professionUploads }] = await Promise.all([
+          supabase
+            .from("worker_submitted_documents")
+            .select("required_document_id, status")
+            .eq("worker_id", workerId),
+          supabase
+            .from("worker_profession_document_uploads")
+            .select("profession_document_id, status")
+            .eq("worker_id", workerId),
+        ]);
 
         const requireApproval = step.metadata.require_approval === true;
         for (const doc of docs) {
-          const row = (uploads ?? []).find((u) => String(u.required_document_id) === doc.id);
+          const row =
+            (uploads ?? []).find((u) => String(u.required_document_id) === doc.id) ??
+            (professionUploads ?? []).find((u) => String(u.profession_document_id) === doc.id);
           if (!row) {
             missing.push({ stepKey: step.step_key, reason: `Missing document: ${doc.title}` });
           } else if (requireApproval && row.status !== "approved") {

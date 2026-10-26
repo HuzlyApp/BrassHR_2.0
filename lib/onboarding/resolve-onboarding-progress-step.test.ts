@@ -68,4 +68,35 @@ describe("resolveOnboardingProgressStep", () => {
       "resume-2"
     );
   });
+
+  it("does not collapse numbered custom_question keys onto another training step", () => {
+    const multi: TenantOnboardingConfig = {
+      ...config,
+      steps: [
+        step({
+          id: "safety-1",
+          step_key: "custom_question_10",
+          metadata: { workflow_step_id: "safety-training" },
+        }),
+        step({
+          id: "compliance-1",
+          step_key: "custom_question_11",
+          metadata: { workflow_step_id: "compliance-training" },
+        }),
+        step({
+          id: "orientation-1",
+          step_key: "custom_question_12",
+          metadata: { workflow_step_id: "orientation-video" },
+        }),
+      ],
+    };
+
+    expect(resolveOnboardingProgressStep(multi, { stepKey: "custom_question_11" })?.id).toBe(
+      "compliance-1"
+    );
+    expect(
+      resolveOnboardingProgressStep(multi, { stepId: "orientation-1", stepKey: "custom_question_12" })
+        ?.id
+    ).toBe("orientation-1");
+  });
 });

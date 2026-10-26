@@ -155,6 +155,54 @@ export type StageButtonVisibility = {
   showClosed: boolean;
 };
 
+export const DEFAULT_ALTERNATE_BUTTON_LABEL = "Follow Up needed";
+export const DEFAULT_CLOSED_BUTTON_LABEL = "Close Application";
+export const STAGE_BUTTON_LABEL_MAX = 60;
+
+export type StageActionButtonLane = "alternate" | "closed";
+
+/**
+ * A saved name replaces the catalog status. With no saved name, the button
+ * uses the status configured for that action.
+ */
+export function resolveStageActionButtonLabel(
+  stored: string | null | undefined,
+  catalogStatusNames: readonly string[]
+): string {
+  const custom = stored?.replace(/\s+/g, " ").trim() ?? "";
+  if (custom) return custom;
+  return catalogStatusNames.map((name) => name.replace(/\s+/g, " ").trim()).find(Boolean) ?? "";
+}
+
+/** Blank text uses the built-in button name. A saved name is shown as typed. */
+export function resolveStageButtonLabel(
+  lane: StageActionButtonLane,
+  stored: string | null | undefined
+): string {
+  const label = stored?.replace(/\s+/g, " ").trim() ?? "";
+  if (label) return label;
+  return lane === "alternate" ? DEFAULT_ALTERNATE_BUTTON_LABEL : DEFAULT_CLOSED_BUTTON_LABEL;
+}
+
+/**
+ * Stores null for a blank value or the built-in name so each tenant can rename
+ * the button without keeping a duplicate of the default.
+ */
+export function normalizeStageButtonLabel(
+  lane: StageActionButtonLane,
+  value: string | null | undefined
+): { ok: true; label: string | null } | { ok: false; error: string } {
+  const label = value?.replace(/\s+/g, " ").trim() ?? "";
+  if (!label || label === resolveStageButtonLabel(lane, null)) return { ok: true, label: null };
+  if (label.length > STAGE_BUTTON_LABEL_MAX) {
+    return {
+      ok: false,
+      error: `Button labels must be ${STAGE_BUTTON_LABEL_MAX} characters or fewer.`,
+    };
+  }
+  return { ok: true, label };
+}
+
 /** Hide Alternate or Closing when that button was removed for the stage. */
 export function applyStageButtonVisibility<T>(
   lanes: Record<StageStatusLane, T[]>,

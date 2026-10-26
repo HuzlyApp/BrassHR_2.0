@@ -57,9 +57,11 @@ function rowToFolder(type: "preset" | "saved"): WorkflowTemplateFolder {
 }
 
 const PRESET_DISPLAY_ORDER = [
-  "Default 1099 Contractor Workflow",
-  "Default W2 Employee Workflow",
-  "Default RNR Worker Workflow",
+  "1099 Workflow (Healthcare Industry)",
+  "W2 Workflow (Healthcare Industry)",
+  "RnR Workflow (Healthcare Industry)",
+  "W2 Workflow (IT Industry)",
+  "RnR Workflow (IT Industry)",
 ];
 
 export function inferEmploymentTypeFromName(name: string): TemplateEmploymentType | null {

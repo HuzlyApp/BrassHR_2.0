@@ -1,3 +1,7 @@
+"use client";
+
+import { BrandColoredSvg } from "./BrandColoredSvg";
+
 /** Shared Figma Pre-hire / Post-hire visual assets for hire-journey. */
 
 export const PRE_HIRE_UI_ICONS = {
@@ -12,6 +16,7 @@ export const PRE_HIRE_UI_ICONS = {
   calendarDate: "/icons/Hire-icons/pre-hire-icons/calendar-date.svg",
   taskIncomplete: "/icons/Hire-icons/pre-hire-icons/task-incomplete.svg",
   pendingClock: "/icons/Hire-icons/pre-hire-icons/pending-clock.svg",
+  inProgressClock: "/iconoven_pending-clock.svg",
   stageLocked: "/icons/Hire-icons/pre-hire-icons/stage-locked.svg",
 } as const;
 
@@ -47,15 +52,33 @@ export function HireFigmaIcon({
   height,
   alt = "",
   className,
+  tint,
+  tintGreen,
 }: {
   src: string;
   width: number;
   height: number;
   alt?: string;
   className?: string;
+  tint?: string;
+  tintGreen?: boolean;
 }) {
+  if (src.endsWith(".svg")) {
+    return (
+      <BrandColoredSvg
+        src={src}
+        width={width}
+        height={height}
+        alt={alt}
+        className={className}
+        tint={tint}
+        tintGreen={tintGreen}
+      />
+    );
+  }
+
   return (
-    // eslint-disable-next-line @next/next/no-img-element -- Figma SVG/PNG assets need exact pixel sizes
+    // eslint-disable-next-line @next/next/no-img-element -- Figma PNG stage art needs exact pixel sizes
     <img
       src={src}
       alt={alt}

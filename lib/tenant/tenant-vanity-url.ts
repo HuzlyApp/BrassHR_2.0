@@ -42,6 +42,21 @@ function isLocalDevHostname(hostname: string | null | undefined): boolean {
   );
 }
 
+/**
+ * Preview deploys (`*.vercel.app`) have no `{tenant}.…` host.
+ * Sending the recruiter there makes sidebar clicks fail and full page loads go blank.
+ */
+function isUnsupportedVanityHost(hostname: string | null | undefined): boolean {
+  const host = hostname?.trim().toLowerCase() ?? "";
+  if (!host) return false;
+  return (
+    host === "vercel.app" ||
+    host === "vercel.sh" ||
+    host.endsWith(".vercel.app") ||
+    host.endsWith(".vercel.sh")
+  );
+}
+
 /** Recruiter dashboard routes should open on the tenant vanity host when available. */
 export function shouldUseTenantVanityHost(path: string): boolean {
   const pathname = path.split("?")[0]?.trim() || "";
@@ -67,6 +82,7 @@ export function resolveRecruiterDashboardUrl(params: {
   const host = params.currentHostname?.trim().toLowerCase() ?? null;
 
   if (isLocalDevHostname(host)) return path;
+  if (isUnsupportedVanityHost(host) || isUnsupportedVanityHost(root)) return path;
 
   const vanityHost = `${tenantSubdomain}.${root}`;
   if (host === vanityHost) return path;

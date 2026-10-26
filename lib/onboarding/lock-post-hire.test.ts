@@ -6,6 +6,7 @@ import {
   canRevealPostHire,
   canRevealPostHireForStaffJourney,
   areRequiredPreHireStepsAlmostComplete,
+  areAllRequiredPreHireStepsComplete,
   shouldRejectPostHirePhaseRequest,
 } from "@/lib/onboarding/lock-post-hire";
 
@@ -87,7 +88,7 @@ describe("lock-post-hire", () => {
     ).toBe(false);
   });
 
-  it("reveals staff Post-Hire after Selected + nearly complete Pre-Hire", () => {
+  it("keeps staff Post-Hire locked until every required Pre-Hire step is finished", () => {
     const nearlyDone = [
       { required: true, displayStatus: "completed" as const },
       { required: true, displayStatus: "completed" as const },
@@ -97,17 +98,17 @@ describe("lock-post-hire", () => {
     expect(
       canRevealPostHireForStaffJourney({
         convertedVisible: false,
-        applicationHired: false,
+        applicationHired: true,
         preHireSteps: nearlyDone,
       })
     ).toBe(false);
     expect(
       canRevealPostHireForStaffJourney({
-        convertedVisible: false,
+        convertedVisible: true,
         applicationHired: true,
         preHireSteps: nearlyDone,
       })
-    ).toBe(true);
+    ).toBe(false);
     expect(
       canRevealPostHireForStaffJourney({
         convertedVisible: true,
@@ -115,41 +116,44 @@ describe("lock-post-hire", () => {
         preHireSteps: [],
       })
     ).toBe(true);
+    expect(areAllRequiredPreHireStepsComplete(nearlyDone)).toBe(false);
+    expect(
+      areAllRequiredPreHireStepsComplete([
+        { required: true, displayStatus: "completed" },
+        { required: false, displayStatus: "not_started" },
+        { stepType: "reference-verification", required: true, displayStatus: "not_started" },
+        { stepType: "pre-hire-completion-milestone", required: true, displayStatus: "not_started" },
+      ])
+    ).toBe(true);
   });
 
-  it("reveals staff Post-Hire when Agreement eSign step in Pre-Hire is completed", () => {
-    const withAgreementPending = [
+  it("does not unlock Post-Hire from Agreement e-sign while another required step is open", () => {
+    const agreementSubmitted = [
       {
         snapshotStepId: "employee-agreement",
-        title: "Agreement eSign",
+        title: "Agreement e-sign",
         required: true,
-        displayStatus: "pending" as const,
-      },
-      {
-        snapshotStepId: "manager-facility-approval",
-        title: "Facility Approval",
-        required: true,
-        displayStatus: "not_started" as const,
+        displayStatus: "submitted" as const,
       },
     ];
     expect(
       canRevealPostHireForStaffJourney({
         convertedVisible: false,
         applicationHired: false,
-        preHireSteps: withAgreementPending,
+        preHireSteps: agreementSubmitted,
       })
     ).toBe(false);
 
-    const withAgreementDone = [
+    const agreementDoneHrOpen = [
       {
         snapshotStepId: "employee-agreement",
-        title: "Agreement eSign",
+        title: "Agreement e-sign",
         required: true,
         displayStatus: "completed" as const,
       },
       {
-        snapshotStepId: "manager-facility-approval",
-        title: "Facility Approval",
+        stepType: "hr-final-approval",
+        title: "HR final approval",
         required: true,
         displayStatus: "not_started" as const,
       },
@@ -157,8 +161,24 @@ describe("lock-post-hire", () => {
     expect(
       canRevealPostHireForStaffJourney({
         convertedVisible: false,
+        applicationHired: true,
+        preHireSteps: agreementDoneHrOpen,
+      })
+    ).toBe(false);
+
+    expect(
+      canRevealPostHireForStaffJourney({
+        convertedVisible: false,
         applicationHired: false,
-        preHireSteps: withAgreementDone,
+        preHireSteps: [
+          {
+            stepType: "hr-final-approval",
+            title: "HR final approval",
+            required: true,
+            displayStatus: "completed" as const,
+          },
+          ...agreementDoneHrOpen.slice(0, 1),
+        ],
       })
     ).toBe(true);
   });

@@ -28,6 +28,7 @@ import { useStaffConversations } from "@/lib/messaging/hooks/use-staff-conversat
 import { useMarkConversationRead } from "@/lib/messaging/hooks/use-mark-conversation-read";
 import { useQueryClient } from "@tanstack/react-query";
 import { StaffProfileAvatar } from "@/app/admin_recruiter/components/StaffProfileAvatar";
+import { appRoleToConsoleRole } from "@/lib/admin/staff-directory-types";
 
 type ConversationItem = StaffConversation;
 
@@ -244,6 +245,7 @@ export function AdminRecruiterHeader({
     ? headerDisplayName?.trim() || null
     : accountName;
   const displayRole = formatRoleLabel(profile?.role);
+  const isRecruiter = appRoleToConsoleRole(profile?.role) === "recruiter";
   const profilePhoto = profile?.avatar_url ?? null;
   /** Profile label should not stay on Loading… when only notifications fail. */
   const profileNameLoading = accountLoading && !displayName;
@@ -578,8 +580,11 @@ export function AdminRecruiterHeader({
               </div>
               <p className="px-2 py-1 text-xs font-semibold text-[#0F172A]">{displayName}</p>
               <p className="px-2 pb-2 text-[11px] text-[#64748B]">{displayRole}</p>
-              <Link href="/admin_recruiter/settings" className="block rounded-md px-2 py-1 text-xs text-[#0F172A] hover:bg-[#f2f8f7]">
-                Settings
+              <Link
+                href={isRecruiter ? "/admin_recruiter/account/personal" : "/admin_recruiter/settings"}
+                className="block rounded-md px-2 py-1 text-xs text-[#0F172A] hover:bg-[#f2f8f7]"
+              >
+                {isRecruiter ? "Profile" : "Settings"}
               </Link>
               <button
                 type="button"

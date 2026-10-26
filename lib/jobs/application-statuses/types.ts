@@ -35,6 +35,31 @@ export type ApplicationStatusRecord = {
 
 export type ApplicationStatusChangeSource = "USER" | "SYSTEM" | "API";
 
+export type ApplicationStatusVersionRecord = {
+  id: string;
+  statusId: string;
+  versionNumber: number;
+  name: string;
+  previousName: string | null;
+  description: string | null;
+  editedBy: string | null;
+  editedByName: string | null;
+  editedAt: string;
+};
+
+export type ApplicationStatusUsageRecord = {
+  applicationId: string;
+  candidateName: string;
+  workerId: string | null;
+  jobId: string;
+  jobTitle: string;
+};
+
+export type ApplicationStatusUsage = {
+  total: number;
+  records: ApplicationStatusUsageRecord[];
+};
+
 export type ApplicationStatusHistoryRecord = {
   id: string;
   applicationId: string;

@@ -49,6 +49,7 @@ import {
 } from "./submission-enrichment";
 import {
   applicationMatchScorePatch,
+  isDeepMatchStage,
   matchStageFromMode,
   matchWorkspaceIsAnalyzed,
   parseMatchStage,
@@ -69,6 +70,7 @@ import { loadVerificationNotesForApplication } from "./verification-notes-servic
 import { summarizeRequirementNotes } from "./verification-notes";
 import {
   checklistFollowUpRows,
+  filterStep3QuestionsAgainstCallPack,
   mergeStageQuestions,
 } from "./follow-up-questions";
 import {
@@ -452,10 +454,31 @@ async function runCallPackQuestionsForApplication(args: {
       analysisProvider,
       progressMode
     );
+    const priorCallPack = normalizeAnalysisScreeningQuestions(
+      existingAnalysis.screening_questions
+    );
+    const questionsForStage =
+      progressMode === "follow_up"
+        ? filterStep3QuestionsAgainstCallPack({
+            questions: generated.questions,
+            callPackQuestions: priorCallPack,
+          })
+        : generated.questions;
+    // If the model only returned Step 2 duplicates / logistics, keep the filtered
+    // list when non-empty; otherwise fall back so the stage still advances.
+    const finalQuestions =
+      progressMode === "follow_up" && questionsForStage.length === 0
+        ? generated.questions.filter((item) => {
+            const text = `${item.question} ${item.relatedRequirement}`;
+            return !/\b(citizenship|green\s*card|sponsorship|onsite|remote|start\s*date|notice\s*period|schedule|location|travel)\b/i.test(
+              text
+            );
+          })
+        : questionsForStage;
     const merged = mergeStageQuestions(
       existingAnalysis,
       progressMode === "follow_up" ? "follow_up" : "call_pack",
-      generated.questions
+      finalQuestions.length > 0 ? finalQuestions : generated.questions
     );
     const previousVersion = await snapshotCurrentAnalysisVersion({
       supabase,
@@ -1017,10 +1040,29 @@ export async function runMatchAnalysisForApplication(args: {
     });
 
     const analyzedAt = new Date().toISOString();
-    const stage = matchStageFromMode(analysisMode);
-    const scorePatch = applicationMatchScorePatch({ stage, analysis });
+    const modeStage = matchStageFromMode(analysisMode);
+    const currentStage = parseMatchStage(application.ai_match_stage);
+    const currentIndex = matchProgressionIndexFromStage(currentStage);
+    const targetIndex = matchProgressionIndexFromStage(modeStage);
+    // Never move stage backward on Quick Match re-run (same rule as Verifications).
+    const stage: MatchStage =
+      analysisMode === "deep"
+        ? currentIndex >= 4
+          ? "submission"
+          : "deep"
+        : currentIndex > targetIndex
+          ? (currentStage ?? modeStage)
+          : matchProgressionStageFromIndex(Math.max(currentIndex, targetIndex));
+    // Only rewrite listing score columns on Deep Match, or when still pre-deep.
+    // A Quick Match re-run after Deep must not clear ai_match_score.
+    const scorePatch =
+      analysisMode === "deep"
+        ? applicationMatchScorePatch({ stage: "deep", analysis })
+        : isDeepMatchStage(currentStage)
+          ? { ai_match_stage: stage }
+          : applicationMatchScorePatch({ stage, analysis });
     const persistedScore =
-      stage === "deep" ? analysis.candidate_match.recommended_overall_match_score : null;
+      analysisMode === "deep" ? analysis.candidate_match.recommended_overall_match_score : null;
 
     await updateApplicationMatchFields({
       supabase,
@@ -1140,17 +1182,17 @@ export async function runMatchAnalysisForApplication(args: {
       requestedBy: analyzedByUserId ?? null,
     }).catch(() => undefined);
 
-    // Keep a prior successful analysis visible on listings (Conf/Verify/Not Met + match %).
+    // Keep prior Quick Match / Verifications / Follow-Up visible. Match % only
+    // exists after Deep Match, so do not require ai_match_score — a failed first
+    // Deep Match would otherwise mark FAILED and the UI would snap to step 0.
     const { data: prior } = await supabase
       .from("job_applications")
-      .select("ai_analysis, ai_match_score, ai_analyzed_at")
+      .select("ai_analysis, ai_match_stage, ai_match_score, ai_analyzed_at")
       .eq("id", jobApplicationId)
       .eq("tenant_id", tenantId)
       .maybeSingle();
     const hasPriorAnalysis =
-      prior?.ai_analysis != null &&
-      prior.ai_match_score != null &&
-      Number.isFinite(Number(prior.ai_match_score));
+      prior?.ai_analysis != null || Boolean(parseMatchStage(prior?.ai_match_stage));
 
     await updateApplicationMatchFields({
       supabase,

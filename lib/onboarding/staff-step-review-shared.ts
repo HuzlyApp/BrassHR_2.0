@@ -158,7 +158,7 @@ export function staffActionLabel(action: StaffStepAction, variant: StaffStepVari
     return variant === "verification" && action === "reject" ? "Reject" : label;
   }
   if (variant === "interview" && action === "complete") return "Mark Completed";
-  if (action === "complete") return "Mark complete";
+  if (action === "complete") return "Mark as complete";
   if (action === "needs_review") return "Need to Review";
   if (action === "reject") return "Reject";
   return "Reopen";

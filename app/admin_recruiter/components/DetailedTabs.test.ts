@@ -44,6 +44,7 @@ describe("candidate detail Post-Hire visibility", () => {
       hiredAt: null,
       hiredBy: null,
       postHireVisible: false,
+      workflowHasPostHireSteps: true,
       postHireUnlocked: false,
       postHireLocked: true,
       postHireSuspended: false,

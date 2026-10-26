@@ -375,6 +375,7 @@ const CANDIDATE_KINDS_SAFE = new Set([
   "references",
   "skills_intro",
   "custom_question",
+  "checkbox_confirmation",
   "summary",
 ]);
 
