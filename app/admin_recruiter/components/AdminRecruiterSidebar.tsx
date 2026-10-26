@@ -10,7 +10,7 @@ import { SidebarSubmenuToggleIcon } from "@/app/components/sidebar/SidebarSubmen
 import { useTenantBranding } from "@/app/components/tenant/TenantBrandingContext";
 import { BRAAS_PLATFORM_FAVICON } from "@/lib/tenant/tenant-branding";
 import { useAccountData } from "@/app/admin_recruiter/hooks/useAccountData";
-import { appRoleToConsoleRole } from "@/lib/admin/staff-directory-types";
+import { isLimitedStaffConsoleRole } from "@/lib/admin/staff-directory-types";
 import {
   ADMIN_RECRUITER_HOME_ROUTE,
   CLIENT_SIDEBAR_SECTIONS,
@@ -22,7 +22,7 @@ import {
 import SidebarNavIcon from "@/app/admin_recruiter/components/SidebarNavIcon";
 import { StaffProfileAvatar } from "@/app/admin_recruiter/components/StaffProfileAvatar";
 import {
-  formatRoleLabel,
+  accountRoleLabel,
   getAccountDisplayName,
   getOrganizationDisplayName,
 } from "@/lib/account/display-name";
@@ -139,7 +139,7 @@ export function AdminRecruiterSidebar({
   const [openSectionLabels, setOpenSectionLabels] = useState<string[]>([]);
   const { viewer } = useEffectiveBranding();
   const isGodAdmin = viewer?.godAdmin === true;
-  const isRecruiter = appRoleToConsoleRole(profile?.role) === "recruiter";
+  const isRecruiter = isLimitedStaffConsoleRole(profile?.role, profile?.is_admin);
   const [sidebarHovered, setSidebarHovered] = useState(false);
   const navRef = useRef<HTMLElement>(null);
 
@@ -180,7 +180,7 @@ export function AdminRecruiterSidebar({
   };
 
   const profileName = getAccountDisplayName(profile, user);
-  const profileRole = formatRoleLabel(profile?.role);
+  const profileRole = accountRoleLabel(profile);
   const sidebarCompanyName = getOrganizationDisplayName(organization, profile, user);
   const profilePhoto = profile?.avatar_url ?? null;
 

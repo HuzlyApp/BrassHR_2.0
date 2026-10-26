@@ -11,7 +11,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import GodAdminTenantSwitcher from "./GodAdminTenantSwitcher";
 import { useAccountData } from "@/app/admin_recruiter/hooks/useAccountData";
-import { formatRoleLabel, getAccountDisplayName } from "@/lib/account/display-name";
+import { accountRoleLabel, getAccountDisplayName } from "@/lib/account/display-name";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { recruiterLogoutLoginHref } from "@/lib/auth/recruiter-sign-in";
 import { useTenantBranding } from "@/app/components/tenant/TenantBrandingContext";
@@ -28,7 +28,7 @@ import { useStaffConversations } from "@/lib/messaging/hooks/use-staff-conversat
 import { useMarkConversationRead } from "@/lib/messaging/hooks/use-mark-conversation-read";
 import { useQueryClient } from "@tanstack/react-query";
 import { StaffProfileAvatar } from "@/app/admin_recruiter/components/StaffProfileAvatar";
-import { appRoleToConsoleRole } from "@/lib/admin/staff-directory-types";
+import { isLimitedStaffConsoleRole } from "@/lib/admin/staff-directory-types";
 
 type ConversationItem = StaffConversation;
 
@@ -244,8 +244,8 @@ export function AdminRecruiterHeader({
   const displayName = accountLoading
     ? headerDisplayName?.trim() || null
     : accountName;
-  const displayRole = formatRoleLabel(profile?.role);
-  const isRecruiter = appRoleToConsoleRole(profile?.role) === "recruiter";
+  const displayRole = accountRoleLabel(profile);
+  const isRecruiter = isLimitedStaffConsoleRole(profile?.role, profile?.is_admin);
   const profilePhoto = profile?.avatar_url ?? null;
   /** Profile label should not stay on Loading… when only notifications fail. */
   const profileNameLoading = accountLoading && !displayName;

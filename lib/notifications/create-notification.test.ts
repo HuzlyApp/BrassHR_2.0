@@ -92,6 +92,39 @@ describe("create-notification", () => {
 
   it("lists tenant staff ids excluding provided users", async () => {
     fromMock.mockImplementation((table: string) => {
+      if (table === "staff_roles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: async () => ({
+                data: [
+                  {
+                    key: "recruiter",
+                    label: "Recruiter",
+                    storage_key: "client",
+                    aliases: [],
+                    is_admin: false,
+                    is_staff: true,
+                    is_assignable: true,
+                    sort_order: 20,
+                  },
+                  {
+                    key: "admin",
+                    label: "Admin",
+                    storage_key: "admin",
+                    aliases: ["owner"],
+                    is_admin: true,
+                    is_staff: true,
+                    is_assignable: true,
+                    sort_order: 60,
+                  },
+                ],
+                error: null,
+              }),
+            }),
+          }),
+        };
+      }
       if (table === "users") {
         return {
           select: () => ({
@@ -99,7 +132,6 @@ describe("create-notification", () => {
               in: async () => ({
                 data: [
                   { id: "admin-1", role: "admin" },
-                  { id: "worker-1", role: "worker" },
                   { id: "client-1", role: "client" },
                 ],
                 error: null,

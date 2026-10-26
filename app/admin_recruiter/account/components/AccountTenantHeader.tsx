@@ -4,7 +4,7 @@ import { Building2, ImageIcon, Link2 } from "lucide-react";
 import { useAccountData } from "@/app/admin_recruiter/hooks/useAccountData";
 import {
   formatAccountNumber,
-  formatRoleLabel,
+  accountRoleLabel,
   getAccountDisplayName,
   getOrganizationDisplayName,
 } from "@/lib/account/display-name";
@@ -27,7 +27,7 @@ export default function AccountTenantHeader({
 
   const loading = loadingProp ?? accountLoading;
   const ownerName = ownerNameProp ?? getAccountDisplayName(profile, user);
-  const ownerRole = ownerRoleProp ?? formatRoleLabel(profile?.role);
+  const ownerRole = ownerRoleProp ?? accountRoleLabel(profile);
   const ownerPhoto = ownerPhotoProp ?? profile?.avatar_url ?? null;
   const companyName = getOrganizationDisplayName(organization, profile, user);
   const accountNumber = formatAccountNumber(organization?.id) ?? "—";

@@ -11,6 +11,7 @@ import {
 import { requireStaffApiSession } from "@/lib/auth/api-session";
 import { loadStaffUserProfileCached } from "@/lib/auth/staff-user-profile";
 import { formatRoleLabel } from "@/lib/account/display-name";
+import { loadStaffRoles } from "@/lib/admin/staff-roles";
 import { randomUUID } from "crypto";
 
 type HeaderNotification = {
@@ -192,10 +193,20 @@ async function loadHeaderProfile(
     profile?.role ||
     null;
 
+  let roleLabel = formatRoleLabel(role);
+  try {
+    roleLabel = formatRoleLabel(role, await loadStaffRoles(supabase));
+  } catch (error) {
+    console.error("[admin/header-data] staff role catalog", {
+      correlationId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   return {
     displayName: fullName,
     role,
-    roleLabel: formatRoleLabel(role),
+    roleLabel,
     tenantName,
     avatarUrl: typeof userRow?.profile_photo === "string" ? userRow.profile_photo : null,
   };

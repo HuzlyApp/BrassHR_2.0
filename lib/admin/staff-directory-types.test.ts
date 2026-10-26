@@ -1,22 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { appRoleToConsoleRole } from "@/lib/admin/staff-directory-types";
+import { isLimitedStaffConsoleRole } from "@/lib/admin/staff-directory-types";
 
-describe("appRoleToConsoleRole", () => {
-  it("maps tenant staff roles onto the recruiter console", () => {
-    expect(appRoleToConsoleRole("recruiter")).toBe("recruiter");
-    expect(appRoleToConsoleRole("client")).toBe("recruiter");
-    expect(appRoleToConsoleRole(" Client ")).toBe("recruiter");
+describe("isLimitedStaffConsoleRole", () => {
+  it("limits every non-admin staff role, including roles that are not named in code", () => {
+    expect(isLimitedStaffConsoleRole("client")).toBe(true);
+    expect(isLimitedStaffConsoleRole("recruiter")).toBe(true);
+    expect(isLimitedStaffConsoleRole("hr")).toBe(true);
+    expect(isLimitedStaffConsoleRole("payroll")).toBe(true);
   });
 
-  it("maps owners and admins onto the admin console", () => {
-    expect(appRoleToConsoleRole("admin")).toBe("admin");
-    expect(appRoleToConsoleRole("owner")).toBe("admin");
-    expect(appRoleToConsoleRole("ADMIN")).toBe("admin");
+  it("keeps admin, owner, and catalog admin flags on the full console", () => {
+    expect(isLimitedStaffConsoleRole("admin")).toBe(false);
+    expect(isLimitedStaffConsoleRole("owner")).toBe(false);
+    expect(isLimitedStaffConsoleRole("god_admin")).toBe(false);
+    expect(isLimitedStaffConsoleRole("payroll", true)).toBe(false);
   });
 
-  it("does not treat workers or unknown roles as staff console roles", () => {
-    expect(appRoleToConsoleRole("worker")).toBeNull();
-    expect(appRoleToConsoleRole("support")).toBeNull();
-    expect(appRoleToConsoleRole(null)).toBeNull();
+  it("does not treat a missing role or a worker as limited staff", () => {
+    expect(isLimitedStaffConsoleRole(null)).toBe(false);
+    expect(isLimitedStaffConsoleRole("worker")).toBe(false);
   });
 });

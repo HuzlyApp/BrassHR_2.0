@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useAccountData } from "@/app/admin_recruiter/hooks/useAccountData";
-import { appRoleToConsoleRole } from "@/lib/admin/staff-directory-types";
+import { isLimitedStaffConsoleRole } from "@/lib/admin/staff-directory-types";
 import { ACCOUNT_TABS, isRecruiterHiddenAccountTab, type AccountTabSlug } from "../account-tabs";
 
 type AccountTabNavProps = {
@@ -11,7 +11,7 @@ type AccountTabNavProps = {
 
 export default function AccountTabNav({ activeTab }: AccountTabNavProps) {
   const { profile, loading } = useAccountData();
-  const hideAdminTabs = loading || appRoleToConsoleRole(profile?.role) === "recruiter";
+  const hideAdminTabs = loading || isLimitedStaffConsoleRole(profile?.role, profile?.is_admin);
   const tabs = hideAdminTabs ? ACCOUNT_TABS.filter((tab) => !isRecruiterHiddenAccountTab(tab.slug)) : ACCOUNT_TABS;
 
   return (

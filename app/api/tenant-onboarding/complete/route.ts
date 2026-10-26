@@ -19,6 +19,13 @@ import {
   TENANT_EMAIL_TAKEN_MESSAGE,
 } from "@/lib/tenant/tenant-email-uniqueness";
 import { normalizeBrandingFontId } from "@/lib/tenant/tenant-branding";
+import {
+  assignTenantCategory,
+  DEFAULT_TENANT_CATEGORY,
+  getTenantCategory,
+  parseTenantCategory,
+  type TenantCategory,
+} from "@/lib/tenant/tenant-category";
 
 type Body = {
   organizationName?: string;
@@ -50,6 +57,8 @@ type Body = {
   industryKeys?: string[];
   /** When true, business information step was skipped — fields are optional. */
   businessInfoSkipped?: boolean;
+  /** Omitted values stay Staffing. SMB must be sent explicitly. */
+  category?: string | null;
 };
 
 /**
@@ -156,6 +165,16 @@ export async function POST(req: Request) {
   if (!sessionUserId && adminPassword.length < 6) {
     return NextResponse.json({ error: "Password must be at least 6 characters." }, { status: 400 });
   }
+
+  const rawCategory = body.category;
+  const parsedCategory = parseTenantCategory(rawCategory);
+  if (rawCategory != null && String(rawCategory).trim() !== "" && !parsedCategory) {
+    return NextResponse.json(
+      { error: "Tenant category must be Staffing or SMB." },
+      { status: 400 }
+    );
+  }
+  const categoryToAssign: TenantCategory = parsedCategory ?? DEFAULT_TENANT_CATEGORY;
 
   const { data: bySubdomain, error: bsErr } = await svc
     .from("tenants")
@@ -278,6 +297,17 @@ export async function POST(req: Request) {
 
     tenantId = String((tenant as { id: string }).id);
     createdNewTenant = true;
+
+    try {
+      await assignTenantCategory(svc, tenantId, categoryToAssign);
+    } catch (categoryError) {
+      console.error(
+        "[tenant-onboarding] category",
+        categoryError instanceof Error ? categoryError.message : categoryError
+      );
+      await svc.from("tenants").delete().eq("id", tenantId);
+      return NextResponse.json({ error: "Could not save tenant category." }, { status: 500 });
+    }
 
     const { error: seedErr } = await svc.rpc("seed_default_tenant_onboarding", {
       p_tenant_id: tenantId,
@@ -527,9 +557,16 @@ export async function POST(req: Request) {
     }
   }
 
+  const tenantCategory = tenantId
+    ? createdNewTenant
+      ? categoryToAssign
+      : await getTenantCategory(svc, tenantId)
+    : DEFAULT_TENANT_CATEGORY;
+
   return NextResponse.json({
     ok: true,
     tenantId,
+    category: tenantCategory,
     subdomain: subdomainFinal,
     slug: slugFinal,
     domain: domainFinal,

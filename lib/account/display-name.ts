@@ -1,5 +1,5 @@
 import type { User } from "@supabase/supabase-js";
-import { appRoleToConsoleRole, staffRoleLabel } from "@/lib/admin/staff-directory-types";
+import { labelForRole, type StaffRole } from "@/lib/admin/staff-roles";
 import type { AccountOrganization, AccountProfile } from "./types";
 
 export function buildFullName(firstName?: string | null, lastName?: string | null): string | null {
@@ -41,13 +41,22 @@ export function getOrganizationDisplayName(
   );
 }
 
-export function formatRoleLabel(role: string | null | undefined): string {
-  const consoleRole = appRoleToConsoleRole(role);
-  if (consoleRole) return staffRoleLabel(consoleRole);
-  if (!role) return "Account Owner";
+export function formatRoleLabel(role: string | null | undefined, roles?: StaffRole[]): string {
+  if (roles?.length) {
+    const label = labelForRole(role, roles);
+    if (label) return label;
+  }
+  if (!role?.trim()) return "Account Owner";
   return role
+    .trim()
     .replace(/_/g, " ")
     .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+export function accountRoleLabel(
+  profile: { role?: string | null; role_label?: string | null } | null | undefined
+): string {
+  return profile?.role_label?.trim() || formatRoleLabel(profile?.role);
 }
 
 export function formatAccountNumber(organizationId: string | null | undefined): string | null {

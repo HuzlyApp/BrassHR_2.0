@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireStaffApiSession } from "@/lib/auth/api-session";
 import { requireUserManagement } from "@/lib/auth/user-management";
-import { isStaffConsoleRole } from "@/lib/admin/staff-directory-types";
 import {
   removeStaffMembership,
   staffDirectoryErrorResponse,
@@ -35,16 +34,12 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     if (action !== "change_role" && action !== "suspend" && action !== "reactivate") {
       return NextResponse.json({ error: "Unsupported action." }, { status: 400 });
     }
-    if (action === "change_role" && !isStaffConsoleRole(body?.role)) {
-      return NextResponse.json({ error: "Role must be Recruiter or Admin." }, { status: 400 });
-    }
-
     const user = await updateStaffMembership(supabase, {
       tenantId,
       actor: { userId: auth.userId, email: auth.email },
       userId,
       action,
-      role: action === "change_role" && isStaffConsoleRole(body?.role) ? body.role : undefined,
+      role: action === "change_role" && typeof body?.role === "string" ? body.role : undefined,
       request: req,
     });
 

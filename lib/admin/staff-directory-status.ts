@@ -1,12 +1,10 @@
 import { isPersonNameTooLong, personNameTooLongMessage } from "@/lib/person-name";
 import { normalizeTenantEmail } from "@/lib/tenant/tenant-email-uniqueness";
+import { matchStaffRole, type StaffRole } from "@/lib/admin/staff-roles";
 import {
-  appRoleToConsoleRole,
-  staffRoleLabel,
   staffStatusLabel,
   type InviteStaffInput,
   type StaffAccountStatus,
-  type StaffConsoleRole,
   type StaffDirectoryRow,
 } from "@/lib/admin/staff-directory-types";
 
@@ -31,18 +29,21 @@ export function staffInviteNeedsPasswordSetup(params: {
   return params.requirePasswordChange === true;
 }
 
-export function validateInviteStaffInput(input: {
-  firstName?: unknown;
-  lastName?: unknown;
-  email?: unknown;
-  role?: unknown;
-  requirePasswordChange?: unknown;
-}): InviteStaffInput | { error: string } {
+export function validateInviteStaffInput(
+  input: {
+    firstName?: unknown;
+    lastName?: unknown;
+    email?: unknown;
+    role?: unknown;
+    requirePasswordChange?: unknown;
+  },
+  roles: StaffRole[]
+): InviteStaffInput | { error: string } {
   const firstName = typeof input.firstName === "string" ? input.firstName.trim() : "";
   const lastName = typeof input.lastName === "string" ? input.lastName.trim() : "";
   const email = normalizeTenantEmail(typeof input.email === "string" ? input.email : "");
-  const roleRaw = typeof input.role === "string" ? input.role.trim().toLowerCase() : "recruiter";
-  const role: StaffConsoleRole = roleRaw === "admin" ? "admin" : "recruiter";
+  const roleRaw = typeof input.role === "string" && input.role.trim() ? input.role : "recruiter";
+  const role = matchStaffRole(roleRaw, roles);
 
   if (!firstName) return { error: "First name is required." };
   if (isPersonNameTooLong(firstName)) return { error: personNameTooLongMessage("First name") };
@@ -52,15 +53,15 @@ export function validateInviteStaffInput(input: {
     return { error: "Enter a valid email address." };
   }
   if (email.length > 254) return { error: "Email address is too long." };
-  if (roleRaw !== "admin" && roleRaw !== "recruiter" && roleRaw !== "client") {
-    return { error: "Role must be Recruiter or Admin." };
+  if (!role?.isStaff || !role.isAssignable) {
+    return { error: "Choose a role from the list." };
   }
 
   return {
     firstName,
     lastName,
     email,
-    role,
+    role: role.key,
     requirePasswordChange: input.requirePasswordChange !== false,
   };
 }
@@ -115,8 +116,11 @@ export function toDirectoryMemberRow(params: {
   createdByName: string | null;
   isSelf: boolean;
   isLastAdmin: boolean;
+  roles: StaffRole[];
 }): StaffDirectoryRow {
-  const role = appRoleToConsoleRole(params.dbRole) ?? "recruiter";
+  const match = matchStaffRole(params.dbRole, params.roles);
+  const role = match?.key ?? "recruiter";
+  const isAdmin = match?.isAdmin === true;
   const status = deriveMemberStatus({
     membershipActive: params.membershipActive,
     mustChangePassword: params.mustChangePassword,
@@ -133,7 +137,7 @@ export function toDirectoryMemberRow(params: {
     name: displayName(params.firstName, params.lastName, params.email),
     email: params.email,
     role,
-    roleLabel: staffRoleLabel(role),
+    roleLabel: match?.label ?? "Recruiter",
     status,
     statusLabel: staffStatusLabel(status),
     invitationDate: params.invitationDate,
@@ -147,10 +151,10 @@ export function toDirectoryMemberRow(params: {
         status === "expired" ||
         status === "failed" ||
         !params.lastLogin),
-    canChangeRole: canMutate && status !== "pending" && !(params.isLastAdmin && role === "admin"),
+    canChangeRole: canMutate && status !== "pending" && !(params.isLastAdmin && isAdmin),
     canSuspend: canMutate && status === "active",
     canReactivate: canMutate && status === "suspended",
-    canRemove: canMutate && !(params.isLastAdmin && role === "admin"),
+    canRemove: canMutate && !(params.isLastAdmin && isAdmin),
   };
 }
 
@@ -164,8 +168,10 @@ export function toDirectoryInvitationRow(params: {
   invitationDate: string | null;
   createdByUserId: string | null;
   createdByName: string | null;
+  roles: StaffRole[];
 }): StaffDirectoryRow {
-  const role = appRoleToConsoleRole(params.dbRole) ?? "recruiter";
+  const match = matchStaffRole(params.dbRole, params.roles);
+  const role = match?.key ?? "recruiter";
   const status = params.invitationStatus;
   return {
     id: `invitation:${params.invitationId}`,
@@ -177,7 +183,7 @@ export function toDirectoryInvitationRow(params: {
     name: displayName(params.firstName, params.lastName, params.email),
     email: params.email,
     role,
-    roleLabel: staffRoleLabel(role),
+    roleLabel: match?.label ?? "Recruiter",
     status,
     statusLabel: staffStatusLabel(status),
     invitationDate: params.invitationDate,

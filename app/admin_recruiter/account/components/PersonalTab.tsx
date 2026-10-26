@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useAccountData } from "@/app/admin_recruiter/hooks/useAccountData";
-import { getAccountDisplayName, formatRoleLabel } from "@/lib/account/display-name";
+import { getAccountDisplayName, accountRoleLabel } from "@/lib/account/display-name";
 import { syncAccountChecklist } from "@/lib/account/fetch-account-data";
 import { resolvePersonalProfileFields } from "@/lib/account/resolve-personal-profile-fields";
 import {
@@ -74,7 +74,7 @@ export default function PersonalTab() {
   }, [profile, user, organization, resolvedFields]);
 
   const displayName = getAccountDisplayName(profile, user);
-  const roleLabel = formatRoleLabel(profile?.role);
+  const roleLabel = accountRoleLabel(profile);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();

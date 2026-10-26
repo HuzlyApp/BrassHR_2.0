@@ -70,7 +70,7 @@ import {
 } from "@/lib/onboarding/staff-step-documents";
 import { filterResumesForApplication } from "@/lib/jobs/match-analysis/pick-resume-for-application";
 import { classifyResumeUploaderRole } from "@/lib/resume/resume-upload-limit";
-import { staffRoleLabel, type StaffConsoleRole } from "@/lib/admin/staff-directory-types";
+import { loadStaffRoles, matchStaffRole } from "@/lib/admin/staff-roles";
 import { staffDisplayName } from "@/lib/account/resolve-staff-users";
 import { resolveStorageAccessibleUrl } from "@/lib/supabase/resolve-storage-accessible-url";
 import {
@@ -424,7 +424,7 @@ export function esignInspectionHasSignatureFields(params: {
   );
 }
 
-export type StaffMember = { name: string; role: StaffConsoleRole };
+export type StaffMember = { name: string; role: string; roleLabel?: string };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -433,7 +433,10 @@ export function candidateUploaderLabel(candidateName: string | null | undefined)
 }
 
 function staffMemberLabel(staff: StaffMember): string {
-  return `${staff.name} (${staffRoleLabel(staff.role)})`;
+  const label =
+    staff.roleLabel?.trim() ||
+    staff.role.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  return `${staff.name} (${label})`;
 }
 
 /** "Name (Admin|Recruiter)" for a reviewer, falling back to the stored name. */
@@ -482,6 +485,7 @@ async function loadStaffMembers(
     ]);
   if (usersError) throw usersError;
   if (membershipError) throw membershipError;
+  const catalog = await loadStaffRoles(supabase).catch(() => []);
 
   const membershipRoleById = new Map(
     ((memberships ?? []) as Array<{ user_id: string; role: string | null }>).map((row) => [
@@ -497,12 +501,12 @@ async function loadStaffMembers(
     role: string | null;
   }>) {
     const id = String(user.id);
-    const isAdmin = [asText(user.role), membershipRoleById.get(id) ?? null].some(
-      (role) => role === "admin" || role === "owner"
-    );
+    const stored = membershipRoleById.get(id) ?? asText(user.role);
+    const match = matchStaffRole(stored, catalog);
     result.set(id, {
       name: staffDisplayName(user.first_name, user.last_name, user.email),
-      role: isAdmin ? "admin" : "recruiter",
+      role: match?.key ?? stored ?? "staff",
+      roleLabel: match?.label ?? "Staff",
     });
   }
   return result;

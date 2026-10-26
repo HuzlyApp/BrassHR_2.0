@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { assignTenantCategory, DEFAULT_TENANT_CATEGORY } from "@/lib/tenant/tenant-category";
 import { PLATFORM_DEFAULT_TENANT_SLUG } from "@/lib/tenant/tenant-branding";
 import {
   provisionFirmaWorkspaceForTenant,
@@ -74,6 +75,7 @@ export async function ensurePlatformTenantWithFirmaWorkspace(
     } else {
       tenant = data as PlatformTenantRow;
       created = true;
+      await assignTenantCategory(supabase, tenant.id, DEFAULT_TENANT_CATEGORY);
       const { error: seedErr } = await supabase.rpc("seed_default_tenant_onboarding", {
         p_tenant_id: tenant.id,
       });

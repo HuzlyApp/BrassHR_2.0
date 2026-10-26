@@ -11,7 +11,7 @@ import BrandedSvgIcon from "@/app/components/BrandedSvgIcon";
 import { useAccountData } from "@/app/admin_recruiter/hooks/useAccountData";
 import {
   formatAccountNumber,
-  formatRoleLabel,
+  accountRoleLabel,
   getAccountDisplayName,
   getOrganizationDisplayName,
 } from "@/lib/account/display-name";
@@ -47,7 +47,7 @@ export default function AccountSettingsBillingPanel() {
   const accountDomain =
     organization?.domain?.trim() ||
     (organization?.subdomain ? `${organization.subdomain}.brasshr.com` : "—");
-  const roleLabel = formatRoleLabel(profile?.role);
+  const roleLabel = accountRoleLabel(profile);
   const profileAvatarSrc = resolveImageSrc(profile?.avatar_url);
   const organizationLogoSrc = resolveImageSrc(organization?.logo_url);
 

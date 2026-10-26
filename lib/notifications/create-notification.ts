@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@supabase/supabase-js";
-import { isStaffRole, parseAppRole } from "@/lib/auth/app-role";
+import { loadStaffRoles, staffStorageKeys } from "@/lib/admin/staff-roles";
 import { invalidateUserCache } from "@/lib/cache";
 import { getSupabaseUrl } from "@/lib/supabase-env";
 
@@ -24,8 +24,6 @@ export type NotificationRow = {
   is_read: boolean;
   sent_at: string;
 };
-
-const STAFF_DB_ROLES = ["admin", "client"] as const;
 
 function getNotificationWriteClient(preferred?: SupabaseClient): SupabaseClient | null {
   const url = getSupabaseUrl();
@@ -115,26 +113,26 @@ export async function listTenantStaffUserIds(
   const readClient = getNotificationWriteClient(supabase) ?? supabase;
   const exclude = new Set(excludeUserIds.map((id) => id.trim()).filter(Boolean));
   const ids = new Set<string>();
+  let storageKeys: string[] = [];
+  try {
+    storageKeys = staffStorageKeys(await loadStaffRoles(readClient));
+  } catch (error) {
+    console.error("[notifications:list-staff:catalog]", error instanceof Error ? error.message : error);
+    return [];
+  }
+  if (storageKeys.length === 0) return [];
 
   const { data: users, error: usersError } = await readClient
     .from("users")
     .select("id, role")
     .eq("tenant_id", tenantId)
-    .in("role", [...STAFF_DB_ROLES]);
+    .in("role", storageKeys);
 
   if (usersError) {
     console.error("[notifications:list-staff:users]", usersError.message);
   } else {
     for (const row of users ?? []) {
-      const role = parseAppRole(row.role);
-      if (role && isStaffRole(role) && !exclude.has(String(row.id))) {
-        ids.add(String(row.id));
-      } else if (
-        !exclude.has(String(row.id)) &&
-        (row.role === "admin" || row.role === "client")
-      ) {
-        ids.add(String(row.id));
-      }
+      if (!exclude.has(String(row.id))) ids.add(String(row.id));
     }
   }
 
@@ -142,7 +140,7 @@ export async function listTenantStaffUserIds(
     .from("user_roles")
     .select("user_id, role")
     .eq("tenant_id", tenantId)
-    .in("role", ["admin", "client"]);
+    .in("role", storageKeys);
 
   if (rolesError) {
     console.error("[notifications:list-staff:roles]", rolesError.message);

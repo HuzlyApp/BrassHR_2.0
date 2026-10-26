@@ -9,10 +9,15 @@ import {
   validateInviteStaffInput,
 } from "@/lib/admin/staff-directory-status";
 import { buildStaffActivationUrl } from "@/lib/admin/send-staff-invite-email";
+import { SEEDED_STAFF_ROLES } from "@/lib/admin/staff-roles";
+
+function validateInvite(input: Parameters<typeof validateInviteStaffInput>[0]) {
+  return validateInviteStaffInput(input, SEEDED_STAFF_ROLES);
+}
 
 describe("staff invite validation", () => {
   it("normalizes email and defaults role to recruiter", () => {
-    const result = validateInviteStaffInput({
+    const result = validateInvite({
       firstName: " Ada ",
       lastName: "Lovelace",
       email: "Ada@Example.COM",
@@ -27,20 +32,41 @@ describe("staff invite validation", () => {
   });
 
   it("rejects invalid email and blank names", () => {
-    expect(validateInviteStaffInput({ firstName: "", lastName: "L", email: "a@b.com" })).toEqual({
+    expect(validateInvite({ firstName: "", lastName: "L", email: "a@b.com" })).toEqual({
       error: "First name is required.",
     });
-    expect(validateInviteStaffInput({ firstName: "A", lastName: "L", email: "not-an-email" })).toEqual({
+    expect(validateInvite({ firstName: "A", lastName: "L", email: "not-an-email" })).toEqual({
       error: "Enter a valid email address.",
+    });
+  });
+
+  it("accepts HR, manager, finance, and support without changing recruiter", () => {
+    expect(
+      validateInvite({ firstName: "A", lastName: "L", email: "a@b.com", role: "hr" })
+    ).toMatchObject({ role: "hr" });
+    expect(
+      validateInvite({ firstName: "A", lastName: "L", email: "a@b.com", role: "manager" })
+    ).toMatchObject({ role: "manager" });
+    expect(
+      validateInvite({ firstName: "A", lastName: "L", email: "a@b.com", role: "finance" })
+    ).toMatchObject({ role: "finance" });
+    expect(
+      validateInvite({ firstName: "A", lastName: "L", email: "a@b.com", role: "support" })
+    ).toMatchObject({ role: "support" });
+    expect(
+      validateInvite({ firstName: "A", lastName: "L", email: "a@b.com", role: "client" })
+    ).toMatchObject({ role: "recruiter" });
+    expect(validateInvite({ firstName: "A", lastName: "L", email: "a@b.com", role: "worker" })).toEqual({
+      error: "Choose a role from the list.",
     });
   });
 
   it("rejects names longer than 50 characters", () => {
     expect(
-      validateInviteStaffInput({ firstName: "a".repeat(51), lastName: "L", email: "a@b.com" })
+      validateInvite({ firstName: "a".repeat(51), lastName: "L", email: "a@b.com" })
     ).toEqual({ error: "First name must be 50 characters or fewer." });
     expect(
-      validateInviteStaffInput({ firstName: "A", lastName: "a".repeat(51), email: "a@b.com" })
+      validateInvite({ firstName: "A", lastName: "a".repeat(51), email: "a@b.com" })
     ).toEqual({ error: "Last name must be 50 characters or fewer." });
   });
 });
@@ -75,6 +101,7 @@ describe("staff directory status", () => {
 
   it("does not treat a pending member as Active", () => {
     const row = toDirectoryMemberRow({
+      roles: SEEDED_STAFF_ROLES,
       userId: "user-1",
       firstName: "Ada",
       lastName: "Lovelace",
@@ -99,6 +126,7 @@ describe("staff directory status", () => {
 
   it("does not offer resend when there is no invitation to resend", () => {
     const row = toDirectoryMemberRow({
+      roles: SEEDED_STAFF_ROLES,
       userId: "user-3",
       firstName: "Pat",
       lastName: "Lee",
@@ -121,6 +149,7 @@ describe("staff directory status", () => {
 
   it("lets admins resend pending admin and recruiter invitations", () => {
     const recruiter = toDirectoryInvitationRow({
+      roles: SEEDED_STAFF_ROLES,
       invitationId: "inv-recruiter",
       firstName: "Ada",
       lastName: "Lovelace",
@@ -132,6 +161,7 @@ describe("staff directory status", () => {
       createdByName: "Owner",
     });
     const admin = toDirectoryInvitationRow({
+      roles: SEEDED_STAFF_ROLES,
       invitationId: "inv-admin",
       firstName: "Grace",
       lastName: "Hopper",
@@ -150,6 +180,7 @@ describe("staff directory status", () => {
 
   it("lets admins resend when an accepted invitee never signed in", () => {
     const row = toDirectoryMemberRow({
+      roles: SEEDED_STAFF_ROLES,
       userId: "user-2",
       firstName: "Carl",
       lastName: "Elipan",

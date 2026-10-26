@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveStaffProfilePhotoUrl } from "@/lib/account/staff-profile-photo";
-import { appRoleToConsoleRole } from "@/lib/admin/staff-directory-types";
+import { loadStaffRoles, matchStaffRole } from "@/lib/admin/staff-roles";
 import { writeActivityLog } from "@/lib/audit/activity-log";
 import { requireStaffApiSession } from "@/lib/auth/api-session";
 import { syncAssigneeFromWorker } from "@/lib/candidates/sync-recruiter-assignment";
@@ -37,10 +37,10 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
       .eq("id", assigned)
       .eq("tenant_id", tenantId)
       .maybeSingle();
-    // Invited recruiters are stored as `client` in DB; console maps that to recruiter.
-    if (!member || appRoleToConsoleRole(member.role) == null) {
+    const catalog = await loadStaffRoles(supabase);
+    if (!member || matchStaffRole(member.role, catalog)?.isStaff !== true) {
       return NextResponse.json(
-        { error: "Assigned user must be an admin or recruiter for this tenant." },
+        { error: "Assigned user must be a staff member for this tenant." },
         { status: 400 }
       );
     }

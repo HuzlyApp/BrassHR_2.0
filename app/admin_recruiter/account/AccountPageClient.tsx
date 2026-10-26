@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAccountData } from "@/app/admin_recruiter/hooks/useAccountData";
-import { appRoleToConsoleRole } from "@/lib/admin/staff-directory-types";
+import { isLimitedStaffConsoleRole } from "@/lib/admin/staff-directory-types";
 import AccountTabNav from "./components/AccountTabNav";
 import PersonalTab from "./components/PersonalTab";
 import BusinessInfoTab from "./components/BusinessInfoTab";
@@ -18,13 +18,13 @@ type AccountPageClientProps = {
 export default function AccountPageClient({ activeTab }: AccountPageClientProps) {
   const router = useRouter();
   const { profile, loading } = useAccountData();
-  const isRecruiter = appRoleToConsoleRole(profile?.role) === "recruiter";
-  const hideTab = isRecruiterHiddenAccountTab(activeTab) && (loading || isRecruiter);
+  const isLimitedStaff = isLimitedStaffConsoleRole(profile?.role, profile?.is_admin);
+  const hideTab = isRecruiterHiddenAccountTab(activeTab) && (loading || isLimitedStaff);
 
   useEffect(() => {
-    if (loading || !isRecruiter || !isRecruiterHiddenAccountTab(activeTab)) return;
+    if (loading || !isLimitedStaff || !isRecruiterHiddenAccountTab(activeTab)) return;
     router.replace(accountTabHref("personal"));
-  }, [activeTab, isRecruiter, loading, router]);
+  }, [activeTab, isLimitedStaff, loading, router]);
 
   return (
     <main className="p-4 sm:p-6 lg:p-8">

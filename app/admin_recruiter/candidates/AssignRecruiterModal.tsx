@@ -4,10 +4,6 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { useTenantBranding } from "@/app/components/tenant/TenantBrandingContext";
-import {
-  appRoleToConsoleRole,
-  staffRoleLabel,
-} from "@/lib/admin/staff-directory-types";
 import { brandingToCssVars } from "@/lib/tenant/tenant-branding";
 
 export type AssignableTeamMember = {
@@ -15,6 +11,7 @@ export type AssignableTeamMember = {
   name: string;
   email?: string;
   role?: string;
+  roleLabel?: string | null;
 };
 
 type AssignRecruiterModalProps = {
@@ -31,14 +28,18 @@ type AssignRecruiterModalProps = {
   onAssign: (assigneeUserId: string | null) => void;
 };
 
-/** DB stores invited recruiters as `client`; console maps that to recruiter. */
 function isAssignableStaffRole(role: string | undefined): boolean {
-  return appRoleToConsoleRole(role) != null;
+  const key = role?.trim().toLowerCase() ?? "";
+  return Boolean(key) && key !== "worker";
 }
 
-function assigneeRoleLabel(role: string | undefined): string | null {
-  const consoleRole = appRoleToConsoleRole(role);
-  return consoleRole ? staffRoleLabel(consoleRole) : null;
+function assigneeRoleLabel(member: AssignableTeamMember): string | null {
+  if (member.roleLabel?.trim()) return member.roleLabel.trim();
+  if (!member.role?.trim()) return null;
+  return member.role
+    .trim()
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 const SELECT_CLASS =
@@ -136,7 +137,7 @@ export function AssignRecruiterModal({
                 >
                   <option value="">Unassigned</option>
                   {assignableMembers.map((member) => {
-                    const roleLabel = assigneeRoleLabel(member.role);
+                    const roleLabel = assigneeRoleLabel(member);
                     return (
                       <option key={member.id} value={member.id}>
                         {member.name}

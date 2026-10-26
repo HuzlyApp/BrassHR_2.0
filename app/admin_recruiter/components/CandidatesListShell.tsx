@@ -28,7 +28,6 @@ import type { AnalysisProvider } from "@/lib/jobs/match-analysis/schema";
 import JobPublishToggle from "@/app/admin_recruiter/jobs/JobPublishToggle";
 import { ScrollableFilterSelect } from "@/app/admin_recruiter/components/ScrollableFilterSelect";
 import { parseSkillsFilterParam } from "@/lib/jobs/application-skills-filter";
-import { appRoleToConsoleRole } from "@/lib/admin/staff-directory-types";
 import { buildAssigneeFilterOptions } from "@/lib/candidates/assignee-filter";
 import { CANDIDATES_PAGE_SIZE_OPTIONS } from "@/lib/workers/candidate-list-params";
 
@@ -427,7 +426,7 @@ export function CandidatesListShell({
         if (!response.ok || cancelled) return;
         const next = buildAssigneeFilterOptions(
           (payload.members ?? [])
-            .filter((member) => appRoleToConsoleRole(member.role) != null)
+            .filter((member) => Boolean(member.id))
             .map((member) => ({ id: member.id, name: member.name }))
         );
         if (!cancelled) setTeamAssigneeOptions(next);

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { loadStaffRoles, staffStorageKeys } from "@/lib/admin/staff-roles";
 
 export type StaffAccessFlags = {
   userActive: boolean;
@@ -78,7 +79,17 @@ export async function loadStaffAccessFlags(
     ? ((roleRows ?? []) as Array<{ tenant_id?: string | null; role?: string | null; is_active?: boolean | null }>)
     : [];
 
-  const staffRoles = new Set(["admin", "client", "recruiter", "owner"]);
+  let staffRoles = new Set<string>();
+  try {
+    staffRoles = new Set(staffStorageKeys(await loadStaffRoles(supabase)));
+  } catch {
+    staffRoles = new Set();
+  }
+  const isStaffToken = (role: string | null | undefined) => {
+    const key = String(role ?? "").trim().toLowerCase();
+    if (!key || key === "worker") return false;
+    return staffRoles.size === 0 || staffRoles.has(key);
+  };
   const matching = tenantId
     ? roles.filter((row) => row.tenant_id === tenantId)
     : roles;
@@ -86,10 +97,10 @@ export async function loadStaffAccessFlags(
   const membershipFromRoles =
     matching.length === 0
       ? null
-      : matching.some((row) => staffRoles.has(String(row.role ?? "").toLowerCase()) && row.is_active !== false);
+      : matching.some((row) => isStaffToken(row.role) && row.is_active !== false);
 
   const profileIsStaff =
-    staffRoles.has(String(profile.role ?? "").toLowerCase()) &&
+    isStaffToken(profile.role) &&
     (!tenantId || profile.tenant_id === tenantId);
 
   const hasStaffMembership = membershipFromRoles === true || (membershipFromRoles === null && profileIsStaff);

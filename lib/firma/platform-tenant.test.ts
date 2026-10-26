@@ -18,30 +18,45 @@ describe("ensurePlatformTenantWithFirmaWorkspace", () => {
 
   it("creates the Braas HR tenant when missing and provisions its workspace", async () => {
     const inserted: Record<string, unknown>[] = [];
+    const categories: Record<string, unknown>[] = [];
     const client = {
-      from: vi.fn(() => ({
-        select: () => ({
-          eq: () => ({
-            maybeSingle: async () => ({ data: null, error: null }),
-          }),
-        }),
-        insert: (row: Record<string, unknown>) => {
-          inserted.push(row);
+      from: vi.fn((table: string) => {
+        if (table === "tenant_categories") {
           return {
-            select: () => ({
-              single: async () => ({
-                data: {
-                  id: "tenant-braas-hr",
-                  name: row.name,
-                  slug: row.slug,
-                  subdomain: row.subdomain,
-                },
-                error: null,
-              }),
-            }),
+            upsert: (row: Record<string, unknown>) => {
+              categories.push(row);
+              return {
+                select: () => ({
+                  single: async () => ({ data: { category: row.category }, error: null }),
+                }),
+              };
+            },
           };
-        },
-      })),
+        }
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: null, error: null }),
+            }),
+          }),
+          insert: (row: Record<string, unknown>) => {
+            inserted.push(row);
+            return {
+              select: () => ({
+                single: async () => ({
+                  data: {
+                    id: "tenant-braas-hr",
+                    name: row.name,
+                    slug: row.slug,
+                    subdomain: row.subdomain,
+                  },
+                  error: null,
+                }),
+              }),
+            };
+          },
+        };
+      }),
       rpc: vi.fn(async () => ({ error: null })),
     };
 
@@ -57,6 +72,9 @@ describe("ensurePlatformTenantWithFirmaWorkspace", () => {
       name: PLATFORM_TENANT_SEED.name,
       plan: "platform",
     });
+    expect(categories).toEqual([
+      expect.objectContaining({ tenant_id: "tenant-braas-hr", category: "Staffing" }),
+    ]);
     expect(provisionFirmaWorkspaceForTenant).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: "tenant-braas-hr",

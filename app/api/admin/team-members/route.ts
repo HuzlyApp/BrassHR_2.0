@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
+import { labelForRole, loadStaffRoles, staffStorageKeys } from "@/lib/admin/staff-roles";
 import { requireStaffApiSession } from "@/lib/auth/api-session";
 import { resolveStaffTenantScope } from "@/lib/auth/staff-tenant-scope";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-
-const STAFF_ROLES = new Set(["admin", "recruiter", "owner", "client"]);
 
 export async function GET() {
   const auth = await requireStaffApiSession();
@@ -19,6 +18,15 @@ export async function GET() {
     return NextResponse.json({ error: "Supabase service role not configured" }, { status: 503 });
   }
 
+  let catalog;
+  try {
+    catalog = await loadStaffRoles(supabase);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not load staff roles.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+  const staffRoles = new Set(staffStorageKeys(catalog));
+
   const { data: roleRows } = await supabase
     .from("user_roles")
     .select("user_id, role, is_active")
@@ -26,7 +34,7 @@ export async function GET() {
 
   const membershipIds = new Set(
     ((roleRows ?? []) as Array<{ user_id: string; role: string | null; is_active?: boolean | null }>)
-      .filter((row) => STAFF_ROLES.has(String(row.role ?? "").trim().toLowerCase()) || String(row.role ?? "") === "client")
+      .filter((row) => staffRoles.has(String(row.role ?? "").trim().toLowerCase()))
       .filter((row) => row.is_active !== false)
       .map((row) => row.user_id)
   );
@@ -52,12 +60,13 @@ export async function GET() {
   }
 
   const members = [...(data ?? []), ...extra]
-    .filter((row) => STAFF_ROLES.has(String(row.role ?? "").trim().toLowerCase()) || membershipIds.has(String(row.id)))
+    .filter((row) => staffRoles.has(String(row.role ?? "").trim().toLowerCase()) || membershipIds.has(String(row.id)))
     .map((row) => ({
       id: String(row.id),
       email: String(row.email ?? "").trim().toLowerCase(),
       name: `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() || String(row.email ?? ""),
       role: String(row.role ?? ""),
+      roleLabel: labelForRole(row.role, catalog),
     }))
     .filter((row) => row.email.includes("@"));
 

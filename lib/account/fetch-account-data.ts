@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { User } from "@supabase/supabase-js";
+import { labelForRole, loadStaffRoles, matchStaffRole } from "@/lib/admin/staff-roles";
 import { computeChecklistState } from "./completion";
 import { buildFullName } from "./display-name";
 import { resolveDefaultAccountTimezone } from "./reference-timezones";
@@ -173,6 +174,17 @@ export async function fetchAccountData(supabase: SupabaseClient): Promise<Accoun
   const resolvedAvatarUrl = await resolveStaffProfilePhotoUrl(supabase, storedPhoto);
 
   const profile = mapProfileRow(userRow, user, resolvedAvatarUrl);
+  if (profile) {
+    try {
+      const catalog = await loadStaffRoles(supabase);
+      const match = matchStaffRole(profile.role, catalog);
+      profile.role_label = match?.label ?? labelForRole(profile.role, catalog);
+      profile.is_admin = match?.isAdmin === true;
+    } catch {
+      profile.role_label = null;
+      profile.is_admin = false;
+    }
+  }
 
   let organization: AccountOrganization | null = null;
   if (profile?.organization_id) {

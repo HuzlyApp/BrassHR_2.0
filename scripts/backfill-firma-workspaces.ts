@@ -133,22 +133,37 @@ async function main() {
     .maybeSingle();
 
   if (!platform?.id) {
-    const { error: insertErr } = await supabase.from("tenants").insert({
-      name: "Brass HR",
-      slug: PLATFORM_SLUG,
-      subdomain: PLATFORM_SLUG,
-      plan: "platform",
-      is_active: true,
-      logo_url: "/icons/braas-HR/BrassHR-logo.svg",
-      primary_color: "#BC8B41",
-      secondary_color: "#104b83",
-      accent_color: "#E9B771",
-      welcome_headline: "Welcome to Brass HR",
-      welcome_subtitle: "HR Simplified for growing teams",
-      auth_background_image_url: "/images/singup-bg-image.jpg",
-      updated_at: new Date().toISOString(),
-    });
+    const { data: created, error: insertErr } = await supabase
+      .from("tenants")
+      .insert({
+        name: "Brass HR",
+        slug: PLATFORM_SLUG,
+        subdomain: PLATFORM_SLUG,
+        plan: "platform",
+        is_active: true,
+        logo_url: "/icons/braas-HR/BrassHR-logo.svg",
+        primary_color: "#BC8B41",
+        secondary_color: "#104b83",
+        accent_color: "#E9B771",
+        welcome_headline: "Welcome to Brass HR",
+        welcome_subtitle: "HR Simplified for growing teams",
+        auth_background_image_url: "/images/singup-bg-image.jpg",
+        updated_at: new Date().toISOString(),
+      })
+      .select("id")
+      .maybeSingle();
     if (insertErr && insertErr.code !== "23505") throw insertErr;
+    if (!insertErr && created?.id) {
+      const { error: categoryErr } = await supabase.from("tenant_categories").upsert(
+        {
+          tenant_id: created.id,
+          category: "Staffing",
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "tenant_id" }
+      );
+      if (categoryErr) throw categoryErr;
+    }
     console.log("[backfill] created Brass HR platform tenant");
   }
 

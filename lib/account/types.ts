@@ -10,6 +10,8 @@ export type AccountProfile = {
   phone: string | null;
   avatar_url: string | null;
   role: string | null;
+  role_label?: string | null;
+  is_admin?: boolean;
   job_title: string | null;
   organization_id: string | null;
   address_line1: string | null;

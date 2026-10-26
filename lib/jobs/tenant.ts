@@ -3,6 +3,14 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StaffApiAuthContext } from "@/lib/auth/api-session";
 import { resolveEffectiveAdminTenantId } from "@/lib/email-templates/resolve-effective-tenant";
+import { getTenantCategory, type TenantCategory } from "@/lib/tenant/tenant-category";
+
+export type ResolvedPublicTenant = {
+  id: string;
+  slug: string;
+  name: string;
+  category: TenantCategory;
+};
 
 export async function resolveStaffTenantId(
   supabase: SupabaseClient,
@@ -18,7 +26,7 @@ export async function resolveStaffTenantId(
 export async function resolvePublicTenant(
   supabase: SupabaseClient,
   slugInput: string | null | undefined
-): Promise<{ id: string; slug: string; name: string } | null> {
+): Promise<ResolvedPublicTenant | null> {
   const slug = slugInput?.trim().toLowerCase();
   if (!slug) return null;
 
@@ -31,9 +39,13 @@ export async function resolvePublicTenant(
   if (error) throw error;
   if (!data?.id) return null;
 
+  const id = String(data.id);
+  const category = await getTenantCategory(supabase, id);
+
   return {
-    id: String(data.id),
+    id,
     slug: String(data.slug ?? data.subdomain ?? slug).toLowerCase(),
     name: String(data.name ?? "Careers"),
+    category,
   };
 }

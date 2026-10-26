@@ -1,7 +1,5 @@
-import type { AppRole } from "@/lib/auth/app-role";
-
-export const STAFF_CONSOLE_ROLES = ["recruiter", "admin"] as const;
-export type StaffConsoleRole = (typeof STAFF_CONSOLE_ROLES)[number];
+/** Catalog key from public.staff_roles. Recruiter is stored as "client". */
+export type StaffConsoleRole = string;
 
 export const STAFF_ACCOUNT_STATUSES = [
   "pending",
@@ -69,20 +67,15 @@ export class StaffDirectoryError extends Error {
   }
 }
 
-export function isStaffConsoleRole(value: unknown): value is StaffConsoleRole {
-  return value === "recruiter" || value === "admin";
-}
+const FULL_CONSOLE_ROLES = new Set(["admin", "owner", "god_admin"]);
 
-export function appRoleToConsoleRole(role: AppRole | string | null | undefined): StaffConsoleRole | null {
-  if (typeof role !== "string") return null;
-  const normalized = role.trim().toLowerCase();
-  if (normalized === "admin" || normalized === "owner") return "admin";
-  if (normalized === "recruiter" || normalized === "client") return "recruiter";
-  return null;
-}
-
-export function consoleRoleToDbRole(role: StaffConsoleRole): "client" | "admin" {
-  return role === "admin" ? "admin" : "client";
+/** Non-admin staff see the limited console. Admin rank comes from the catalog flag when known. */
+export function isLimitedStaffConsoleRole(role: string | null | undefined, isAdmin?: boolean): boolean {
+  if (isAdmin === true) return false;
+  if (typeof role !== "string") return false;
+  const key = role.trim().toLowerCase();
+  if (!key || key === "worker") return false;
+  return !FULL_CONSOLE_ROLES.has(key);
 }
 
 export function staffStatusLabel(status: StaffAccountStatus): string {
@@ -98,8 +91,4 @@ export function staffStatusLabel(status: StaffAccountStatus): string {
     case "failed":
       return "Invite Failed";
   }
-}
-
-export function staffRoleLabel(role: StaffConsoleRole): string {
-  return role === "admin" ? "Admin" : "Recruiter";
 }

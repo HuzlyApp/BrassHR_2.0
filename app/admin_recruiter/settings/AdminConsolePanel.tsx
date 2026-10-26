@@ -3,7 +3,12 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Check, MoreHorizontal, UserPlus, Users } from "lucide-react";
 import toast from "react-hot-toast";
-import type { StaffAccountStatus, StaffConsoleRole, StaffDirectoryRow } from "@/lib/admin/staff-directory-types";
+import {
+  type StaffAccountStatus,
+  type StaffDirectoryRow,
+} from "@/lib/admin/staff-directory-types";
+
+type StaffRoleOption = { key: string; label: string; isAdmin: boolean };
 import { PERSON_NAME_MAX_LENGTH } from "@/lib/person-name";
 
 const STATUS_STYLES: Record<StaffAccountStatus, string> = {
@@ -70,6 +75,7 @@ function ConfirmDialog({
 
 export default function AdminConsolePanel() {
   const [users, setUsers] = useState<StaffDirectoryRow[]>([]);
+  const [roleOptions, setRoleOptions] = useState<StaffRoleOption[]>([]);
   const [visible, setVisible] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -87,7 +93,7 @@ export default function AdminConsolePanel() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<StaffConsoleRole>("recruiter");
+  const [role, setRole] = useState("recruiter");
   const [requirePasswordChange, setRequirePasswordChange] = useState(true);
   const [formError, setFormError] = useState<string | null>(null);
   const [resendingId, setResendingId] = useState<string | null>(null);
@@ -103,8 +109,19 @@ export default function AdminConsolePanel() {
         setUsers([]);
         return;
       }
-      const payload = (await response.json()) as { users?: StaffDirectoryRow[]; error?: string };
+      const payload = (await response.json()) as {
+        users?: StaffDirectoryRow[];
+        roles?: StaffRoleOption[];
+        error?: string;
+      };
       if (!response.ok) throw new Error(payload.error || "Failed to load users");
+      const nextRoles = payload.roles ?? [];
+      setRoleOptions(nextRoles);
+      setRole((current) =>
+        nextRoles.some((option) => option.key === current)
+          ? current
+          : (nextRoles.find((option) => option.key === "recruiter")?.key ?? nextRoles[0]?.key ?? current)
+      );
       setUsers(payload.users ?? []);
       setVisible(true);
     } catch (err) {
@@ -163,7 +180,7 @@ export default function AdminConsolePanel() {
       toast.success(
         payload.user?.status === "pending"
           ? "Invitation sent. They’ll appear as Active after they set a password."
-          : "Recruiter added to this organization."
+          : `${roleOptions.find((option) => option.key === role)?.label ?? "Staff member"} added to this organization.`
       );
       resetInviteForm();
       setInviteOpen(false);
@@ -247,7 +264,7 @@ export default function AdminConsolePanel() {
           className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#012352] px-4 text-sm font-medium text-white hover:brightness-95 disabled:opacity-60"
         >
           <UserPlus className="h-4 w-4" aria-hidden />
-          Invite Recruiter
+          Invite staff
         </button>
       </div>
 
@@ -332,32 +349,34 @@ export default function AdminConsolePanel() {
                             {resendingId === row.invitationId ? "Resending…" : "Resend invitation"}
                           </button>
                         ) : null}
-                        {row.canChangeRole ? (
-                          <button
-                            type="button"
-                            className="block w-full px-3 py-2 text-sm text-[#0F172A] hover:bg-[#F8FAFC]"
-                            onClick={() => {
-                              const nextRole: StaffConsoleRole = row.role === "admin" ? "recruiter" : "admin";
-                              setConfirm({
-                                title: "Change role",
-                                message: `Change ${row.name} from ${row.roleLabel} to ${nextRole === "admin" ? "Admin" : "Recruiter"}?`,
-                                confirmLabel: "Change role",
-                                run: () =>
-                                  runAction(
-                                    `/api/admin/users/${row.userId}`,
-                                    {
-                                      method: "PATCH",
-                                      body: JSON.stringify({ action: "change_role", role: nextRole }),
-                                    },
-                                    "Role updated."
-                                  ),
-                              });
-                              setMenuId(null);
-                            }}
-                          >
-                            {row.role === "admin" ? "Change to Recruiter" : "Change to Admin"}
-                          </button>
-                        ) : null}
+                        {row.canChangeRole
+                          ? roleOptions.filter((option) => option.key !== row.role).map((option) => (
+                              <button
+                                key={option.key}
+                                type="button"
+                                className="block w-full px-3 py-2 text-sm text-[#0F172A] hover:bg-[#F8FAFC]"
+                                onClick={() => {
+                                  setConfirm({
+                                    title: "Change role",
+                                    message: `Change ${row.name} from ${row.roleLabel} to ${option.label}?`,
+                                    confirmLabel: "Change role",
+                                    run: () =>
+                                      runAction(
+                                        `/api/admin/users/${row.userId}`,
+                                        {
+                                          method: "PATCH",
+                                          body: JSON.stringify({ action: "change_role", role: option.key }),
+                                        },
+                                        "Role updated."
+                                      ),
+                                  });
+                                  setMenuId(null);
+                                }}
+                              >
+                                Change to {option.label}
+                              </button>
+                            ))
+                          : null}
                         {row.canSuspend ? (
                           <button
                             type="button"
@@ -451,7 +470,7 @@ export default function AdminConsolePanel() {
             onSubmit={submitInvite}
             className="w-full max-w-lg rounded-xl bg-white p-5 shadow-xl"
           >
-            <h3 className="text-base font-semibold text-[#0F172A]">Invite Recruiter</h3>
+            <h3 className="text-base font-semibold text-[#0F172A]">Invite staff</h3>
             <p className="mt-1 text-sm text-[#64748B]">
               We’ll email a one-time activation link. They choose their own password; we never store or display one.
             </p>
@@ -494,11 +513,14 @@ export default function AdminConsolePanel() {
               <span className="text-sm font-semibold text-[#0F172A]">Role</span>
               <select
                 value={role}
-                onChange={(event) => setRole(event.target.value === "admin" ? "admin" : "recruiter")}
+                onChange={(event) => setRole(event.target.value)}
                 className="h-10 w-full rounded-lg border border-[#CBD5E1] bg-white px-3 text-sm outline-none focus:border-[#012352]"
               >
-                <option value="recruiter">Recruiter</option>
-                <option value="admin">Admin</option>
+                {roleOptions.map((option) => (
+                  <option key={option.key} value={option.key}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
             </label>
             <label className="mt-3 flex items-start gap-3 text-sm text-[#334155]">

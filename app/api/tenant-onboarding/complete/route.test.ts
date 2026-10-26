@@ -6,6 +6,7 @@ const authState = vi.hoisted(() => ({
 }));
 
 const insertPayload = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }));
+const categoryWrites = vi.hoisted(() => ({ current: [] as Record<string, unknown>[] }));
 
 const provisionMock = vi.hoisted(() =>
   vi.fn(async () => ({
@@ -98,6 +99,23 @@ vi.mock("@/lib/supabase/service-role", () => ({
           }),
         };
       }
+      if (table === "tenant_categories") {
+        return {
+          upsert: (row: Record<string, unknown>) => {
+            categoryWrites.current.push(row);
+            return {
+              select: () => ({
+                single: async () => ({ data: { category: row.category }, error: null }),
+              }),
+            };
+          },
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { category: "Staffing" }, error: null }),
+            }),
+          }),
+        };
+      }
       if (table === "tenant_hiring_areas") {
         return { upsert: async () => ({ error: null }) };
       }
@@ -153,6 +171,7 @@ describe("tenant-onboarding complete route", () => {
 
   beforeEach(() => {
     insertPayload.current = null;
+    categoryWrites.current = [];
     process.env.ROOT_DOMAIN = "braashr.test";
     process.env.FIRMA_API_KEY = "firma_test_key";
     provisionMock.mockReset();
@@ -186,6 +205,10 @@ describe("tenant-onboarding complete route", () => {
       workspaceId: "3b9e2ce8-22f1-4a48-9564-80245d73a21b",
       message: null,
     });
+    expect(body.category).toBe("Staffing");
+    expect(categoryWrites.current).toEqual([
+      expect.objectContaining({ tenant_id: "tenant-new-1", category: "Staffing" }),
+    ]);
     expect(JSON.stringify(body)).not.toMatch(/api_key/);
     expect(JSON.stringify(body)).not.toMatch(/firma_test_key/);
   });
@@ -247,5 +270,28 @@ describe("tenant-onboarding complete route", () => {
     expect(body.ok).toBe(true);
     expect(insertPayload.current?.phone).toBe("");
     expect(insertPayload.current?.postal_code).toBe("");
+  });
+
+  it("assigns SMB only for the tenant being created", async () => {
+    const response = await completeTenant({ category: "SMB" });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.category).toBe("SMB");
+    expect(categoryWrites.current).toHaveLength(1);
+    expect(categoryWrites.current[0]).toMatchObject({
+      tenant_id: "tenant-new-1",
+      category: "SMB",
+    });
+  });
+
+  it("rejects an unknown category before creating a tenant", async () => {
+    const response = await completeTenant({ category: "Enterprise" });
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error).toMatch(/Staffing or SMB/);
+    expect(insertPayload.current).toBeNull();
+    expect(categoryWrites.current).toEqual([]);
   });
 });

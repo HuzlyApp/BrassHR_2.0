@@ -1,7 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { writeActivityLog } from "@/lib/audit/activity-log";
-import { parseAppRole } from "@/lib/auth/app-role";
 import { NEXUS_PLATFORM } from "@/lib/auth/platform-shared";
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-by-email";
 import { invalidateUserCache } from "@/lib/cache";
@@ -15,10 +14,14 @@ import {
   validateInviteStaffInput,
 } from "@/lib/admin/staff-directory-status";
 import {
-  appRoleToConsoleRole,
-  consoleRoleToDbRole,
+  adminStorageKeys,
+  labelForRole,
+  loadStaffRoles,
+  matchStaffRole,
+  type StaffRole,
+} from "@/lib/admin/staff-roles";
+import {
   StaffDirectoryError,
-  staffRoleLabel,
   type StaffConsoleRole,
   type StaffDirectoryRow,
 } from "@/lib/admin/staff-directory-types";
@@ -153,11 +156,13 @@ async function countActiveAdmins(
   tenantId: string,
   excludeUserId?: string
 ): Promise<number> {
+  const adminKeys = adminStorageKeys(await loadStaffRoles(supabase));
+  if (adminKeys.length === 0) return 0;
   const { data: roles } = await supabase
     .from("user_roles")
     .select("user_id, role, is_active")
     .eq("tenant_id", tenantId)
-    .eq("role", "admin");
+    .in("role", adminKeys);
   const roleRows = (roles ?? []) as RoleRow[];
   const ids = roleRows
     .filter((row) => row.is_active !== false && row.user_id !== excludeUserId)
@@ -167,7 +172,7 @@ async function countActiveAdmins(
     .from("users")
     .select("id, role, is_active, tenant_id")
     .eq("tenant_id", tenantId)
-    .eq("role", "admin");
+    .in("role", adminKeys);
   const userRows = (users ?? []) as UserRow[];
   const fromUsers = userRows
     .filter((row) => row.is_active !== false && row.id !== excludeUserId)
@@ -226,7 +231,8 @@ async function mergeStaffInviteAppMetadata(params: {
   supabase: SupabaseClient;
   userId: string;
   tenantId: string;
-  dbRole: "client" | "admin";
+  dbRole: string;
+  roles: StaffRole[];
   firstName: string;
   lastName: string;
   keepHomeTenant: boolean;
@@ -235,7 +241,7 @@ async function mergeStaffInviteAppMetadata(params: {
   const { data } = await params.supabase.auth.admin.getUserById(params.userId);
   const current = (data.user?.app_metadata ?? {}) as Record<string, unknown>;
   const currentRole = typeof current.role === "string" ? current.role : null;
-  const keepAdminRole = parseAppRole(currentRole) === "admin";
+  const keepAdminRole = matchStaffRole(currentRole, params.roles)?.isAdmin === true;
   const homeTenantId =
     params.keepHomeTenant && params.homeTenantId ? params.homeTenantId : params.tenantId;
   await params.supabase.auth.admin.updateUserById(params.userId, {
@@ -281,6 +287,7 @@ export async function listStaffDirectory(
   supabase: SupabaseClient,
   params: { tenantId: string; actorUserId: string }
 ): Promise<StaffDirectoryRow[]> {
+  const catalog = await loadStaffRoles(supabase);
   const { data: roleData, error: roleError } = await supabase
     .from("user_roles")
     .select("user_id, tenant_id, role, is_active, created_at, created_by")
@@ -345,8 +352,8 @@ export async function listStaffDirectory(
     if (!user || !email) continue;
     const membership = roleByUser.get(userId);
     const dbRole = membership?.role ?? user.role;
-    const consoleRole = appRoleToConsoleRole(dbRole);
-    if (!consoleRole) continue;
+    const consoleRole = matchStaffRole(dbRole, catalog);
+    if (!consoleRole?.isStaff) continue;
 
     const invite = invitations.find(
       (row) => row.invited_user_id === userId || normalizeTenantEmail(row.email) === normalizeTenantEmail(email)
@@ -355,7 +362,7 @@ export async function listStaffDirectory(
       ? deriveInvitationStatus({ status: invite.status, expiresAt: invite.expires_at })
       : null;
     const membershipActive = (membership?.is_active ?? user.is_active) !== false && user.is_active !== false;
-    const isLastAdmin = consoleRole === "admin" && adminCount <= 1;
+    const isLastAdmin = consoleRole.isAdmin && adminCount <= 1;
 
     rows.push(
       toDirectoryMemberRow({
@@ -376,6 +383,7 @@ export async function listStaffDirectory(
           (membership?.created_by || invite?.invited_by ? null : "System"),
         isSelf: userId === params.actorUserId,
         isLastAdmin,
+        roles: catalog,
       })
     );
     memberIds.add(userId);
@@ -398,6 +406,7 @@ export async function listStaffDirectory(
         invitationDate: invite.created_at,
         createdByUserId: invite.invited_by,
         createdByName: invite.invited_by ? nameMap.get(invite.invited_by) ?? null : "System",
+        roles: catalog,
       })
     );
   }
@@ -485,7 +494,7 @@ async function upsertMembership(params: {
   supabase: SupabaseClient;
   tenantId: string;
   userId: string;
-  dbRole: "client" | "admin";
+  dbRole: string;
   createdBy: string;
   isHomeTenant: boolean;
   firstName: string;
@@ -552,7 +561,7 @@ async function insertInvitation(params: {
   email: string;
   firstName: string;
   lastName: string;
-  dbRole: "client" | "admin";
+  dbRole: string;
   invitedBy: string;
   invitedUserId: string;
   status: "pending" | "accepted" | "failed";
@@ -605,13 +614,18 @@ export async function inviteStaff(
     request?: Request;
   }
 ): Promise<{ row: StaffDirectoryRow; existingAccount: boolean }> {
-  const parsed = validateInviteStaffInput((params.input ?? {}) as Record<string, unknown>);
+  const catalog = await loadStaffRoles(supabase);
+  const parsed = validateInviteStaffInput((params.input ?? {}) as Record<string, unknown>, catalog);
   if ("error" in parsed) {
     throw new StaffDirectoryError(parsed.error, "VALIDATION", 400);
   }
 
   const tenant = await loadTenant(supabase, params.tenantId);
-  const dbRole = consoleRoleToDbRole(parsed.role);
+  const invitedRole = matchStaffRole(parsed.role, catalog);
+  const dbRole = invitedRole?.storageKey;
+  if (!dbRole) {
+    throw new StaffDirectoryError("Choose a role from the list.", "VALIDATION", 400);
+  }
   const { existingUserId, existingProfile } = await assertInviteEligibility(
     supabase,
     params.tenantId,
@@ -664,6 +678,7 @@ export async function inviteStaff(
         userId,
         tenantId: params.tenantId,
         dbRole,
+        roles: catalog,
         firstName: parsed.firstName,
         lastName: parsed.lastName,
         keepHomeTenant: hasHomeTenant,
@@ -704,7 +719,7 @@ export async function inviteStaff(
         email: parsed.email,
         firstName: parsed.firstName,
         tenantName: tenant.name,
-        roleLabel: staffRoleLabel(parsed.role),
+        roleLabel: invitedRole?.label ?? "Staff",
         actionUrl: buildStaffSignInUrl({ appOrigin: params.appOrigin, tenantSlug: tenant.slug }),
         existingAccount: true,
       });
@@ -775,7 +790,7 @@ export async function inviteStaff(
       email: parsed.email,
       firstName: parsed.firstName,
       tenantName: tenant.name,
-      roleLabel: staffRoleLabel(parsed.role),
+      roleLabel: invitedRole?.label ?? "Staff",
       actionUrl,
       existingAccount: false,
     });
@@ -888,7 +903,7 @@ export async function resendStaffInvitation(
     email,
     firstName: invitation.first_name ?? "there",
     tenantName: tenant.name,
-    roleLabel: staffRoleLabel(invitation.role === "admin" ? "admin" : "recruiter"),
+    roleLabel: labelForRole(invitation.role, await loadStaffRoles(supabase)) ?? "Staff",
     actionUrl: buildStaffActivationUrl({
       appOrigin: params.appOrigin,
       hashedToken: token.hashedToken,
@@ -973,20 +988,21 @@ export async function updateStaffMembership(
     throw new StaffDirectoryError("Platform administrators cannot be managed here.", "FORBIDDEN", 403);
   }
 
-  const currentRole: StaffConsoleRole =
-    ("role" in membership && (membership.role === "admin" || membership.role === "owner")) || user?.role === "admin"
-      ? "admin"
-      : "recruiter";
+  const catalog = await loadStaffRoles(supabase);
+  const currentRole = matchStaffRole(membership.role, catalog) ?? matchStaffRole(user?.role, catalog);
 
   if (params.action === "change_role") {
-    if (!params.role) throw new StaffDirectoryError("Role is required.", "VALIDATION", 400);
-    if (currentRole === "admin" && params.role !== "admin") {
+    const nextRole = matchStaffRole(params.role, catalog);
+    if (!nextRole?.isAssignable || !nextRole.isStaff) {
+      throw new StaffDirectoryError("Choose a role from the list.", "VALIDATION", 400);
+    }
+    if (currentRole?.isAdmin && !nextRole.isAdmin) {
       const remaining = await countActiveAdmins(supabase, params.tenantId, params.userId);
       if (remaining < 1) {
         throw new StaffDirectoryError("Keep at least one active admin in this organization.", "CONFLICT", 409);
       }
     }
-    const dbRole = consoleRoleToDbRole(params.role);
+    const dbRole = nextRole.storageKey;
     await supabase
       .from("user_roles")
       .upsert(
@@ -1011,13 +1027,13 @@ export async function updateStaffMembership(
       tenantId: params.tenantId,
       action: "staff.role.changed",
       entityId: params.userId,
-      metadata: { previous_role: currentRole, new_role: params.role },
+      metadata: { previous_role: currentRole?.key ?? null, new_role: params.role },
       request: params.request,
     });
   }
 
   if (params.action === "suspend") {
-    if (currentRole === "admin") {
+    if (currentRole?.isAdmin) {
       const remaining = await countActiveAdmins(supabase, params.tenantId, params.userId);
       if (remaining < 1) {
         throw new StaffDirectoryError("Keep at least one active admin in this organization.", "CONFLICT", 409);
@@ -1132,7 +1148,6 @@ export async function removeStaffMembership(
     throw new StaffDirectoryError("Platform administrators cannot be managed here.", "FORBIDDEN", 403);
   }
 
-  const currentRole: StaffConsoleRole = user?.role === "admin" || user?.role === "owner" ? "admin" : "recruiter";
   const { data: roleRow } = await supabase
     .from("user_roles")
     .select("role")
@@ -1140,9 +1155,9 @@ export async function removeStaffMembership(
     .eq("tenant_id", params.tenantId)
     .maybeSingle();
   const membershipRole = (roleRow as { role?: string } | null)?.role;
-  const effectiveRole: StaffConsoleRole =
-    membershipRole === "admin" || currentRole === "admin" ? "admin" : "recruiter";
-  if (effectiveRole === "admin") {
+  const catalog = await loadStaffRoles(supabase);
+  const effectiveRole = matchStaffRole(membershipRole, catalog) ?? matchStaffRole(user?.role, catalog);
+  if (effectiveRole?.isAdmin) {
     const remaining = await countActiveAdmins(supabase, params.tenantId, userId);
     if (remaining < 1) {
       throw new StaffDirectoryError("Keep at least one active admin in this organization.", "CONFLICT", 409);
