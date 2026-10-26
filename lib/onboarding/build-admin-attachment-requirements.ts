@@ -26,7 +26,7 @@ export type AdminAttachmentRequirement = {
   reviewed_by?: string | null;
   review_notes?: string | null;
   is_required?: boolean;
-  document_kind?: "certificate" | "license" | null;
+  document_kind?: "certificate" | "license" | "vaccination" | "other" | null;
   has_expiration?: boolean;
   issued_date?: string | null;
   expiry_date?: string | null;

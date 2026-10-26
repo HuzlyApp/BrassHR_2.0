@@ -86,7 +86,8 @@ describe("ProfessionDocumentsPanel add profession", () => {
 
     expect(await screen.findByRole("tab", { name: "Nursing" })).toBeTruthy();
 
-    await user.selectOptions(screen.getByLabelText("Select profession"), "it_support");
+    await user.click(screen.getByLabelText("Select profession"));
+    await user.click(screen.getByRole("option", { name: "IT Support (Technology)" }));
     await user.click(screen.getByRole("button", { name: "Add profession" }));
 
     const added = await screen.findByRole("tab", { name: "IT Support" });
@@ -99,7 +100,8 @@ describe("ProfessionDocumentsPanel add profession", () => {
     await user.click(screen.getByRole("button", { name: "Add certificate or license" }));
     const names = screen.getAllByPlaceholderText("Certificate or license name");
     await user.type(names[1], "IT Support license");
-    await user.selectOptions(screen.getAllByLabelText("Document type")[1], "license");
+    await user.click(screen.getAllByLabelText("Document type")[1]);
+    await user.click(screen.getByRole("option", { name: "License" }));
 
     await user.click(screen.getByRole("button", { name: "Save documents" }));
 

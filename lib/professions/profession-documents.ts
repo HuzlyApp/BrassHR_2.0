@@ -1,8 +1,19 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TenantOnboardingConfig, TenantRequiredDocument } from "@/lib/onboarding/types";
 
-export const PROFESSION_DOCUMENT_KINDS = ["certificate", "license"] as const;
+export const PROFESSION_DOCUMENT_KINDS = ["certificate", "license", "vaccination", "other"] as const;
 export type ProfessionDocumentKind = (typeof PROFESSION_DOCUMENT_KINDS)[number];
+
+const PROFESSION_DOCUMENT_KIND_LABELS: Record<ProfessionDocumentKind, string> = {
+  certificate: "Certificate",
+  license: "License",
+  vaccination: "Vaccination",
+  other: "Other",
+};
+
+export function isProfessionDocumentKind(value: unknown): value is ProfessionDocumentKind {
+  return (PROFESSION_DOCUMENT_KINDS as readonly string[]).includes(String(value ?? ""));
+}
 
 export type ProfessionUploadDocument = {
   id: string;
@@ -26,7 +37,7 @@ const DOCUMENT_MAX = 40;
 export const MAX_PROFESSION_DOCUMENT_FILES = 5;
 
 export function professionDocumentKindLabel(kind: ProfessionDocumentKind): string {
-  return kind === "license" ? "License" : "Certificate";
+  return PROFESSION_DOCUMENT_KIND_LABELS[kind];
 }
 
 export function normalizeProfessionDocumentDrafts(
@@ -48,8 +59,8 @@ export function normalizeProfessionDocumentDrafts(
     if (name.length > NAME_MAX) return { error: "Document name must be 120 characters or fewer." };
 
     const kind = record.documentKind;
-    if (kind !== "certificate" && kind !== "license") {
-      return { error: "Each document must be a certificate or a license." };
+    if (!isProfessionDocumentKind(kind)) {
+      return { error: "Each document must be a certificate, license, vaccination, or other." };
     }
 
     const key = name.toLowerCase();
@@ -119,7 +130,7 @@ function mapRow(row: ProfessionDocumentRow): ProfessionUploadDocument {
   return {
     id: row.id,
     name: row.name,
-    documentKind: row.document_kind === "license" ? "license" : "certificate",
+    documentKind: isProfessionDocumentKind(row.document_kind) ? row.document_kind : "certificate",
     isRequired: row.is_required !== false,
     hasExpiration: row.has_expiration === true,
     sortOrder: row.sort_order,

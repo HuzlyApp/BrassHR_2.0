@@ -70,7 +70,16 @@ describe("normalizeProfessionDocumentDrafts", () => {
     ])).toEqual({ error: "“cpr” is listed more than once." });
     expect(normalizeProfessionDocumentDrafts([
       { name: "Badge", documentKind: "id", isRequired: true },
-    ])).toEqual({ error: "Each document must be a certificate or a license." });
+    ])).toEqual({ error: "Each document must be a certificate, license, vaccination, or other." });
+    expect(normalizeProfessionDocumentDrafts([
+      { name: "Flu shot", documentKind: "vaccination", isRequired: true },
+      { name: "Portfolio", documentKind: "other", isRequired: false },
+    ])).toMatchObject({
+      documents: [
+        { name: "Flu shot", documentKind: "vaccination" },
+        { name: "Portfolio", documentKind: "other" },
+      ],
+    });
   });
 });
 
