@@ -8,16 +8,16 @@ import {
   Check,
   ChevronDown,
   HelpCircle,
-  Mail,
-  MoreHorizontal,
-  Phone,
   X,
 } from "lucide-react";
+import { ApplicantJobsPopover } from "@/app/admin_recruiter/applications/ApplicantJobsPopover";
+import { ApplicantsMetricsCards } from "@/app/admin_recruiter/applications/ApplicantsMetricsCards";
+import { ApplicantsFilterBar } from "@/app/admin_recruiter/applications/ApplicantsFilterBar";
+import { applicantGroupKey, groupApplicantRows } from "@/app/admin_recruiter/applications/group-applicant-rows";
 import {
   ApplicationsJobHeaderCard,
   formatJobPostedOn,
 } from "@/app/admin_recruiter/applications/ApplicationsJobHeaderCard";
-import { ApplicationsListToolbar } from "@/app/admin_recruiter/applications/ApplicationsListToolbar";
 import ImportCandidatesModal from "@/app/admin_recruiter/applications/ImportCandidatesModal";
 import { CandidatesListSkeleton } from "@/app/admin_recruiter/candidates/CandidatesListSkeleton";
 import { ListSortableHeader } from "@/app/admin_recruiter/components/ListSortableHeader";
@@ -91,7 +91,12 @@ import {
 } from "@/lib/jobs/application-status-tab";
 import { isClosedPipelineApplication, isInProcessPipelineApplication } from "@/lib/jobs/pipeline-summary";
 import toast from "react-hot-toast";
-import { brandingToCssVars } from "@/lib/tenant/tenant-branding";
+import {
+  BRAAS_PRIMARY,
+  BRAAS_SECONDARY,
+  brandingToCssVars,
+  readableTextOnBrand,
+} from "@/lib/tenant/tenant-branding";
 import {
   APPLICATION_EDITABLE_COLUMNS,
   DEFAULT_APPLICATION_COLUMNS,
@@ -145,7 +150,7 @@ type ApplicationStatus = string;
 
 type ApplicationTab = "all" | string;
 
-type ApplicationRow = {
+export type ApplicationRow = {
   id: string;
   status: ApplicationStatus | string;
   status_id?: string | null;
@@ -175,10 +180,15 @@ type ApplicationRow = {
     | { id?: string; name?: string; system_key?: string | null; color?: string | null }
     | { id?: string; name?: string; system_key?: string | null; color?: string | null }[]
     | null;
-  job_requisitions: Record<string, unknown> | Record<string, unknown>[] | null;
-  onboarding_flows: Record<string, unknown> | Record<string, unknown>[] | null;
-  applicant_profiles: Record<string, unknown> | Record<string, unknown>[] | null;
+  job_requisitions?: Record<string, unknown> | Record<string, unknown>[] | null;
+  onboarding_flows?: Record<string, unknown> | Record<string, unknown>[] | null;
+  applicant_profiles?: Record<string, unknown> | Record<string, unknown>[] | null;
   worker?: Record<string, unknown> | Record<string, unknown>[] | null;
+  work_type?: string | null;
+  experience_years?: number | string | null;
+  job_role?: string | null;
+  match_status?: "STRONG" | "REVIEW" | "NOT MATCH" | string | null;
+  groupedApplications?: ApplicationRow[];
 };
 
 function requirementCountsFromAnalyzePayload(payload: {
@@ -349,7 +359,7 @@ function StatusDropdownPortal({
   );
 }
 
-function one(value: Record<string, unknown> | Record<string, unknown>[] | null) {
+function one(value: Record<string, unknown> | Record<string, unknown>[] | null | undefined) {
   return Array.isArray(value) ? value[0] ?? {} : value ?? {};
 }
 
@@ -591,6 +601,35 @@ function applicantPhone(row: ApplicationRow): string {
   return resolveApplicationApplicantPhone(row);
 }
 
+function rowWorkType(row: ApplicationRow): string {
+  if (row.work_type?.trim()) return row.work_type.trim();
+  const raw = String(one(row.job_requisitions).employment_type ?? "").trim();
+  if (!raw) return "";
+  const upper = raw.toUpperCase();
+  if (upper.includes("1099") || upper.includes("CONTRACT")) return "1099";
+  if (upper.includes("W2") || upper.includes("W-2")) return "W2";
+  return raw;
+}
+
+function experienceLabel(row: ApplicationRow): string {
+  const years = row.experience_years;
+  if (years == null || years === "") return "";
+  const numeric = Number(years);
+  if (!Number.isFinite(numeric)) return `${years} experience`;
+  return `${numeric} yr${numeric === 1 ? "" : "s"} experience`;
+}
+
+function pageNumberWindow(current: number, total: number, size = 5): number[] {
+  if (total <= size) return Array.from({ length: total }, (_, index) => index + 1);
+  let start = Math.max(1, current - Math.floor(size / 2));
+  let end = start + size - 1;
+  if (end > total) {
+    end = total;
+    start = Math.max(1, end - size + 1);
+  }
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+}
+
 /** MSP end client (job form Contract Group / Client → msp_name). Non-MSP or empty → "". */
 function applicationClientName(row: ApplicationRow): string {
   const job = one(row.job_requisitions);
@@ -621,6 +660,9 @@ function workflowName(row: ApplicationRow): string {
 export default function JobApplicationsPage() {
   const branding = useTenantBranding();
   const brandStyle = brandingToCssVars(branding) as CSSProperties;
+  const primaryColor = branding.primaryHex || BRAAS_PRIMARY;
+  const secondaryColor = branding.secondaryHex || BRAAS_SECONDARY || "#012352";
+  const textOnSecondary = readableTextOnBrand(secondaryColor);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -676,6 +718,12 @@ export default function JobApplicationsPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [candidateSearchQuery, setCandidateSearchQuery] = useState("");
+  const [keywordQuery, setKeywordQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
+  const [clientFilter, setClientFilter] = useState("");
+  const [matchFilter, setMatchFilter] = useState("");
+  const [ownerFilter, setOwnerFilter] = useState("Me");
+  const [viewMode, setViewMode] = useState<"table" | "grid">("table");
   const [listingStatusFilter, setListingStatusFilter] = useState("");
   const [listingJobFilter, setListingJobFilter] = useState("");
   const [listingStageFilter, setListingStageFilter] = useState("");
@@ -687,6 +735,13 @@ export default function JobApplicationsPage() {
   const [dateAppliedFilter, setDateAppliedFilter] = useState("");
   const [skillsFilter, setSkillsFilter] = useState<string[]>([]);
   const [highlightMultiJobApplicants, setHighlightMultiJobApplicants] = useState(false);
+  const [jobsPopover, setJobsPopover] = useState<{
+    key: string;
+    anchor: HTMLElement;
+    name: string;
+    applications: ApplicationRow[];
+    loading: boolean;
+  } | null>(null);
   const [rowActionsMenu, setRowActionsMenu] = useState<{
     rowId: string;
     anchor: HTMLElement;
@@ -981,7 +1036,12 @@ export default function JobApplicationsPage() {
 
   function openAddCandidateModal() {
     if (!jobId) {
-      toast.error("Select a job before adding a candidate.");
+      if (jobOptions.length > 0) {
+        selectJob(jobOptions[0]);
+        setAddCandidateOpen(true);
+        return;
+      }
+      toast.error("Please select a job first or create a job requisition.");
       return;
     }
     setAddCandidateOpen(true);
@@ -989,7 +1049,12 @@ export default function JobApplicationsPage() {
 
   function openMatchExistingCandidateModal() {
     if (!jobId) {
-      toast.error("Select a job before matching an existing candidate.");
+      if (jobOptions.length > 0) {
+        selectJob(jobOptions[0]);
+        setImportCandidatesOpen(true);
+        return;
+      }
+      toast.error("Please select a job first or create a job requisition.");
       return;
     }
     setImportCandidatesOpen(true);
@@ -1033,8 +1098,8 @@ export default function JobApplicationsPage() {
   }, [activeTab, locationFilter, pageSize, jobId, candidateSearchQuery, highlightMultiJobApplicants, listingStatusFilter, listingJobFilter, listingStageFilter, evaluationFilter, workflowFilter, matchScoreFilter, dateAppliedFilter, skillsFilter]);
 
   useEffect(() => {
-    setSelectedIds(new Set());
-  }, [page, pageSize, activeTab, locationFilter, jobId, candidateSearchQuery, highlightMultiJobApplicants, listingStatusFilter, listingJobFilter, listingStageFilter, evaluationFilter, workflowFilter, matchScoreFilter, dateAppliedFilter, skillsFilter]);
+    setJobsPopover(null);
+  }, [page, jobId, candidateSearchQuery]);
   // Sorting intentionally preserves selection (stable IDs) and does not reset the page.
 
   function handleSortByChange(value: "newest" | "oldest" | "matchScore" | "matchScoreAsc") {
@@ -1561,16 +1626,25 @@ export default function JobApplicationsPage() {
     ? rows
     : filteredRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
+  const displayRows = useMemo(() => {
+    // Server pages are already sized. Collapsing people on the page shortens it
+    // (page 4 of 10 was showing 9) and the footer no longer matches the page.
+    if (listMeta.paged || jobId) return paginatedRows;
+    return groupApplicantRows(paginatedRows);
+  }, [jobId, listMeta.paged, paginatedRows]);
+
+  const displayTotal = resultTotal;
+
   const listColumns = ensureActionsLast(
     listColumnOrder.length ? listColumnOrder : DEFAULT_APPLICATION_COLUMNS
   );
   // Selection is for export / archive / delete / analyze — not claim-gated.
   const allVisibleSelected =
-    paginatedRows.length > 0 && paginatedRows.every((row) => selectedIds.has(row.id));
+    displayRows.length > 0 && displayRows.every((row) => selectedIds.has(row.id));
 
-  const someVisibleSelected = paginatedRows.some((row) => selectedIds.has(row.id));
+  const someVisibleSelected = displayRows.some((row) => selectedIds.has(row.id));
 
-  const selectedOnPageCount = paginatedRows.filter((row) => selectedIds.has(row.id)).length;
+  const selectedOnPageCount = displayRows.filter((row) => selectedIds.has(row.id)).length;
 
   const selectedEligibleCount = useMemo(
     () =>
@@ -1676,7 +1750,7 @@ export default function JobApplicationsPage() {
   function toggleSelectAllVisible() {
     setSelectedIds((current) => {
       const next = new Set(current);
-      const pageIds = paginatedRows.map((row) => row.id);
+      const pageIds = (displayRows.length > 0 ? displayRows : paginatedRows).map((row) => row.id);
       const allSelected =
         pageIds.length > 0 && pageIds.every((id) => next.has(id));
       if (allSelected) {
@@ -2306,64 +2380,241 @@ export default function JobApplicationsPage() {
     }
   }
 
+  async function openApplicantJobs(row: ApplicationRow, anchor: HTMLElement) {
+    const key = applicantGroupKey(row);
+    const name = applicantName(row);
+    const local = row.groupedApplications?.length ? row.groupedApplications : [row];
+    const expected = Math.max(Number(row.appliedJobCount ?? 1) || 1, local.length);
+    setJobsPopover({
+      key,
+      anchor,
+      name,
+      applications: local,
+      loading: local.length < expected,
+    });
+    if (local.length >= expected) return;
+
+    try {
+      const params = new URLSearchParams({ page: "1", pageSize: "50" });
+      const email = applicantEmail(row).trim().toLowerCase();
+      if (row.worker_id) params.set("workerId", row.worker_id);
+      else if (email) params.set("q", email);
+      const response = await fetch(`/api/admin/job-applications?${params}`, { cache: "no-store" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Failed to load applications");
+      let applications = (payload.applications ?? []) as ApplicationRow[];
+      if (!row.worker_id && email) {
+        applications = applications.filter(
+          (item) => applicantEmail(item).trim().toLowerCase() === email
+        );
+      }
+      if (!applications.length) applications = local;
+      setJobsPopover((current) =>
+        current?.key === key ? { ...current, applications, loading: false } : current
+      );
+    } catch {
+      setJobsPopover((current) =>
+        current?.key === key ? { ...current, loading: false } : current
+      );
+    }
+  }
+
   function renderCell(colId: ApplicationColumnId, row: ApplicationRow) {
     switch (colId) {
       case "candidates": {
         const name = applicantName(row);
-        const workerId = resolveApplicationWorkerId(row);
         const detailHref = `/admin_recruiter/applications/review?jobId=${encodeURIComponent(row.job_requisition_id)}&applicationId=${encodeURIComponent(row.id)}`;
         const appliedJobCount = Number(row.appliedJobCount ?? 1);
+        const experience = experienceLabel(row);
+        const multiJob = appliedJobCount > 1;
         return (
           <div className="flex w-full min-w-0 items-center gap-3">
-            <CandidateListAvatar name={name || "NA"} />
             <div className="min-w-0 flex-1">
-              <Link
-                href={detailHref}
-                className="block truncate text-sm font-semibold leading-5 hover:underline"
-                style={{ color: branding.secondaryHex || "#012352" }}
-              >
-                {name}
-              </Link>
-              {appliedJobCount > 1 && highlightMultiJobApplicants ? (
-                <span
-                  className="mt-1 inline-flex rounded-[4px] bg-[#EFF6FF] px-2 py-0.5 text-[11px] font-medium leading-4"
-                  style={{ color: branding.primaryHex || "var(--brand-primary)" }}
+              {multiJob ? (
+                <button
+                  type="button"
+                  className="block max-w-full truncate text-left text-xs font-semibold leading-4 text-[#374151] hover:underline"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    const same = jobsPopover?.key === applicantGroupKey(row);
+                    if (same) {
+                      setJobsPopover(null);
+                      return;
+                    }
+                    void openApplicantJobs(row, event.currentTarget);
+                  }}
                 >
-                  Applied to {appliedJobCount} jobs
-                </span>
-              ) : null}
-              {!jobId ? (
-                <p className="mt-0.5 truncate text-[11px] leading-4 text-[#64748B]">
-                  {String(one(row.job_requisitions).public_title ?? "").trim() || "Untitled job"}
-                </p>
+                  {name}
+                </button>
+              ) : (
+                <Link
+                  href={detailHref}
+                  className="block max-w-full truncate text-xs font-semibold leading-4 text-[#374151] hover:underline"
+                >
+                  {name}
+                </Link>
+              )}
+              {experience ? (
+                <p className="text-[10px] leading-[15px] text-[#6B7280]">{experience}</p>
               ) : null}
             </div>
-            <div className="ml-auto flex shrink-0 items-center gap-1">
-              <CandidateProfileIconLink
-                workerId={workerId}
-                candidateName={name}
-                jobId={jobId || undefined}
-                from="applications"
-              />
-              <CandidatePreHireIconLink workerId={workerId} candidateName={name} />
-            </div>
+            {multiJob ? (
+              <span className="inline-flex shrink-0 items-center justify-center rounded bg-[#F7EEDC] px-1.5 py-0.5 text-[10px] font-semibold leading-[15px] text-[#8A5A12]">
+                {appliedJobCount}
+              </span>
+            ) : null}
           </div>
         );
       }
       case "contact": {
         const email = applicantEmail(row);
         const phone = applicantPhone(row);
-        const brandColor = branding.primaryHex || "var(--brand-primary)";
         return (
-          <div className="flex min-w-0 flex-col gap-1 text-left">
-            <p className="flex min-w-0 items-center gap-1.5 text-sm leading-5" style={{ color: brandColor }}>
-              <Mail className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
-              <span className="truncate">{email || "—"}</span>
-            </p>
-            <p className="flex min-w-0 items-center gap-1.5 text-sm leading-5">
-              <Phone className="h-3.5 w-3.5 shrink-0" strokeWidth={2} style={{ color: brandColor }} aria-hidden />
-              <span className="truncate text-[#374151]">{phone || "—"}</span>
-            </p>
+          <div className="flex min-w-0 flex-col text-left">
+            <span className="truncate text-xs font-medium text-[#334155]">{email || "—"}</span>
+            <span className="mt-0.5 truncate text-xs text-[#64748B]">{phone || "—"}</span>
+          </div>
+        );
+      }
+      case "jobRole": {
+        const role =
+          row.job_role ||
+          String(one(row.job_requisitions).public_title ?? "").trim() ||
+          "—";
+        return (
+          <span className="block truncate text-xs font-medium text-[#334155]" title={role}>
+            {role}
+          </span>
+        );
+      }
+      case "status": {
+        const label = rowStatusName(row, statusOptions) || "New";
+        return (
+          <div className="inline-flex justify-center">
+            <span className="inline-flex items-center justify-center rounded-full border border-[#CBD5E1] bg-white px-2.5 py-0.5 text-[11px] font-medium text-[#334155]">
+              {label}
+            </span>
+          </div>
+        );
+      }
+      case "workType": {
+        const type = rowWorkType(row);
+        if (!type) {
+          return <span className="text-xs text-[#94A3B8]">—</span>;
+        }
+        const isW2 = type.toUpperCase() === "W2";
+        return (
+          <div className="inline-flex justify-center">
+            <span
+              className={`inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-semibold leading-[15px] ${
+                isW2 ? "bg-[#DBEAFE] text-[#1D4ED8]" : "bg-[#F3E8FF] text-[#7E22CE]"
+              }`}
+            >
+              {type}
+            </span>
+          </div>
+        );
+      }
+      case "currentStage": {
+        const stage = rowCurrentStage(row, statusOptions);
+        const stageLabel = row.statusNote?.trim() || row.workflow_phase || stage.label || "Need review";
+        const norm = stageLabel.toLowerCase().trim();
+        let badgeStyle = "bg-[#F0F9FF] text-[#0284C7] border-[#BAE6FD]";
+        if (norm.includes("offer")) {
+          badgeStyle = "bg-[#ECFDF5] text-[#059669] border-[#A7F3D0]";
+        } else if (norm.includes("submitted")) {
+          badgeStyle = "bg-[#EEF2FF] text-[#4F46E5] border-[#C7D2FE]";
+        } else if (norm.includes("interview")) {
+          badgeStyle = "bg-[#FEF3C7] text-[#D97706] border-[#FDE68A]";
+        } else if (norm.includes("screening")) {
+          badgeStyle = "bg-[#FEF9C3] text-[#CA8A04] border-[#FEF08A]";
+        } else if (norm.includes("hired")) {
+          badgeStyle = "bg-[#ECFDF5] text-[#059669] border-[#A7F3D0]";
+        }
+        return (
+          <div className="inline-flex justify-center">
+            <span
+              className={`inline-flex items-center justify-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${badgeStyle}`}
+            >
+              {stageLabel}
+            </span>
+          </div>
+        );
+      }
+      case "fit": {
+        const analyzed =
+          row.ai_match_status === "ANALYZED" ||
+          row.ai_match_score != null ||
+          Boolean(row.ai_match_category) ||
+          Boolean(row.ai_match_display_category);
+        const band = listingDisplayFitBand({
+          analyzed,
+          stage: row.ai_match_stage,
+          category: row.ai_match_category,
+          displayCategory: row.ai_match_display_category,
+          score: row.ai_match_score,
+          counts: row.ai_requirement_counts,
+        });
+        if (!band) {
+          return <span className="text-xs text-[#94A3B8]">—</span>;
+        }
+        const matchText = band === "strong" ? "STRONG" : band === "low" ? "NOT MATCH" : "REVIEW";
+        const colorClass =
+          band === "strong"
+            ? "text-[#16A34A]"
+            : band === "review"
+              ? "text-[#2563EB]"
+              : "text-[#EA580C]";
+        return (
+          <div className="inline-flex justify-center">
+            <span className={`text-xs font-bold tracking-wider ${colorClass}`}>
+              {matchText}
+            </span>
+          </div>
+        );
+      }
+      case "dateApplied": {
+        const d = new Date(row.submitted_at || row.created_at);
+        const formatted = isNaN(d.getTime())
+          ? "—"
+          : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        return <span className="text-xs font-medium text-[#475569]">{formatted}</span>;
+      }
+      case "actions": {
+        const menuOpen = rowActionsMenu?.rowId === row.id;
+        const busy = statusBusyId === row.id;
+        const detailHref = `/admin_recruiter/applications/review?jobId=${encodeURIComponent(row.job_requisition_id)}&applicationId=${encodeURIComponent(row.id)}`;
+        return (
+          <div className="inline-flex items-center justify-center gap-1.5">
+            <Link
+              href={detailHref}
+              className="inline-flex size-[23px] items-center justify-center rounded-md border border-[#E2E8F0] bg-white transition hover:bg-[#F8FAFC]"
+              title="Review applicant"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/icons/applicants/icon-review.svg" alt="" />
+            </Link>
+            <button
+              type="button"
+              className={`inline-flex size-[23px] items-center justify-center rounded-md text-[#64748B] transition hover:bg-[#F1F5F9] ${
+                menuOpen ? "bg-[#F1F5F9] ring-1 ring-[#CBD5E1]" : ""
+              }`}
+              aria-label="More actions"
+              title="More actions"
+              aria-expanded={menuOpen}
+              aria-haspopup="menu"
+              disabled={busy}
+              onClick={(event) => {
+                const anchor = event.currentTarget;
+                setStatusMenu(null);
+                setRowActionsMenu((current) =>
+                  current?.rowId === row.id ? null : { rowId: row.id, anchor }
+                );
+              }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/icons/applicants/icon-more.svg" alt="" />
+            </button>
           </div>
         );
       }
@@ -2390,20 +2641,6 @@ export default function JobApplicationsPage() {
             score={row.ai_match_score}
             analyzing={matchAnalyzingId === row.id || bulkAnalyzingIds.has(row.id)}
             onAnalyze={(mode) => void runMatchAnalyze(row.id, mode)}
-          />
-        );
-      case "fit":
-        return (
-          <FitBandCell
-            analyzed={row.ai_match_status === "ANALYZED"}
-            band={listingDisplayFitBand({
-              analyzed: row.ai_match_status === "ANALYZED",
-              stage: row.ai_match_stage,
-              category: row.ai_match_category,
-              displayCategory: row.ai_match_display_category,
-              score: row.ai_match_score,
-              counts: row.ai_requirement_counts,
-            })}
           />
         );
       case "conf":
@@ -2436,17 +2673,6 @@ export default function JobApplicationsPage() {
       }
       case "activity":
         return <p className="text-sm leading-5 text-[#475569]">{formatActivity(row)}</p>;
-      case "currentStage": {
-        const stage = rowCurrentStage(row, statusOptions);
-        return (
-          <CurrentStageCell
-            label={stage.label}
-            note={row.statusNote?.trim() || stage.subtitle}
-            progress={stage.progress}
-            barColor={stage.barColor}
-          />
-        );
-      }
       case "interest": {
         const currentStatus = normalizeApplicationStatus(row.status);
         const busy = statusBusyId === row.id;
@@ -2485,91 +2711,10 @@ export default function JobApplicationsPage() {
           </div>
         );
       }
-      case "actions": {
-        const menuOpen = rowActionsMenu?.rowId === row.id;
-        const busy = statusBusyId === row.id;
-        return (
-          <div className="inline-flex items-center justify-center gap-2">
-            <CandidateAiAnalysisButton
-              applicationId={row.id}
-              jobId={jobId || undefined}
-              candidateName={applicantName(row)}
-            />
-            <button
-              type="button"
-              className={`inline-flex h-7 w-7 items-center justify-center rounded-md text-[#64748B] transition hover:bg-[#F1F5F9] ${
-                menuOpen ? "bg-[#F1F5F9] ring-1 ring-[#CBD5E1]" : ""
-              }`}
-              aria-label="More actions"
-              title="More actions"
-              aria-expanded={menuOpen}
-              aria-haspopup="menu"
-              disabled={busy}
-              onClick={(event) => {
-                const anchor = event.currentTarget;
-                setStatusMenu(null);
-                setRowActionsMenu((current) =>
-                  current?.rowId === row.id ? null : { rowId: row.id, anchor }
-                );
-              }}
-            >
-              <MoreHorizontal className="h-4 w-4" strokeWidth={2} />
-            </button>
-          </div>
-        );
-      }
-      case "status": {
-        const label = rowStatusName(row, statusOptions);
-        const menuOpen = statusMenu?.rowId === row.id;
-        const busy = statusBusyId === row.id;
-        const customDot = rowStatusDotColor(row, statusOptions);
-        return (
-          <div className="inline-flex justify-center">
-            <button
-              type="button"
-              disabled={busy || statusOptions.length === 0}
-              aria-expanded={menuOpen}
-              aria-haspopup="menu"
-              onClick={(event) => {
-                const anchor = event.currentTarget;
-                setRowActionsMenu(null);
-                setStatusMenu((current) =>
-                  current?.rowId === row.id ? null : { rowId: row.id, anchor }
-                );
-              }}
-              className={`inline-flex h-8 w-fit items-center justify-center gap-2 whitespace-nowrap px-2.5 text-sm text-[#334155] transition hover:bg-zinc-50 disabled:opacity-50 ${FORM_SURFACE_CLASS}`}
-              title="Change status"
-            >
-              <span
-                className={`h-2 w-2 shrink-0 rounded-full ${
-                  customDot ? "" : applicationStatusDotClassName(row.status)
-                }`}
-                style={customDot ? { backgroundColor: customDot } : undefined}
-                aria-hidden
-              />
-              <span className="max-w-[7.5rem] truncate">{label}</span>
-              <ChevronDown
-                className={`h-3.5 w-3.5 shrink-0 text-[#94A3B8] ${menuOpen ? "rotate-180" : ""}`}
-              />
-            </button>
-          </div>
-        );
-      }
       case "email":
         return <span className="text-sm text-[#475569]">{applicantEmail(row) || "—"}</span>;
       case "workflow":
         return <span className="text-sm text-[#475569]">{workflowName(row)}</span>;
-      case "dateApplied": {
-        const applied = formatApplicationDate(row.submitted_at || row.created_at);
-        return (
-          <div className="text-center">
-            <p className="text-sm font-medium leading-5 text-[#0F172A]">{applied.relative}</p>
-            {applied.absolute && applied.absolute !== applied.relative ? (
-              <p className="text-xs leading-4 text-[#64748B]">{applied.absolute}</p>
-            ) : null}
-          </div>
-        );
-      }
       case "evaluation": {
         const analyzing = matchAnalyzingId === row.id || bulkAnalyzingIds.has(row.id);
         const analyzed = row.ai_match_status === "ANALYZED";
@@ -2618,396 +2763,120 @@ export default function JobApplicationsPage() {
 
   return (
     <div
-      className="box-border w-full min-w-0 max-w-full px-3 pb-8 pt-4 sm:px-5 sm:pt-5 lg:px-8"
+      className="box-border flex w-full min-w-0 max-w-full flex-col gap-5 px-4 pb-8 pt-[30px] sm:px-5 lg:px-8"
       style={brandStyle}
     >
-      <div className="mb-9 flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <JobsBreadcrumb page="job-candidates" />
-          <h1 className={CANDIDATES_PAGE_TITLE_CLASS} style={CANDIDATES_PAGE_TITLE_STYLE}>
-            {jobId ? "Job candidates" : "All candidates"}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-[20px] font-semibold leading-7 text-black">
+            Applicants
           </h1>
-
-          <div className="mt-4 flex min-w-0 flex-col gap-1">
-            <div className="relative min-w-0" ref={jobMenuRef}>
-              {jobId ? (
-                <ApplicationsJobHeaderCard
-                  status={activeJob?.status}
-                  companyName={jobCompany}
-                  jobIdLabel={jobIdLabel}
-                  postedOn={jobPostedOn}
-                  jobType={jobType}
-                  location={jobLocation}
-                  titleSlot={
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => setJobMenuOpen((open) => !open)}
-                        className="inline-flex min-h-7 min-w-0 max-w-full items-center gap-1.5 text-left text-[#0F172A] transition hover:opacity-80"
-                        aria-expanded={jobMenuOpen}
-                        aria-haspopup="listbox"
-                        aria-label="Select job"
-                      >
-                        <span className="text-base font-semibold leading-7 tracking-normal break-words sm:text-lg">
-                          {jobTitle}
-                        </span>
-                        <ChevronDown
-                          className={`h-4 w-4 shrink-0 text-[#94A3B8] transition ${jobMenuOpen ? "rotate-180" : ""}`}
-                          aria-hidden
-                        />
-                      </button>
-                      <JobPublicViewLink href={publicJobPath} />
-                    </>
-                  }
-                />
-              ) : (
-                <div className="flex min-w-0 items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setJobMenuOpen((open) => !open)}
-                    className="inline-flex min-h-7 min-w-0 max-w-full items-center gap-1.5 text-left text-black transition hover:opacity-80"
-                    aria-expanded={jobMenuOpen}
-                    aria-haspopup="listbox"
-                    aria-label="Select job"
-                  >
-                    <span className="text-base font-semibold leading-7 tracking-normal break-words">
-                      {jobTitle}
-                    </span>
-                    <ChevronDown
-                      className={`h-4 w-4 shrink-0 text-[#94A3B8] transition ${jobMenuOpen ? "rotate-180" : ""}`}
-                      aria-hidden
-                    />
-                  </button>
-                </div>
-              )}
-
-              {jobMenuOpen ? (
-                <div
-                  className="absolute left-0 z-40 mt-2 flex w-[min(100%,calc(100vw-1.5rem))] max-w-[680px] max-h-[min(80vh,36rem)] flex-col overflow-hidden rounded-xl border border-[#E5E7EB] bg-white shadow-[0_12px_40px_rgba(15,23,42,0.12)] sm:w-[min(100vw-2rem,680px)]"
-                  role="listbox"
-                  aria-label="Jobs"
-                >
-                  <div className="space-y-3 border-b border-[#E5E7EB] p-3 sm:p-4">
-                    <div className="flex items-center gap-2">
-                      <label className="relative block min-w-0 flex-1">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src="/search-candidate-jobs.svg"
-                          alt=""
-                          width={20}
-                          height={20}
-                          className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2"
-                          aria-hidden
-                        />
-                        <input
-                          type="search"
-                          value={jobSearch}
-                          onChange={(e) => setJobSearch(e.target.value)}
-                          placeholder="Search by job title or reference number"
-                          className="h-10 w-full rounded-lg border border-[#CBD5E1] bg-white py-2 pl-11 pr-3 text-sm text-[#334155] placeholder:text-[#94A3B8] focus:border-[color:var(--brand-primary)] focus:outline-none focus:ring-0 [&::-webkit-search-cancel-button]:cursor-pointer [&::-webkit-search-decoration]:cursor-pointer"
-                          autoFocus
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        onClick={clearJobDropdownFilters}
-                        className="shrink-0 px-1 text-sm font-bold whitespace-nowrap text-black transition hover:opacity-80"
-                      >
-                        Clear all
-                      </button>
-                    </div>
-
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-                        <select
-                          value={jobStatusFilter}
-                          onChange={(e) => setJobStatusFilter(e.target.value)}
-                          className={`${FILTER_SELECT_CLASS} shrink-0`}
-                          style={FILTER_SELECT_CHEVRON}
-                          aria-label="Filter by status"
-                        >
-                          <option value="">Status</option>
-                          <option value="published">Open</option>
-                          <option value="draft">Draft</option>
-                          <option value="closed">Closed</option>
-                          <option value="archived">Archived</option>
-                        </select>
-
-                        <select
-                          value={jobLocationFilter}
-                          onChange={(e) => setJobLocationFilter(e.target.value)}
-                          className={`${FILTER_SELECT_CLASS} min-w-0 max-w-[120px] flex-1 sm:max-w-[140px] sm:flex-none`}
-                          style={FILTER_SELECT_CHEVRON}
-                          aria-label="Filter by location"
-                        >
-                          <option value="">Location</option>
-                          {jobDropdownLocations.map((loc) => (
-                            <option key={loc} value={loc}>
-                              {loc}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="flex shrink-0 items-center justify-end gap-2 sm:ml-auto sm:gap-3">
-                        <div className="flex shrink-0 items-center gap-2">
-                          <span className="text-sm whitespace-nowrap text-[#64748B]">Sort by</span>
-                          <select
-                            value={jobSortBy}
-                            onChange={(e) => setJobSortBy(e.target.value as "newest" | "oldest")}
-                            className={`${FILTER_SELECT_CLASS} shrink-0`}
-                            style={FILTER_SELECT_CHEVRON}
-                            aria-label="Sort jobs"
-                          >
-                            <option value="newest">Newest</option>
-                            <option value="oldest">Oldest</option>
-                          </select>
-                        </div>
-                        <p className="inline-flex min-w-0 items-center gap-1.5 text-sm whitespace-nowrap text-[#64748B]">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src="/jobs-count-icon.svg"
-                            alt=""
-                            width={14}
-                            height={14}
-                            className="h-3.5 w-3.5 shrink-0"
-                            aria-hidden
-                          />
-                          <span>
-                            {filteredJobOptions.length} of {jobOptions.length} jobs
-                          </span>
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="border-b border-[#E5E7EB] px-3 py-3 sm:px-4">
-                    <p className="text-sm font-semibold leading-5 text-[#1E293B]">
-                      Candidates for all open and paused jobs
-                    </p>
-                  </div>
-
-                  <div className="min-h-0 flex-1 overflow-y-auto">
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={!jobId}
-                      onClick={selectAllJobs}
-                      className="flex w-full items-center gap-3 border-b border-[#E5E7EB] px-3 py-3.5 text-left transition hover:bg-[#F8FAFC] sm:px-4"
-                    >
-                      <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
-                        {!jobId ? (
-                          <Check
-                            className="h-5 w-5"
-                            style={{ color: branding.primaryHex }}
-                            strokeWidth={2.75}
-                            aria-label="Selected all jobs"
-                          />
-                        ) : null}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold leading-5 text-[#1E293B]">
-                          All jobs
-                        </span>
-                        <span className="mt-0.5 block text-xs leading-4 text-[#64748B]">
-                          Candidates across every job
-                        </span>
-                      </span>
-                    </button>
-                    {jobsLoading ? (
-                      <p className="px-4 py-6 text-sm text-[#64748B]">Loading jobs…</p>
-                    ) : filteredJobOptions.length === 0 ? (
-                      <p className="px-4 py-6 text-sm text-[#64748B]">No jobs match these filters.</p>
-                    ) : (
-                      filteredJobOptions.map((option) => {
-                        const title = option.public_title?.trim() || "Untitled job";
-                        const location = formatJobLocation(option);
-                        const selected = option.id === jobId;
-                        return (
-                          <button
-                            key={option.id}
-                            type="button"
-                            role="option"
-                            aria-selected={selected}
-                            onClick={() => selectJob(option)}
-                            className="flex w-full items-center gap-3 border-b border-[#E5E7EB] px-3 py-3.5 text-left transition last:border-b-0 hover:bg-[#F8FAFC] sm:px-4"
-                          >
-                            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
-                              {selected ? (
-                                <Check
-                                  className="h-5 w-5"
-                                  style={{ color: branding.primaryHex }}
-                                  strokeWidth={2.75}
-                                  aria-label="Selected job"
-                                />
-                              ) : null}
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="block text-sm font-semibold leading-5 text-[#1E293B]">
-                                {title}
-                              </span>
-                              <span className="mt-0.5 block text-xs leading-4 text-[#64748B]">
-                                {location !== "—" ? location : jobReference(option)}
-                              </span>
-                            </span>
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          </div>
+          <p className="text-xs leading-4 text-[#374151]">
+            Manage teams in one place
+          </p>
         </div>
-      </div>
 
-      <nav
-        ref={statusTabsScrollRef}
-        className="applications-status-tabs-scroll mb-4 w-full min-w-0 overflow-x-auto"
-        aria-label="Candidates status"
-      >
-        <div className="flex w-max flex-nowrap items-end justify-start gap-5">
-          {statusTabs
-            .filter((tab) => tab.id === "all")
-            .map((tab) => {
-              const active = resolvedActiveTab === tab.id;
-              return (
+        {/* Optional Job selector */}
+        {jobOptions.length > 0 && (
+          <div className="relative min-w-0" ref={jobMenuRef}>
+            <button
+              type="button"
+              onClick={() => setJobMenuOpen((open) => !open)}
+              className="inline-flex items-center gap-2 rounded-xl border border-[#E2E8F0] bg-white px-3.5 py-2 text-xs font-semibold text-[#334155] shadow-sm transition hover:bg-[#F8FAFC]"
+            >
+              <span>{jobTitle}</span>
+              <ChevronDown
+                className={`h-3.5 w-3.5 text-[#94A3B8] transition ${jobMenuOpen ? "rotate-180" : ""}`}
+              />
+            </button>
+            {jobMenuOpen && (
+              <div
+                className="absolute right-0 z-40 mt-2 max-h-80 w-72 overflow-y-auto rounded-xl border border-[#E5E7EB] bg-white p-2 shadow-xl"
+                role="listbox"
+              >
                 <button
-                  key={tab.id}
-                  ref={active ? activeStatusTabRef : undefined}
                   type="button"
                   onClick={() => {
-                    setActiveTab(tab.id);
-                    const params = new URLSearchParams(searchParams.toString());
-                    params.delete("tab");
-                    router.replace(`${pathname}?${params.toString()}`);
+                    selectAllJobs();
+                    setJobMenuOpen(false);
                   }}
-                  className={`relative inline-flex shrink-0 flex-col items-center px-2 pb-2.5 pt-0 text-sm font-medium leading-none whitespace-nowrap transition-colors ${
-                    active
-                      ? "text-[color:var(--brand-primary)]"
-                      : "text-[#2B3D51] hover:text-[color:var(--brand-primary)]"
-                  }`}
-                  aria-current={active ? "page" : undefined}
+                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-medium text-[#0F172A] hover:bg-[#F8FAFC]"
                 >
-                  <span className="inline-flex items-center gap-2">
-                    <span>{tab.label}</span>
-                    <span className="admin-recruiter-tab-count rounded-sm">
-                      {tabCounts[tab.id] ?? 0}
-                    </span>
-                  </span>
-                  <span
-                    className={`absolute inset-x-0 bottom-0 block h-0.5 rounded-full ${
-                      active ? "bg-[color:var(--brand-primary)]" : "bg-transparent"
-                    }`}
-                    aria-hidden
-                  />
+                  <span>All jobs</span>
+                  {!jobId && <Check className="h-3.5 w-3.5" style={{ color: primaryColor }} />}
                 </button>
-              );
-            })}
-          {pipelineTabSections.map((section) => (
-            <div key={section.key} className="flex items-end gap-4 border-l border-[#E5E7EB] pl-4">
-              <span
-                className="pb-2.5 text-[10px] font-semibold uppercase tracking-wide text-[#94A3B8]"
-                title={section.description ?? undefined}
-              >
-                {section.name}
-              </span>
-              {section.statuses.map((tab) => {
-                const active = resolvedActiveTab === tab.id;
-                return (
+                {filteredJobOptions.map((opt) => (
                   <button
-                    key={tab.id}
-                    ref={active ? activeStatusTabRef : undefined}
+                    key={opt.id}
                     type="button"
                     onClick={() => {
-                      setActiveTab(tab.id);
-                      const params = new URLSearchParams(searchParams.toString());
-                      params.set("tab", tab.id);
-                      router.replace(`${pathname}?${params.toString()}`);
+                      selectJob(opt);
+                      setJobMenuOpen(false);
                     }}
-                    className={`relative inline-flex shrink-0 flex-col items-center px-2 pb-2.5 pt-0 text-sm font-medium leading-none whitespace-nowrap transition-colors ${
-                      active
-                        ? "text-[color:var(--brand-primary)]"
-                        : "text-[#2B3D51] hover:text-[color:var(--brand-primary)]"
-                    }`}
-                    aria-current={active ? "page" : undefined}
+                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-medium text-[#0F172A] hover:bg-[#F8FAFC]"
                   >
-                    <span className="inline-flex items-center gap-2">
-                      <span>{tab.name}</span>
-                      <span className="admin-recruiter-tab-count rounded-sm">
-                        {tabCounts[tab.id] ?? 0}
-                      </span>
-                    </span>
-                    <span
-                      className={`absolute inset-x-0 bottom-0 block h-0.5 rounded-full ${
-                        active ? "bg-[color:var(--brand-primary)]" : "bg-transparent"
-                      }`}
-                      aria-hidden
-                    />
+                    <span className="truncate">{opt.public_title || "Untitled job"}</span>
+                    {jobId === opt.id && <Check className="h-3.5 w-3.5" style={{ color: primaryColor }} />}
                   </button>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      </nav>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
-      <div className="w-full overflow-hidden rounded-[12px] border border-[#E5E7EB] bg-white">
-        <ApplicationsListToolbar
-          query={candidateSearchQuery}
-          skillsFilter={skillsFilter}
-          onApplySearch={handleApplyApplicationsSearch}
-          onResetSearch={handleResetApplicationsSearch}
-          onOpenFilters={() => setEditFiltersOpen(true)}
-          onEditColumns={() => setEditColumnsOpen(true)}
-          onAddCandidate={openAddCandidateModal}
-          onMatchExistingCandidate={openMatchExistingCandidateModal}
-          activeFilterCount={activeFilterCount}
-          highlightMultiJob={highlightMultiJobApplicants}
-          onHighlightMultiJobChange={setHighlightMultiJobApplicants}
-          searching={loading}
-          onAnalyzeAll={
-            jobId
-              ? () => {
-                  void (async () => {
-                    const params = new URLSearchParams();
-                    params.set("page", "1");
-                    params.set("idsOnly", "1");
-                    params.set("scopeOnly", "1");
-                    params.set("jobId", jobId);
-                    if (matchScoreFilter) params.set("matchScore", matchScoreFilter);
-                    if (skillsFilter.length) params.set("skills", skillsFilter.join(","));
-                    const response = await fetch(`/api/admin/job-applications?${params}`, {
-                      cache: "no-store",
-                    });
-                    const payload = await response.json();
-                    if (!response.ok) {
-                      toast.error(payload.error || "Failed to load candidates");
-                      return;
-                    }
-                    const { analyzeIds } = partitionMatchAnalysisTargets(
-                      ((payload.ids ?? []) as Array<{ id?: string; aiMatchStatus?: string | null }>).map(
-                        (row) => ({
-                          applicationId: row.id,
-                          status: row.aiMatchStatus,
-                        })
-                      )
-                    );
-                    await runBulkMatchAnalyze(analyzeIds, "Analyze", {
-                      emptyMessage: "All candidates on this job are already analyzed",
-                    });
-                  })();
-                }
-              : undefined
-          }
-          analyzeAllLabel="Analyze all"
-          analyzeBusy={bulkAnalyzeBusy}
-          analyzeDisabled={analyzeAllCount === 0 || Boolean(matchAnalyzingId)}
-          analysisProvider={analysisProvider}
-          onAnalysisProviderChange={setAnalysisProvider}
-        />
+      {/* 4 Metric Stat Cards matching Figma */}
+      <ApplicantsMetricsCards
+        totalApplicants={listMeta.paged ? listMeta.total : tabCounts.all || rows.length}
+        shortlistedCount={statusOptions.reduce((sum, option) => {
+          return option.systemKey === "shortlisted" ? sum + (tabCounts[option.id] || 0) : sum;
+        }, 0)}
+        underReviewCount={statusOptions.reduce((sum, option) => {
+          return option.systemKey === "reviewing" ? sum + (tabCounts[option.id] || 0) : sum;
+        }, 0)}
+        hiredCount={statusOptions.reduce((sum, option) => {
+          return option.systemKey === "hired" ? sum + (tabCounts[option.id] || 0) : sum;
+        }, 0)}
+      />
 
+      {/* Search & Filter Toolbar matching Figma */}
+      <ApplicantsFilterBar
+        applicantQuery={candidateSearchQuery}
+        onApplicantQueryChange={setCandidateSearchQuery}
+        keywordQuery={keywordQuery}
+        onKeywordQueryChange={setKeywordQuery}
+        onSearch={() => setPage(1)}
+        roleFilter={roleFilter}
+        onRoleFilterChange={(role) => {
+          setRoleFilter(role);
+          setPage(1);
+        }}
+        clientFilter={clientFilter}
+        onClientFilterChange={(client) => {
+          setClientFilter(client);
+          setPage(1);
+        }}
+        matchFilter={matchFilter}
+        onMatchFilterChange={(match) => {
+          setMatchFilter(match);
+          setPage(1);
+        }}
+        ownerFilter={ownerFilter}
+        onOwnerFilterChange={setOwnerFilter}
+        highlightMultiJob={highlightMultiJobApplicants}
+        onHighlightMultiJobChange={setHighlightMultiJobApplicants}
+        onAddApplicant={openAddCandidateModal}
+        onMatchToJob={openMatchExistingCandidateModal}
+        onOpenAllFilters={() => setEditFiltersOpen(true)}
+        onEditColumns={() => setEditColumnsOpen(true)}
+        activeFilterCount={activeFilterCount}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        searching={loading}
+      />
+
+      {/* Main Table Container */}
+      <div className="w-full overflow-hidden rounded-xl border border-[#E5E7EB] bg-white">
         <CandidateBulkSelectionBar
           selectedCount={selectedIds.size}
           eligibleCount={selectedEligibleCount}
@@ -3015,8 +2884,8 @@ export default function JobApplicationsPage() {
             selectedIds.size === 0
               ? undefined
               : allVisibleSelected
-                ? `All ${selectedOnPageCount} candidate${selectedOnPageCount === 1 ? "" : "s"} on this page selected`
-                : `${selectedIds.size} candidate${selectedIds.size === 1 ? "" : "s"} selected on this page`
+                ? `All ${selectedOnPageCount} applicant${selectedOnPageCount === 1 ? "" : "s"} on this page selected`
+                : `${selectedIds.size} applicant${selectedIds.size === 1 ? "" : "s"} selected on this page`
           }
           claimBusy={claimBusy}
           archiveBusy={archiveBusy}
@@ -3040,133 +2909,266 @@ export default function JobApplicationsPage() {
         />
 
         {error ? (
-          <div className="mx-[14px] mt-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+          <div className="mx-4 mt-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
             {error}
           </div>
         ) : null}
 
         {loading ? (
-          <div className="px-[14px] py-4">
+          <div className="px-4 py-6">
             <CandidatesListSkeleton
-              rows={Math.min(pageSize, 10)}
+              rows={Math.min(pageSize, 8)}
               view="list"
-              label="Loading candidates"
+              label="Loading applicants"
             />
           </div>
+        ) : viewMode === "grid" ? (
+          <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3">
+            {displayRows.map((row) => {
+              const name = applicantName(row);
+              const email = applicantEmail(row);
+              const phone = applicantPhone(row);
+              const role =
+                row.job_role ||
+                String(one(row.job_requisitions).public_title ?? "").trim() ||
+                "—";
+              const detailHref = `/admin_recruiter/applications/review?jobId=${encodeURIComponent(row.job_requisition_id)}&applicationId=${encodeURIComponent(row.id)}`;
+              const exp = experienceLabel(row);
+              const appliedJobCount = Number(row.appliedJobCount ?? 1);
+              const multiJob = appliedJobCount > 1;
+              return (
+                <div
+                  key={row.id}
+                  className="flex flex-col justify-between rounded-xl border border-[#E2E8F0] bg-white p-4 shadow-sm transition hover:shadow-md"
+                >
+                  <div>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-3">
+                        <CandidateListAvatar name={name || "NA"} />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            {multiJob ? (
+                              <button
+                                type="button"
+                                className="truncate text-left text-xs font-semibold text-[#374151] hover:underline"
+                                onClick={(event) => {
+                                  const same = jobsPopover?.key === applicantGroupKey(row);
+                                  if (same) {
+                                    setJobsPopover(null);
+                                    return;
+                                  }
+                                  void openApplicantJobs(row, event.currentTarget);
+                                }}
+                              >
+                                {name}
+                              </button>
+                            ) : (
+                              <Link
+                                href={detailHref}
+                                className="truncate text-xs font-semibold text-[#374151] hover:underline"
+                              >
+                                {name}
+                              </Link>
+                            )}
+                            {multiJob ? (
+                              <span className="inline-flex items-center justify-center rounded bg-[#F7EEDC] px-1.5 py-0.5 text-[10px] font-semibold leading-[15px] text-[#8A5A12]">
+                                {appliedJobCount}
+                              </span>
+                            ) : null}
+                          </div>
+                          {exp ? <p className="text-[10px] leading-[15px] text-[#6B7280]">{exp}</p> : null}
+                        </div>
+                      </div>
+                      {renderCell("fit", row)}
+                    </div>
+
+                    <div className="mt-3.5 space-y-1 text-xs">
+                      <p className="font-medium text-[#0F172A]">{role}</p>
+                      <p className="truncate text-[#64748B]">{email}</p>
+                      <p className="text-[#94A3B8]">{phone}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between border-t border-[#F1F5F9] pt-3">
+                    <div className="flex items-center gap-2">
+                      {renderCell("workType", row)}
+                      {renderCell("currentStage", row)}
+                    </div>
+                    {renderCell("actions", row)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-[960px] w-full border-collapse text-left text-sm xl:min-w-full">
-            <thead className="border-b border-[#E5E7EB] bg-brand-lite text-sm font-medium text-black">
-              <tr>
-                <th className="w-12 border-r border-[#E5E7EB] bg-brand-lite px-[14px] py-3">
-                  <ListTableCheckbox
-                    checked={allVisibleSelected}
-                    indeterminate={someVisibleSelected && !allVisibleSelected}
-                    disabled={paginatedRows.length === 0}
-                    onChange={toggleSelectAllVisible}
-                    aria-label="Select all candidates on this page"
-                  />
-                </th>
-                {listColumns.map((colId) => {
-                  const sortable = isApplicationListSortableColumn(colId);
-                  const sortActive = sortable && listSort.column === colId;
-                  return (
-                    <th
-                      key={colId}
-                      className={`border-r border-[#E5E7EB] bg-brand-lite px-[14px] py-3 font-medium normal-case tracking-normal last:border-r-0 ${applicationListColumnClassName(colId)}`}
-                      aria-sort={
-                        sortActive
-                          ? listSort.direction === "asc"
-                            ? "ascending"
-                            : "descending"
-                          : undefined
-                      }
-                    >
-                      {sortable ? (
-                        <ListSortableHeader
-                          label={applicationColumnLabel(colId)}
-                          align={applicationListHeaderAlign(colId)}
-                          active={Boolean(sortActive)}
-                          direction={listSort.direction}
-                          onSort={() => handleListColumnSort(colId)}
-                        />
-                      ) : (
-                        applicationColumnLabel(colId)
-                      )}
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedRows.length === 0 ? (
-                <tr className="border-b border-[#E9EDF3]">
-                  <td
-                    colSpan={listColumns.length + 1}
-                    className={`px-[14px] text-center text-[#64748B] ${
-                      highlightMultiJobApplicants ? "py-24" : "py-12"
-                    }`}
-                  >
-                    {highlightMultiJobApplicants
-                      ? "No applicants have applied to multiple jobs."
-                      : jobId
-                        ? "No candidates match these filters."
-                        : "No candidates in this status yet."}
-                  </td>
-                </tr>
-              ) : (
-                paginatedRows.map((row) => (
-                  <tr
-                    key={row.id}
-                    className="border-b border-[#E9EDF3] align-middle hover:bg-[#FAFBFC]"
-                  >
-                    <td
-                      className="border-r border-[#E5E7EB] px-[14px] py-2.5 align-middle"
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      <ListTableCheckbox
-                        checked={selectedIds.has(row.id)}
-                        onChange={() => toggleSelect(row.id)}
-                        aria-label={`Select ${applicantName(row)}`}
-                      />
-                    </td>
-                    {listColumns.map((colId) => (
-                      <td
+          <div className="overflow-x-auto">
+            <table className="min-w-[960px] w-full border-collapse text-left text-sm xl:min-w-full">
+              <thead className="border-b border-[#E2E8F0] bg-[#F8FAFC]">
+                <tr>
+                  <th className="w-12 px-4 py-3.5 text-center">
+                    <ListTableCheckbox
+                      checked={allVisibleSelected}
+                      indeterminate={someVisibleSelected && !allVisibleSelected}
+                      disabled={displayRows.length === 0}
+                      onChange={toggleSelectAllVisible}
+                      aria-label="Select all applicants on this page"
+                    />
+                  </th>
+                  {listColumns.map((colId) => {
+                    const sortable = isApplicationListSortableColumn(colId);
+                    const sortActive = sortable && listSort.column === colId;
+                    return (
+                      <th
                         key={colId}
-                        className={`border-r border-[#E5E7EB] px-[14px] py-2.5 align-middle last:border-r-0 ${applicationListColumnClassName(colId)}`}
+                        className={`px-3 py-3.5 text-xs font-semibold uppercase tracking-wider text-[#475569] ${applicationListColumnClassName(colId)}`}
+                        aria-sort={
+                          sortActive
+                            ? listSort.direction === "asc"
+                              ? "ascending"
+                              : "descending"
+                            : undefined
+                        }
                       >
-                        {renderCell(colId, row)}
-                      </td>
-                    ))}
+                        {sortable ? (
+                            <ListSortableHeader
+                              label={applicationColumnLabel(colId)}
+                              align={applicationListHeaderAlign(colId)}
+                              active={Boolean(sortActive)}
+                              direction={listSort.direction}
+                              onSort={() => handleListColumnSort(colId)}
+                              className="text-[10px] font-semibold uppercase tracking-normal text-[#374151]"
+                              iconClassName="size-3.5"
+                            />
+                        ) : (
+                          applicationColumnLabel(colId)
+                        )}
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#F1F5F9]">
+                {displayRows.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={listColumns.length + 1}
+                      className={`px-4 text-center text-sm text-[#64748B] ${
+                        highlightMultiJobApplicants ? "py-24" : "py-16"
+                      }`}
+                    >
+                      {highlightMultiJobApplicants
+                        ? "No applicants have applied to multiple jobs."
+                        : "No applicants match these filters."}
+                    </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                ) : (
+                  displayRows.map((row) => (
+                    <tr
+                      key={row.id}
+                      className="align-middle transition-colors hover:bg-[#F8FAFC]"
+                    >
+                      <td
+                        className="px-4 py-3 text-center align-middle"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <ListTableCheckbox
+                          checked={selectedIds.has(row.id)}
+                          onChange={() => toggleSelect(row.id)}
+                          aria-label={`Select ${applicantName(row)}`}
+                        />
+                      </td>
+                      {listColumns.map((colId) => (
+                        <td
+                          key={colId}
+                          className={`px-3 py-3 align-middle ${applicationListColumnClassName(colId)}`}
+                        >
+                          {renderCell(colId, row)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         )}
 
-        <div className="flex flex-col gap-3 rounded-b-[12px] border-t border-[#E5E7EB] bg-white px-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-4">
-          <p className="text-sm text-[#64748B]">
-            Showing {pageStart}-{pageEnd} of {resultTotal} results
+        {/* Footer pagination matching Figma */}
+        <div className="flex flex-col gap-3 rounded-b-2xl border-t border-[#E2E8F0] bg-white px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs font-medium text-[#64748B]">
+            Showing{" "}
+            <span className="font-semibold text-[#0F172A]">
+              {resultTotal === 0 ? "0" : `${pageStart}–${pageEnd}`}
+            </span>{" "}
+            of <span className="font-semibold text-[#0F172A]">{displayTotal}</span> results
           </p>
 
-          <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:flex-wrap sm:justify-end">
-            <ListPaginationShowLabel
-              pageSize={pageSize}
-              options={PAGE_SIZE_OPTIONS}
-              onPageSizeChange={setPageSize}
-            />
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-[#64748B]">Show</span>
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1 text-xs font-medium text-[#334155] focus:outline-none"
+              >
+                {PAGE_SIZE_OPTIONS.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-            <ListPaginationControls
-              currentPage={currentPage}
-              totalPages={totalPages}
-              onPageChange={setPage}
-              activeStyle={{ backgroundColor: branding.secondaryHex, borderColor: branding.secondaryHex }}
-            />
+            <div className="flex items-center gap-1.5 text-xs">
+              <button
+                type="button"
+                disabled={currentPage <= 1}
+                onClick={() => setPage(Math.max(1, currentPage - 1))}
+                className="rounded-lg px-2.5 py-1 font-medium text-[#64748B] hover:text-[#0F172A] disabled:opacity-40"
+              >
+                Previous
+              </button>
+              {pageNumberWindow(currentPage, totalPages).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPage(p)}
+                  style={
+                    currentPage === p
+                      ? { backgroundColor: secondaryColor, color: textOnSecondary }
+                      : undefined
+                  }
+                  className={`flex h-7 w-7 items-center justify-center rounded-lg font-bold text-xs ${
+                    currentPage === p
+                      ? "shadow-sm"
+                      : "text-[#64748B] hover:bg-[#F1F5F9]"
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+              <button
+                type="button"
+                disabled={currentPage >= totalPages}
+                onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
+                className="rounded-lg px-2.5 py-1 font-medium text-[#64748B] hover:text-[#0F172A] disabled:opacity-40"
+              >
+                Next
+              </button>
+            </div>
           </div>
         </div>
       </div>
+
+      {jobsPopover ? (
+        <ApplicantJobsPopover
+          anchor={jobsPopover.anchor}
+          applicantName={jobsPopover.name}
+          applications={jobsPopover.applications}
+          loading={jobsPopover.loading}
+          onClose={() => setJobsPopover(null)}
+        />
+      ) : null}
 
       {highlightMultiJobApplicants && multiJobApplicantCount > 0 ? (
         <MultiJobApplicantsBanner

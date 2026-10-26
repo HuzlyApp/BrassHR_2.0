@@ -184,10 +184,15 @@ const TEMPLATES_CHILDREN: SidebarLink[] = [
 const TEMPLATES_ACTIVE_PREFIXES = [EMAIL_TEMPLATES_ROUTE, TEMPLATE_BUILDER_ROUTE];
 
 const RECRUITMENT_CHILDREN: SidebarLink[] = [
+  // {
+  //   label: "Candidates",
+  //   href: "/admin_recruiter/candidates",
+  //   matchPrefixes: CANDIDATE_ROUTE_PREFIXES,
+  // },
   {
-    label: "Candidates",
-    href: "/admin_recruiter/candidates",
-    matchPrefixes: CANDIDATE_ROUTE_PREFIXES,
+    label: "Applicants",
+    href: "/admin_recruiter/applications",
+    matchPrefixes: ["/admin_recruiter/applications"],
   },
   {
     label: "Interviews",
@@ -196,6 +201,8 @@ const RECRUITMENT_CHILDREN: SidebarLink[] = [
     matchExact: true,
   },
 ];
+
+const HIRING_ACTIVE_PREFIXES = ["/admin_recruiter/applications", ...CANDIDATE_ROUTE_PREFIXES];
 
 const WORKFORCE_CHILDREN: SidebarLink[] = [
   {
@@ -371,6 +378,12 @@ const SETTINGS_CHILDREN: SidebarLink[] = [
     matchPrefixes: [REPORTS_BASE],
     children: REPORTS_CHILDREN,
   },
+  {
+    label: "Automation",
+    href: "#",
+    matchPrefixes: AUTOMATION_ACTIVE_PREFIXES,
+    children: AUTOMATION_CHILDREN,
+  },
 ];
 
 const SHARED_FOOTER_SECTIONS: SidebarSection[] = [
@@ -384,7 +397,14 @@ const SHARED_FOOTER_SECTIONS: SidebarSection[] = [
     label: "Settings",
     href: "#",
     iconType: ICON.settings,
-    matchPrefixes: [SETTINGS_ROUTE, "/admin_recruiter/account", HELP_SUPPORT_ROUTE, NOTIFICATIONS_ROUTE, REPORTS_BASE],
+    matchPrefixes: [
+      SETTINGS_ROUTE,
+      "/admin_recruiter/account",
+      HELP_SUPPORT_ROUTE,
+      NOTIFICATIONS_ROUTE,
+      REPORTS_BASE,
+      ...AUTOMATION_ACTIVE_PREFIXES,
+    ],
     children: SETTINGS_CHILDREN,
   },
 ];
@@ -402,7 +422,7 @@ export const CLIENT_SIDEBAR_SECTIONS: SidebarSection[] = [
     label: "Hiring",
     href: "#",
     iconType: ICON.candidates,
-    matchPrefixes: CANDIDATE_ROUTE_PREFIXES,
+    matchPrefixes: HIRING_ACTIVE_PREFIXES,
     children: RECRUITMENT_CHILDREN,
   },
   {
@@ -446,13 +466,13 @@ export const CLIENT_SIDEBAR_SECTIONS: SidebarSection[] = [
   //   matchPrefixes: [],
   //   children: PAY_CHILDREN,
   // }, // Hidden for now — routes are not built yet.
-  {
-    label: "Automation",
-    href: "#",
-    iconType: ICON.automation,
-    matchPrefixes: AUTOMATION_ACTIVE_PREFIXES,
-    children: AUTOMATION_CHILDREN,
-  },
+  // {
+  //   label: "Automation",
+  //   href: "#",
+  //   iconType: ICON.automation,
+  //   matchPrefixes: AUTOMATION_ACTIVE_PREFIXES,
+  //   children: AUTOMATION_CHILDREN,
+  // }, // Moved under Settings.
   // {
   //   label: "Reports",
   //   href: "#",
@@ -508,7 +528,7 @@ export const GOD_ADMIN_SIDEBAR_SECTIONS: SidebarSection[] = [
     label: "Hiring",
     href: "#",
     iconType: ICON.candidates,
-    matchPrefixes: CANDIDATE_ROUTE_PREFIXES,
+    matchPrefixes: HIRING_ACTIVE_PREFIXES,
     children: RECRUITMENT_CHILDREN,
   },
   {
@@ -542,13 +562,13 @@ export const GOD_ADMIN_SIDEBAR_SECTIONS: SidebarSection[] = [
     iconType: ICON.jobs,
     matchPrefixes: [JOBS_ROUTE],
   },
-  {
-    label: "Automation",
-    href: "#",
-    iconType: ICON.automation,
-    matchPrefixes: AUTOMATION_ACTIVE_PREFIXES,
-    children: AUTOMATION_CHILDREN,
-  },
+  // {
+  //   label: "Automation",
+  //   href: "#",
+  //   iconType: ICON.automation,
+  //   matchPrefixes: AUTOMATION_ACTIVE_PREFIXES,
+  //   children: AUTOMATION_CHILDREN,
+  // }, // Moved under Settings.
   ...EXTRA_TOP_SECTIONS,
   // {
   //   label: "Profile",

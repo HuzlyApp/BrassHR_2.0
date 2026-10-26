@@ -11,6 +11,8 @@ export type ListSortableHeaderProps = {
   active: boolean;
   direction?: "asc" | "desc";
   onSort: () => void;
+  className?: string;
+  iconClassName?: string;
 };
 
 /** Shared table header: title left/center, expand sort icon pinned to the right. */
@@ -20,6 +22,8 @@ export function ListSortableHeader({
   active,
   direction = "desc",
   onSort,
+  className = "",
+  iconClassName = "h-5 w-5",
 }: ListSortableHeaderProps) {
   const ascending = active && direction === "asc";
 
@@ -27,7 +31,7 @@ export function ListSortableHeader({
     <button
       type="button"
       onClick={onSort}
-      className="relative inline-flex w-full items-center text-sm font-medium normal-case tracking-normal text-black transition hover:text-[#0F172A]"
+      className={`relative inline-flex w-full items-center text-sm font-medium normal-case tracking-normal text-black transition hover:text-[#0F172A] ${className}`}
       aria-sort={active ? (ascending ? "ascending" : "descending") : "none"}
       aria-label={`Sort by ${label}`}
       title={`Sort by ${label}`}
@@ -40,7 +44,7 @@ export function ListSortableHeader({
       <BrandedSvgIcon
         src={SORT_ICON_SRC}
         color={SORT_ICON_COLOR}
-        className="pointer-events-none absolute right-0 top-1/2 h-5 w-5 -translate-y-1/2"
+        className={`pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 ${iconClassName}`}
       />
     </button>
   );

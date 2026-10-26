@@ -15,6 +15,8 @@ import {
 export const APPLICATION_LIST_SORTABLE_COLUMNS = [
   "candidates",
   "contact",
+  "jobRole",
+  "workType",
   "matches",
   "fit",
   "conf",
@@ -269,6 +271,16 @@ function compareColumn(
       const aPhone = resolveApplicationApplicantPhone(a);
       const bPhone = resolveApplicationApplicantPhone(b);
       return compareEmptyLast(!aPhone, !bPhone, compareTextValues(aPhone, bPhone), directionMultiplier);
+    }
+    case "jobRole": {
+      const aTitle = String((a as Record<string, any>).job_requisitions?.public_title ?? "");
+      const bTitle = String((b as Record<string, any>).job_requisitions?.public_title ?? "");
+      return compareEmptyLast(!aTitle, !bTitle, compareTextValues(aTitle, bTitle), directionMultiplier);
+    }
+    case "workType": {
+      const aType = String((a as Record<string, any>).job_requisitions?.employment_type ?? "");
+      const bType = String((b as Record<string, any>).job_requisitions?.employment_type ?? "");
+      return compareEmptyLast(!aType, !bType, compareTextValues(aType, bType), directionMultiplier);
     }
     case "matches":
       return compareMatchScore(a, b) * directionMultiplier;

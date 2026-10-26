@@ -5,7 +5,8 @@ import { usePathname } from 'next/navigation';
 
 const menuItems = [
   { icon: '🏠', label: 'Dashboard', href: '/admin_recruiter/home' },
-  { icon: '👥', label: 'Candidates', href: '/admin_recruiter/candidates' },
+  // { icon: '👥', label: 'Candidates', href: '/admin_recruiter/candidates' },
+  { icon: '👥', label: 'Applicants', href: '/admin_recruiter/applications' },
   { icon: '🆕', label: 'New', href: '/admin_recruiter/new' },
   { icon: '⏳', label: 'Pending', href: '/admin_recruiter/pending' },
   { icon: '✅', label: 'Approved', href: '/admin_recruiter/approved' },

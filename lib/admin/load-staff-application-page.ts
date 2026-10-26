@@ -20,7 +20,7 @@ import {
   type ApplicationListBucket,
 } from "@/lib/admin/staff-application-list-query";
 
-const APPLICATION_SELECT = `id, status, status_id, workflow_phase, post_hire_activated_at, created_at, submitted_at, updated_at, job_requisition_id, workflow_id, applicant_workflow_instance_id, worker_id, assigned_recruiter_user_id, ai_match_status, ai_match_score, ai_match_category, ai_match_action, ai_match_readiness, ai_match_display_category, ai_match_stage, ai_analyzed_at, ai_analysis_error, ai_analysis_progress, application_statuses(id, name, system_key, color), job_requisitions(public_title, profession_id, employment_type, location, facility, facility_name, internal_requisition_number, source_type, msp_name, professions(name)), onboarding_flows(name), ${JOB_APPLICATION_APPLICANT_EMBED}`;
+const APPLICATION_SELECT = `id, status, status_id, workflow_phase, post_hire_activated_at, created_at, submitted_at, updated_at, job_requisition_id, workflow_id, applicant_workflow_instance_id, worker_id, assigned_recruiter_user_id, ai_match_status, ai_match_score, ai_match_category, ai_match_action, ai_match_readiness, ai_match_display_category, ai_match_stage, ai_analyzed_at, ai_analysis_error, ai_analysis_progress, application_statuses(id, name, system_key, color), job_requisitions(public_title, profession_id, employment_type, location, facility, facility_name, internal_requisition_number, source_type, msp_name, status, professions(name)), onboarding_flows(name), ${JOB_APPLICATION_APPLICANT_EMBED}`;
 
 const HYDRATE_CHUNK = 80;
 
