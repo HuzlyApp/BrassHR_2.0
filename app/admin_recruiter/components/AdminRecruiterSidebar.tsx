@@ -76,6 +76,12 @@ function getFirstNavigableChildHref(children: SidebarLink[]): string | null {
   return null;
 }
 
+/** `href="#"` is a placeholder. A Next.js Link with that href swallows the click. */
+function isNavigableHref(href: string | null | undefined): href is string {
+  const value = href?.trim() ?? "";
+  return value.length > 0 && value !== "#";
+}
+
 function linkOrNestedIsActive(
   link: SidebarLink,
   isActive: (link: Pick<SidebarLink, "matchPrefixes" | "matchExact">) => boolean
@@ -405,7 +411,6 @@ export function AdminRecruiterSidebar({
                     if (isCollapsed || isMobileRail) return;
                     handleSectionToggleClick(section.label, event);
                   }}
-                  onMouseDown={(event) => event.preventDefault()}
                   disabled={isCollapsed || isMobileRail}
                   className={`group relative flex w-full cursor-pointer items-center gap-3 overflow-hidden rounded-md border-0 bg-transparent text-left transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 ${navTextClass(false)} ${
                     isCollapsed || isMobileRail
@@ -452,7 +457,6 @@ export function AdminRecruiterSidebar({
                             <button
                               type="button"
                               onClick={(event) => handleSectionToggleClick(child.label, event)}
-                              onMouseDown={(event) => event.preventDefault()}
                               className={`admin-recruiter-sidebar-submenu-item flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent text-left font-normal text-[14px] leading-5 tracking-normal ${submenuTextClass(false)}`}
                               aria-expanded={groupOpen}
                               aria-label={`${groupOpen ? "Collapse" : "Expand"} ${child.label}`}
@@ -463,10 +467,10 @@ export function AdminRecruiterSidebar({
                             {groupOpen ? (
                               <div className="admin-recruiter-sidebar-submenu-nested">
                                 {(child.children as RenderedSidebarLink[]).map((nested) =>
-                                  nested.disabled ? (
+                                  nested.disabled || !isNavigableHref(nested.href) ? (
                                     <div
                                       key={`${child.label}-${nested.label}`}
-                                      title={`${nested.label} (Coming soon)`}
+                                      title={nested.disabled ? `${nested.label} (Coming soon)` : nested.label}
                                       className={`admin-recruiter-sidebar-submenu-item group relative block cursor-default overflow-hidden rounded-md font-normal text-[14px] leading-5 tracking-normal ${submenuTextClass(false, true)}`}
                                       aria-disabled
                                     >
@@ -492,10 +496,10 @@ export function AdminRecruiterSidebar({
                         );
                       }
 
-                      return child.disabled ? (
+                      return child.disabled || !isNavigableHref(child.href) ? (
                         <div
                           key={`${section.label}-${child.label}`}
-                          title={`${child.label} (Coming soon)`}
+                          title={child.disabled ? `${child.label} (Coming soon)` : child.label}
                           className={`admin-recruiter-sidebar-submenu-item group relative block cursor-default overflow-hidden rounded-md font-normal text-[14px] leading-5 tracking-normal ${submenuTextClass(false, true)}`}
                           aria-disabled
                         >
@@ -519,7 +523,7 @@ export function AdminRecruiterSidebar({
                 ) : null}
               </>
               )
-            ) : section.disabled ? (
+            ) : section.disabled || !isNavigableHref(section.href) ? (
               <div
                 title={`${section.label} (Coming soon)`}
                 className={`group relative flex items-center overflow-hidden rounded-md ${
@@ -628,7 +632,7 @@ export function AdminRecruiterSidebar({
   return (
     <>
       <aside
-        className={`admin-recruiter-sidebar fixed inset-y-0 left-0 z-40 hidden h-screen overflow-hidden border-r border-[#ECF1F9] admin-recruiter-chrome-border-r bg-white transition-[width] duration-200 ease-in-out min-[1000px]:block ${sidebarHoverClass}`}
+        className={`admin-recruiter-sidebar admin-recruiter-sidebar-desktop fixed inset-y-0 left-0 z-40 hidden h-screen overflow-hidden border-r border-[#ECF1F9] admin-recruiter-chrome-border-r bg-white transition-[width] duration-200 ease-in-out min-[1000px]:block ${sidebarHoverClass}`}
         style={asideStyle}
         data-collapsed={collapsed ? "true" : "false"}
         {...sidebarHoverProps}
@@ -646,27 +650,25 @@ export function AdminRecruiterSidebar({
         {renderSidebarContent(true, { isMobileRail: true })}
       </aside>
 
-      <div
-        className={`fixed inset-0 z-50 bg-black/30 transition-opacity min-[1000px]:hidden ${
-          isMobileOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
-        }`}
-        onClick={onMobileClose}
-        aria-hidden={!isMobileOpen}
-      >
-        <aside
-          className={`admin-recruiter-sidebar h-full border-r border-[#ECF1F9] bg-white transition-transform duration-200 ease-in-out ${sidebarHoverClass} ${
-            isMobileOpen ? "translate-x-0" : "-translate-x-full"
-          }`}
-          style={{
-            width: SIDEBAR_EXPANDED_WIDTH,
-            maxWidth: "min(90vw, 272px)",
-          }}
-          onClick={(event) => event.stopPropagation()}
-          {...sidebarHoverProps}
+      {isMobileOpen ? (
+        <div
+          className="admin-recruiter-sidebar-drawer fixed inset-0 z-50 bg-black/30 min-[1000px]:hidden"
+          data-open="true"
+          onClick={onMobileClose}
         >
-          {renderSidebarContent(false, { showMobileClose: true })}
-        </aside>
-      </div>
+          <aside
+            className={`admin-recruiter-sidebar h-full border-r border-[#ECF1F9] bg-white ${sidebarHoverClass}`}
+            style={{
+              width: SIDEBAR_EXPANDED_WIDTH,
+              maxWidth: "min(90vw, 272px)",
+            }}
+            onClick={(event) => event.stopPropagation()}
+            {...sidebarHoverProps}
+          >
+            {renderSidebarContent(false, { showMobileClose: true })}
+          </aside>
+        </div>
+      ) : null}
     </>
   );
 }

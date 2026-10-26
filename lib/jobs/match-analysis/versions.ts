@@ -98,7 +98,11 @@ export async function loadAnalysisHistory(
       .eq("application_id", applicationId)
       .order("version", { ascending: false });
 
-  let { data, error } = await query();
+  const first = await query();
+  // The dynamic select string is not a parseable column literal, so the two
+  // query results do not share a row type. Keep the payload untyped until the cast below.
+  let data: unknown = first.data;
+  let error: unknown = first.error;
   let quickRouteSelected = includeQuickRoute;
   if (error && includeQuickRoute) {
     quickRouteSelected = false;

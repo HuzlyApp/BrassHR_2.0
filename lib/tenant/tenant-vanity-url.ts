@@ -98,3 +98,25 @@ export function resolveRecruiterDashboardUrl(params: {
 
   return path;
 }
+
+type HeaderReader = { get(name: string): string | null };
+
+/**
+ * Next.js App Router client navigations and prefetches.
+ * A cross-origin redirect on these requests makes the router drop the click
+ * (`Failed to fetch RSC payload`) instead of opening the page.
+ * Full document loads do not send these headers and can still change host.
+ */
+export function isAppRouterFlightRequest(
+  headers: HeaderReader,
+  searchParams?: { has(name: string): boolean } | null
+): boolean {
+  if (headers.get("rsc") != null) return true;
+  if (headers.get("next-router-prefetch") != null) return true;
+  if (headers.get("next-router-segment-prefetch") != null) return true;
+  if (headers.get("next-router-state-tree") != null) return true;
+  const accept = headers.get("accept") ?? "";
+  if (accept.includes("text/x-component")) return true;
+  if (searchParams?.has("_rsc")) return true;
+  return false;
+}

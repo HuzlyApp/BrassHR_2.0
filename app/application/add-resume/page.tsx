@@ -477,7 +477,7 @@ export default function Step1Upload() {
           fileName?: string
           storagePath?: string | null
           resumeId?: string | null
-          parseStatus?: string
+          parseStatus?: string | null
           parseError?: string | null
         }
         try {

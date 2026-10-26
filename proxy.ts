@@ -5,6 +5,7 @@ import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase-env";
 import { isGodAdminUser } from "@/lib/auth/god-admin";
 import { isStaffRole, parseAppRole } from "@/lib/auth/app-role";
 import { resolveAuthenticatedRecruiterRedirectUrl } from "@/lib/auth/recruiter-dashboard-redirect";
+import { isAppRouterFlightRequest } from "@/lib/tenant/tenant-vanity-url";
 import {
   getUserPlatform,
   isNexusPlatformUser,
@@ -546,7 +547,7 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(login);
     }
 
-    if (!isGodAdminUser(user)) {
+    if (!isGodAdminUser(user) && !isAppRouterFlightRequest(request.headers, request.nextUrl.searchParams)) {
       const host = forwardedHostFromHeaders(request.headers);
       const root = getEffectiveRootDomain();
       if (host && isRootDomainHost(host, root)) {

@@ -74,8 +74,10 @@ export function isStaffConsoleRole(value: unknown): value is StaffConsoleRole {
 }
 
 export function appRoleToConsoleRole(role: AppRole | string | null | undefined): StaffConsoleRole | null {
-  if (role === "admin" || role === "owner") return "admin";
-  if (role === "recruiter" || role === "client") return "recruiter";
+  if (typeof role !== "string") return null;
+  const normalized = role.trim().toLowerCase();
+  if (normalized === "admin" || normalized === "owner") return "admin";
+  if (normalized === "recruiter" || normalized === "client") return "recruiter";
   return null;
 }
 

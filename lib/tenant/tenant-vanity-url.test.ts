@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildTenantVanityUrl,
+  isAppRouterFlightRequest,
   pickTenantVanityLabel,
   resolveRecruiterDashboardUrl,
 } from "@/lib/tenant/tenant-vanity-url";
@@ -77,6 +78,27 @@ describe("resolveRecruiterDashboardUrl", () => {
       rootDomain: "brasshr.com",
     });
     expect(url).toBe("/tenant-onboarding");
+  });
+});
+
+describe("isAppRouterFlightRequest", () => {
+  function headers(values: Record<string, string>) {
+    return {
+      get(name: string) {
+        return values[name.toLowerCase()] ?? null;
+      },
+    };
+  }
+
+  it("recognizes client navigations that must stay on the current origin", () => {
+    expect(isAppRouterFlightRequest(headers({ rsc: "1" }))).toBe(true);
+    expect(isAppRouterFlightRequest(headers({ "next-router-prefetch": "1" }))).toBe(true);
+    expect(isAppRouterFlightRequest(headers({ accept: "text/x-component" }))).toBe(true);
+    expect(isAppRouterFlightRequest(headers({}), { has: (name) => name === "_rsc" })).toBe(true);
+  });
+
+  it("lets a full document load change host", () => {
+    expect(isAppRouterFlightRequest(headers({ accept: "text/html" }))).toBe(false);
   });
 });
 

@@ -54,7 +54,7 @@ export async function handleAdminResumeJsonPost(args: {
   if (!body) return NextResponse.json({ error: "Invalid upload request." }, { status: 400 });
   const phase = textField(body, "phase");
   if (phase === "prepare") return prepare(args.supabase, args.tenantId, args.applicationId, body);
-  if (phase === "finalize") return finalize(args);
+  if (phase === "finalize") return finalize({ ...args, body });
   return NextResponse.json({ error: "Unknown resume upload phase." }, { status: 400 });
 }
 

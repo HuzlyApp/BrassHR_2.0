@@ -46,6 +46,21 @@
     width: calc(100% - var(--admin-sidebar-width, 272px));
     transition: margin-left 200ms ease-in-out, width 200ms ease-in-out;
   }
+
+  /*
+   * Desktop uses the fixed sidebar only. The mobile rail and the full-viewport
+   * drawer must not remain in the hit-test tree: a closed drawer is z-50, and
+   * pointer-events:none on the backdrop does not disable its child aside.
+   */
+  .admin-recruiter-shell .admin-recruiter-sidebar-desktop {
+    display: block !important;
+  }
+
+  .admin-recruiter-shell .admin-recruiter-sidebar-mobile-rail,
+  .admin-recruiter-shell .admin-recruiter-sidebar-drawer {
+    display: none !important;
+    pointer-events: none !important;
+  }
 }
 
 .admin-recruiter-main-wrap {
