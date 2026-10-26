@@ -15,6 +15,7 @@ import {
 import {
   analyzedApplicantCount,
   applicantCount,
+  jobAnalyzedCandidatesHref,
   jobCandidatesHref,
   JobSourceTypeBadge,
   jobListDisplayTitle,
@@ -262,9 +263,20 @@ function JobGridCard({
       href: candidatesHref,
       ariaLabel: `View ${candidateCount} candidate${candidateCount === 1 ? "" : "s"} for ${title}`,
     },
-    { label: "ANALYSIS", value: analyzedApplicantCount(job) },
-    { label: "STRONG", value: strongMatchCount(job) },
-    { label: "READY", value: readyToSubmitCount(job) },
+    {
+      label: "ANALYSIS",
+      value: analyzedApplicantCount(job),
+      href: jobAnalyzedCandidatesHref(job.id),
+      ariaLabel: `View ${analyzedApplicantCount(job)} analyzed applicant${analyzedApplicantCount(job) === 1 ? "" : "s"} for ${title}`,
+    },
+    {
+      label: "STRONG",
+      value: strongMatchCount(job),
+    },
+    {
+      label: "READY",
+      value: readyToSubmitCount(job),
+    },
   ];
 
   return (

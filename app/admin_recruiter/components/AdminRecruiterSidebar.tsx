@@ -110,6 +110,8 @@ function decorateSidebarLink(
 const DEFAULT_TENANT_LOGO = BRAAS_PLATFORM_FAVICON;
 const DASHBOARD_HOME_HREF = ADMIN_RECRUITER_HOME_ROUTE;
 const RECRUITER_HIDDEN_SECTIONS = new Set(["Automation", "Templates", "Taskboard"]);
+/** These stay in the shared list for recruiters, and live under Settings for company admins. */
+const ADMIN_SECTIONS_UNDER_SETTINGS = new Set(["Organization"]);
 const RECRUITER_SETTINGS_CHILDREN = new Set(["Profile", "Notifications", "Help & Support", "Reports"]);
 
 function settingsChildrenForRecruiter(children: SidebarLink[]): SidebarLink[] {
@@ -156,7 +158,7 @@ export function AdminRecruiterSidebar({
         }
       );
     }
-    return CLIENT_SIDEBAR_SECTIONS;
+    return CLIENT_SIDEBAR_SECTIONS.filter((section) => !ADMIN_SECTIONS_UNDER_SETTINGS.has(section.label));
   }, [isGodAdmin, isRecruiter]);
 
   const handleNavClick = () => {

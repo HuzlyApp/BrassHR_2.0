@@ -54,6 +54,18 @@ function bestRedirectTab(tabCounts: Map<string, number>): string | null {
   return bestTab;
 }
 
+/** Same set as the jobs dashboard ANALYSIS count and the Analyzed applicants tab. */
+export function isAnalyzedJobApplication(row: {
+  ai_match_status?: string | null;
+  ai_match_score?: number | string | null;
+  ai_analyzed_at?: string | null;
+}): boolean {
+  if (String(row.ai_match_status ?? "") === "ANALYZED") return true;
+  if (row.ai_analyzed_at) return true;
+  if (row.ai_match_score == null || row.ai_match_score === "") return false;
+  return Number.isFinite(Number(row.ai_match_score));
+}
+
 function addApplicationToCounts(
   current: JobListMetricCounts,
   row: JobListApplicationMetricRow,
@@ -76,11 +88,7 @@ function addApplicationToCounts(
   }
   if (pipeline === "hired") current.hiredCount += 1;
 
-  const matchStatus = String(row.ai_match_status ?? "");
-  const score = Number(row.ai_match_score);
-  const hasMatchScore = Number.isFinite(score);
-  const analysisDone =
-    matchStatus === "ANALYZED" || hasMatchScore || Boolean(row.ai_analyzed_at);
+  const analysisDone = isAnalyzedJobApplication(row);
 
   if (analysisDone) current.analyzedCount += 1;
   if (isStrongAiMatchScore(row.ai_match_score)) current.strongCount += 1;
@@ -95,7 +103,9 @@ export function tallyApplicationMetrics(
 ): JobListMetricCounts {
   const current = emptyCounts();
   const inProcessTabCounts = new Map<string, number>();
-  for (const row of rows) addApplicationToCounts(current, row, inProcessTabCounts);
+  for (const row of rows) {
+    addApplicationToCounts(current, row, inProcessTabCounts);
+  }
   current.inProcessRedirectTab = bestRedirectTab(inProcessTabCounts);
   return current;
 }
@@ -113,10 +123,10 @@ export function tallyJobListApplicationMetrics(
     const id = String(row.job_requisition_id ?? "");
     if (!id) continue;
     const current = metricsByJob.get(id) ?? emptyCounts();
-    const tabCounts = inProcessTabCountsByJob.get(id) ?? new Map<string, number>();
-    addApplicationToCounts(current, row, tabCounts);
+    const inProcessTabs = inProcessTabCountsByJob.get(id) ?? new Map<string, number>();
+    addApplicationToCounts(current, row, inProcessTabs);
     metricsByJob.set(id, current);
-    inProcessTabCountsByJob.set(id, tabCounts);
+    inProcessTabCountsByJob.set(id, inProcessTabs);
   }
   for (const [id, metrics] of metricsByJob) {
     metrics.inProcessRedirectTab = bestRedirectTab(

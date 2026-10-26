@@ -468,9 +468,7 @@ export default function JobDetailsClient({ jobId }: Props) {
           ? "In Process"
           : "In Process Screening + Interview",
         count: summary.screening + summary.interview,
-        href: `/admin_recruiter/applications?jobId=${encodeURIComponent(jobId)}&tab=${encodeURIComponent(
-          summary.in_process_redirect_tab || "in_process"
-        )}`,
+        href: `/admin_recruiter/applications?jobId=${encodeURIComponent(jobId)}&tab=in_process`,
         iconSrc: `${JOB_DETAILS_ICON_BASE}/in-process.svg`,
       },
     ];

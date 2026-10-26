@@ -1425,31 +1425,20 @@ export async function listInternalJobs(
   const jobs = data ?? [];
   if (!jobs.length) return jobs;
 
-  const metricsByJob = new Map<
-    string,
-    {
-      applicant_count?: number;
-      new_count?: number;
-      in_process_count?: number;
-      analyzed_count?: number;
-      strong_count?: number;
-      ready_count?: number;
-      hired_count?: number;
-      in_process_redirect_tab?: string | null;
-    }
-  >();
+  type JobListMetricsRow = {
+    applicant_count?: number;
+    new_count?: number;
+    in_process_count?: number;
+    analyzed_count?: number;
+    strong_count?: number;
+    ready_count?: number;
+    hired_count?: number;
+    in_process_redirect_tab?: string | null;
+  };
+  const metricsByJob = new Map<string, JobListMetricsRow>();
   for (const row of metricsResult.data ?? []) {
     const jobId = String((row as { job_requisition_id?: string }).job_requisition_id ?? "");
-    if (jobId) metricsByJob.set(jobId, row as {
-      applicant_count?: number;
-      new_count?: number;
-      in_process_count?: number;
-      analyzed_count?: number;
-      strong_count?: number;
-      ready_count?: number;
-      hired_count?: number;
-      in_process_redirect_tab?: string | null;
-    });
+    if (jobId) metricsByJob.set(jobId, row as JobListMetricsRow);
   }
 
   const creatorIds = jobs

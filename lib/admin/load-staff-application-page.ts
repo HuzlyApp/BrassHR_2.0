@@ -19,6 +19,7 @@ import {
   matchScoreBounds,
   type ApplicationListBucket,
 } from "@/lib/admin/staff-application-list-query";
+import { isAnalyzedJobApplication } from "@/lib/jobs/job-list-application-metrics";
 
 const APPLICATION_SELECT = `id, status, status_id, workflow_phase, post_hire_activated_at, created_at, submitted_at, updated_at, job_requisition_id, workflow_id, applicant_workflow_instance_id, worker_id, assigned_recruiter_user_id, ai_match_status, ai_match_score, ai_match_category, ai_match_action, ai_match_readiness, ai_match_display_category, ai_match_stage, ai_analyzed_at, ai_analysis_error, ai_analysis_progress, application_statuses(id, name, system_key, color), job_requisitions(public_title, profession_id, employment_type, location, facility, facility_name, internal_requisition_number, source_type, msp_name, status, professions(name)), onboarding_flows(name), ${JOB_APPLICATION_APPLICANT_EMBED}`;
 
@@ -31,6 +32,7 @@ type ListPageJson = {
   total?: number;
   unanalyzedCount?: number;
   scopeUnanalyzedCount?: number;
+  analyzedCount?: number;
   multiJobApplicantCount?: number;
   buckets?: ApplicationListBucket[];
   locations?: string[];
@@ -45,6 +47,58 @@ function likeLiteral(value: string): string {
 function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.map((item) => String(item ?? "").trim()).filter(Boolean);
+}
+
+function isAnalyzedApplicantsTab(tab: string | null | undefined): boolean {
+  const value = tab?.trim() ?? "";
+  return value === "analyzed" || value === "analyzed-applicants";
+}
+
+/** Jobs-dashboard ANALYSIS count for one job, or every job when jobId is empty. */
+async function dashboardAnalyzedCount(
+  supabase: SupabaseClient,
+  tenantId: string,
+  jobId: string
+): Promise<number> {
+  const { data, error } = await supabase.rpc("job_list_application_metrics", {
+    p_tenant_id: tenantId,
+  });
+  if (error) throw error;
+  let total = 0;
+  for (const row of (data ?? []) as Array<{ job_requisition_id?: string; analyzed_count?: number }>) {
+    const id = String(row.job_requisition_id ?? "");
+    if (jobId && id !== jobId) continue;
+    total += Number(row.analyzed_count ?? 0);
+  }
+  return total;
+}
+
+async function keepAnalyzedIdsInOrder(
+  supabase: SupabaseClient,
+  tenantId: string,
+  orderedIds: string[]
+): Promise<string[]> {
+  const analyzed = new Set<string>();
+  for (let index = 0; index < orderedIds.length; index += 100) {
+    const chunk = orderedIds.slice(index, index + 100);
+    const { data, error } = await supabase
+      .from("job_applications")
+      .select("id, ai_match_status, ai_match_score, ai_analyzed_at")
+      .eq("tenant_id", tenantId)
+      .in("id", chunk);
+    if (error) throw error;
+    for (const row of data ?? []) {
+      const id = String((row as { id?: string }).id ?? "");
+      if (id && isAnalyzedJobApplication(row as {
+        ai_match_status?: string | null;
+        ai_match_score?: number | string | null;
+        ai_analyzed_at?: string | null;
+      })) {
+        analyzed.add(id);
+      }
+    }
+  }
+  return orderedIds.filter((id) => analyzed.has(id));
 }
 
 async function workerIdsInScope(
@@ -224,6 +278,7 @@ export async function loadStaffApplicationPage(
         total: 0,
         unanalyzedCount: 0,
         scopeUnanalyzedCount: 0,
+        analyzedCount: 0,
         multiJobApplicantCount: 0,
         buckets: [],
         locations: [],
@@ -233,15 +288,16 @@ export async function loadStaffApplicationPage(
     }
   }
 
+  const requestedTab = params.get("tab")?.trim() || "";
+  const analyzedRequested = !scopeOnly && isAnalyzedApplicantsTab(requestedTab);
   const limit = idsOnly || exporting ? 20000 : pageSize;
   const offset = idsOnly || exporting ? 0 : (page - 1) * pageSize;
 
-  const { data, error } = await supabase.rpc("staff_application_list_page", {
+  const rpcArgs = {
     p_tenant_id: tenantId,
     p_job_id: isUuid(jobId) ? jobId : null,
     p_worker_id: isUuid(workerId) ? workerId : null,
     p_worker_ids: workerIds,
-    p_tab: scopeOnly ? null : params.get("tab")?.trim() || null,
     p_status_id: !scopeOnly && isUuid(listingStatus) ? listingStatus : null,
     p_query: scopeOnly ? null : params.get("q")?.trim() || null,
     p_location: location || null,
@@ -261,6 +317,11 @@ export async function loadStaffApplicationPage(
     p_multi_job: !scopeOnly && params.get("multiJob") === "1",
     p_sort: sort,
     p_sort_dir: sortDir,
+  };
+
+  const { data, error } = await supabase.rpc("staff_application_list_page", {
+    ...rpcArgs,
+    p_tab: scopeOnly ? null : requestedTab || null,
     p_limit: limit,
     p_offset: offset,
     p_ids_only: idsOnly || exporting,
@@ -272,6 +333,11 @@ export async function loadStaffApplicationPage(
   ) as ListPageJson;
   const ids = Array.isArray(pageJson.ids) ? pageJson.ids : [];
   const buckets = Array.isArray(pageJson.buckets) ? pageJson.buckets : [];
+  const rpcSupportsAnalyzedTab = Object.prototype.hasOwnProperty.call(pageJson, "analyzedCount");
+  const scopedJobId = isUuid(jobId) ? jobId : "";
+  const analyzedCount = rpcSupportsAnalyzedTab
+    ? Number(pageJson.analyzedCount ?? 0)
+    : await dashboardAnalyzedCount(supabase, tenantId, scopedJobId);
 
   if (idsOnly) {
     return {
@@ -283,22 +349,45 @@ export async function loadStaffApplicationPage(
     };
   }
 
+  let pageIds = ids.map((row) => String(row.id ?? "")).filter(Boolean);
+  let total = Number(pageJson.total ?? 0);
+
+  // Older list functions treat ?tab=analyzed as a status id and return no rows.
+  if (analyzedRequested && !rpcSupportsAnalyzedTab) {
+    const { data: allData, error: allError } = await supabase.rpc("staff_application_list_page", {
+      ...rpcArgs,
+      p_tab: null,
+      p_limit: 20000,
+      p_offset: 0,
+      p_ids_only: true,
+    });
+    if (allError) throw allError;
+    const allJson = (
+      typeof allData === "string" ? JSON.parse(allData) : allData ?? {}
+    ) as ListPageJson;
+    const orderedIds = (Array.isArray(allJson.ids) ? allJson.ids : [])
+      .map((row) => String(row.id ?? ""))
+      .filter(Boolean);
+    const analyzedIds = await keepAnalyzedIdsInOrder(supabase, tenantId, orderedIds);
+    total = analyzedIds.length;
+    const start = exporting ? 0 : (page - 1) * pageSize;
+    const end = exporting ? analyzedIds.length : start + pageSize;
+    pageIds = analyzedIds.slice(start, end);
+  }
+
   const applications = await decorateApplications(
     supabase,
     tenantId,
-    await hydrateApplications(
-      supabase,
-      tenantId,
-      ids.map((row) => String(row.id ?? "")).filter(Boolean)
-    )
+    await hydrateApplications(supabase, tenantId, pageIds)
   );
 
   return {
     paged: true,
     applications,
-    total: Number(pageJson.total ?? 0),
+    total,
     unanalyzedCount: Number(pageJson.unanalyzedCount ?? 0),
     scopeUnanalyzedCount: Number(pageJson.scopeUnanalyzedCount ?? 0),
+    analyzedCount,
     multiJobApplicantCount: Number(pageJson.multiJobApplicantCount ?? 0),
     buckets,
     locations: asStringArray(pageJson.locations),

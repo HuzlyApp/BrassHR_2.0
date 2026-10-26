@@ -265,8 +265,9 @@ export function inProcessApplicantCount(job: JobListRow): number {
 }
 
 export function inProcessCandidatesHref(job: JobListRow): string {
-  const tab = job.in_process_redirect_tab?.trim() || "in_process"
-  return `${jobCandidatesHref(job.id)}&tab=${encodeURIComponent(tab)}`
+  // The candidates page picks the in-process status that actually has applicants.
+  // A stored system key can match an empty catalog status and show a 0 count.
+  return `${jobCandidatesHref(job.id)}&tab=in_process`
 }
 
 export function analyzedApplicantCount(job: JobListRow): number {
@@ -287,6 +288,11 @@ export function hiredApplicantCount(job: JobListRow): number {
 
 export function jobCandidatesHref(jobId: string): string {
   return `/admin_recruiter/applications?jobId=${encodeURIComponent(jobId)}`
+}
+
+/** Job candidates list filtered to the dashboard ANALYSIS count. */
+export function jobAnalyzedCandidatesHref(jobId: string): string {
+  return `${jobCandidatesHref(jobId)}&tab=analyzed`
 }
 
 export function jobHiredCandidatesHref(jobId: string): string {

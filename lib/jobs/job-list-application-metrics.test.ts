@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { tallyApplicationMetrics, tallyJobListApplicationMetrics } from "@/lib/jobs/job-list-application-metrics";
+import {
+  isAnalyzedJobApplication,
+  tallyApplicationMetrics,
+  tallyJobListApplicationMetrics,
+} from "@/lib/jobs/job-list-application-metrics";
 
 describe("tallyJobListApplicationMetrics", () => {
   it("counts every application for the job, including rejected and withdrawn", () => {
@@ -60,6 +64,19 @@ describe("tallyJobListApplicationMetrics", () => {
       strongCount: 1,
       readyCount: 1,
     });
+  });
+
+  it("counts a score or analyzed timestamp the same way as the dashboard ANALYSIS box", () => {
+    expect(isAnalyzedJobApplication({ ai_match_score: 40 })).toBe(true);
+    expect(isAnalyzedJobApplication({ ai_analyzed_at: "2026-01-01T00:00:00.000Z" })).toBe(true);
+    expect(isAnalyzedJobApplication({ ai_match_status: "READY", ai_match_score: null })).toBe(false);
+
+    const metrics = tallyApplicationMetrics([
+      { status: "new", ai_match_score: 12 },
+      { status: "new", ai_analyzed_at: "2026-01-01T00:00:00.000Z" },
+      { status: "new" },
+    ]);
+    expect(metrics.analyzedCount).toBe(2);
   });
 
   it("picks the in-process status tab with the most candidates for redirect", () => {
