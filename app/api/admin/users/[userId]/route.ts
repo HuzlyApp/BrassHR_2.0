@@ -16,7 +16,7 @@ type RouteContext = { params: Promise<{ userId: string }> };
 export async function PATCH(req: NextRequest, context: RouteContext) {
   const auth = await requireStaffApiSession();
   if (auth instanceof NextResponse) return auth;
-  const forbidden = requireUserManagement(auth);
+  const forbidden = await requireUserManagement(auth, "edit");
   if (forbidden) return forbidden;
 
   const supabase = createServiceRoleClient();
@@ -53,7 +53,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
 export async function DELETE(req: NextRequest, context: RouteContext) {
   const auth = await requireStaffApiSession();
   if (auth instanceof NextResponse) return auth;
-  const forbidden = requireUserManagement(auth);
+  const forbidden = await requireUserManagement(auth, "delete");
   if (forbidden) return forbidden;
 
   const supabase = createServiceRoleClient();

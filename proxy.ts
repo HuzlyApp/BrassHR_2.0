@@ -2,6 +2,9 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase-env";
+import { clientIpFromHeaders, noteAuthFailure } from "@/lib/auth/auth-failure-guard";
+import { authorizeStaffHttpAccess } from "@/lib/auth/module-access.server";
+import { supabaseAuthCookieOptions } from "@/lib/auth/session-cookie";
 import { isGodAdminUser } from "@/lib/auth/god-admin";
 import { isStaffRole, parseAppRole } from "@/lib/auth/app-role";
 import { resolveAuthenticatedRecruiterRedirectUrl } from "@/lib/auth/recruiter-dashboard-redirect";
@@ -51,6 +54,8 @@ function resolveRequestTenantSlug(request: NextRequest, hostTenantLabel: string 
 function withTenantSlugHeader(request: NextRequest, tenantSlug: string | null): Headers {
   const requestHeaders = new Headers(request.headers);
   if (tenantSlug) requestHeaders.set("x-tenant-slug", tenantSlug);
+  requestHeaders.set("x-brass-pathname", request.nextUrl.pathname);
+  requestHeaders.set("x-brass-method", request.method);
   return requestHeaders;
 }
 
@@ -115,6 +120,77 @@ function requestHasBearerToken(request: NextRequest): boolean {
   return /^Bearer\s+\S+/i.test(request.headers.get("authorization") ?? "");
 }
 
+async function denyApiRequest(
+  request: NextRequest,
+  status: 401 | 403,
+  reason: string,
+  userId: string | null,
+  detail?: string,
+  count = true
+): Promise<NextResponse> {
+  const limited = await noteAuthFailure({
+    ip: clientIpFromHeaders(request.headers),
+    method: request.method,
+    path: request.nextUrl.pathname,
+    status,
+    reason,
+    userId,
+    count,
+  });
+  if (limited) return limited;
+  return NextResponse.json(
+    { error: status === 401 ? "Unauthorized" : "Forbidden", ...(detail ? { detail } : {}) },
+    { status }
+  );
+}
+
+async function moduleApiDenial(request: NextRequest, actor: User): Promise<NextResponse | null> {
+  const pathname = request.nextUrl.pathname;
+  if (!pathname.startsWith("/api/admin")) return null;
+  const decision = await authorizeStaffHttpAccess({
+    user: actor,
+    pathname,
+    method: request.method,
+    tenantSlug: request.cookies.get(ONBOARDING_TENANT_SLUG_COOKIE)?.value ?? null,
+  });
+  if (decision.ok) return null;
+  return denyApiRequest(
+    request,
+    decision.status,
+    decision.code,
+    actor.id,
+    decision.detail,
+    decision.code !== "unavailable"
+  );
+}
+
+async function modulePageDenial(request: NextRequest, actor: User): Promise<NextResponse | null> {
+  const pathname = request.nextUrl.pathname;
+  const decision = await authorizeStaffHttpAccess({
+    user: actor,
+    pathname,
+    method: "GET",
+    tenantSlug: request.cookies.get(ONBOARDING_TENANT_SLUG_COOKIE)?.value ?? null,
+  });
+  if (decision.ok) return null;
+  const limited = await noteAuthFailure({
+    ip: clientIpFromHeaders(request.headers),
+    method: "GET",
+    path: pathname,
+    status: decision.status,
+    reason: decision.code,
+    userId: actor.id,
+    count: decision.code !== "unavailable",
+  });
+  if (limited) return limited;
+  if (decision.code === "unavailable" || pathname === "/admin_recruiter/home" || pathname.startsWith("/admin_recruiter/home/")) {
+    return new NextResponse("Forbidden", { status: 403 });
+  }
+  const home = new URL("/admin_recruiter/home", request.url);
+  home.searchParams.set("access", "denied");
+  return NextResponse.redirect(home);
+}
+
 /** Supabase session cookie, or a bearer the route handler will verify itself. */
 function requestHasAuthCredential(request: NextRequest): boolean {
   if (requestHasBearerToken(request)) return true;
@@ -163,14 +239,18 @@ function isPublicApiPath(pathname: string): boolean {
 export async function proxy(request: NextRequest) {
   const url = getSupabaseUrl();
   const anon = getSupabaseAnonKey();
-  const response = NextResponse.next({ request });
   const pathname = request.nextUrl.pathname;
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-brass-pathname", pathname);
+  requestHeaders.set("x-brass-method", request.method);
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
 
   if (!url || !anon) {
     return response;
   }
 
   const supabase = createServerClient(url, anon, {
+    cookieOptions: supabaseAuthCookieOptions(),
     cookies: {
       getAll() {
         return request.cookies.getAll();
@@ -344,20 +424,33 @@ export async function proxy(request: NextRequest) {
       if (isOwnerTrialPreparationApi(pathname) && trialPrepUserId) {
         return response;
       }
-      // Bearer-only callers are verified in the route (requireStaffApiSession),
-      // which reads Authorization. Cookie getUser() does not see that token.
+      // Cookie getUser() does not see an Authorization bearer. Verify it here
+      // and fail closed when the token is missing, invalid, or anonymous.
       if (requestHasBearerToken(request)) {
+        const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim() ?? "";
+        const bearerResult = token ? await supabase.auth.getUser(token) : { data: { user: null } };
+        const bearerUser = bearerResult.data.user ?? null;
+        if (!bearerUser || isAnonymousAuthUser(bearerUser)) {
+          return denyApiRequest(request, 401, "invalid_bearer", null);
+        }
+        if (platformOn && !isNexusPlatformUser(bearerUser) && !isGodAdminUser(bearerUser)) {
+          return denyApiRequest(request, 403, "wrong_platform", bearerUser.id);
+        }
+        const denied = await moduleApiDenial(request, bearerUser);
+        if (denied) return denied;
         return response;
       }
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return denyApiRequest(request, 401, "no_session", null);
     }
     if (platformOn && !isNexusPlatformUser(user) && !isGodAdminUser(user)) {
       logAuthDebug("middleware:api:block-platform", {
         userId: user.id,
         platform: getUserPlatform(user),
       });
-      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+      return denyApiRequest(request, 403, "wrong_platform", user.id);
     }
+    const denied = await moduleApiDenial(request, user);
+    if (denied) return denied;
     return response;
   }
 
@@ -384,8 +477,17 @@ export async function proxy(request: NextRequest) {
     const onboardingStatus = await fetchOwnerOnboardingStatus(supabase, user);
     if (!onboardingStatus.godAdmin) {
       if (isGodAdminApiPath) {
-        return NextResponse.json({ error: "Forbidden", detail: "God Admin role required." }, { status: 403 });
+        return denyApiRequest(request, 403, "god_admin_required", user?.id ?? null, "God Admin role required.");
       }
+      const limited = await noteAuthFailure({
+        ip: clientIpFromHeaders(request.headers),
+        method: request.method,
+        path: pathname,
+        status: 403,
+        reason: "god_admin_required",
+        userId: user?.id ?? null,
+      });
+      if (limited) return limited;
       const signin = new URL("/admin", request.url);
       signin.searchParams.set("error", "forbidden");
       return NextResponse.redirect(signin);
@@ -521,6 +623,15 @@ export async function proxy(request: NextRequest) {
 
   if (isAdminRecruiterPath) {
     if (!user || isAnonymousAuthUser(user)) {
+      const limited = await noteAuthFailure({
+        ip: clientIpFromHeaders(request.headers),
+        method: request.method,
+        path: pathname,
+        status: 401,
+        reason: isAnonymousAuthUser(user) ? "anonymous_session" : "no_session",
+        userId: user?.id ?? null,
+      });
+      if (limited) return limited;
       const login = new URL("/admin", request.url);
       login.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
       if (user && isAnonymousAuthUser(user)) {
@@ -546,6 +657,9 @@ export async function proxy(request: NextRequest) {
       }
       return NextResponse.redirect(login);
     }
+
+    const pageDenied = await modulePageDenial(request, user);
+    if (pageDenied) return withSessionCookies(response, pageDenied);
 
     if (!isGodAdminUser(user) && !isAppRouterFlightRequest(request.headers, request.nextUrl.searchParams)) {
       const host = forwardedHostFromHeaders(request.headers);
@@ -631,6 +745,11 @@ export async function proxy(request: NextRequest) {
       });
       return outgoing;
     }
+  }
+
+  if (pathname.startsWith("/api/admin") && user && !isAnonymousUser) {
+    const denied = await moduleApiDenial(request, user);
+    if (denied) return denied;
   }
 
   return response;

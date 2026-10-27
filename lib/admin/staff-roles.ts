@@ -91,3 +91,24 @@ export async function loadStaffRoles(supabase: SupabaseClient): Promise<StaffRol
     sortOrder: Number(row.sort_order ?? 0),
   }));
 }
+
+export async function loadAssignableStaffRoles(supabase: SupabaseClient, tenantId: string): Promise<StaffRole[]> {
+  const system = await loadStaffRoles(supabase);
+  const { data, error } = await supabase
+    .from("tenant_roles")
+    .select("role_key, label, is_admin")
+    .eq("tenant_id", tenantId)
+    .eq("is_system", false);
+  if (error) throw error;
+  const custom = ((data ?? []) as { role_key: string; label: string; is_admin?: boolean | null }[]).map((row, index) => ({
+    key: String(row.role_key),
+    label: String(row.label),
+    storageKey: String(row.role_key),
+    aliases: [] as string[],
+    isAdmin: row.is_admin === true,
+    isStaff: true,
+    isAssignable: true,
+    sortOrder: 1000 + index,
+  }));
+  return [...system, ...custom];
+}

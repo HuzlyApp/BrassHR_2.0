@@ -16,6 +16,7 @@ import {
 import {
   adminStorageKeys,
   labelForRole,
+  loadAssignableStaffRoles,
   loadStaffRoles,
   matchStaffRole,
   type StaffRole,
@@ -287,7 +288,7 @@ export async function listStaffDirectory(
   supabase: SupabaseClient,
   params: { tenantId: string; actorUserId: string }
 ): Promise<StaffDirectoryRow[]> {
-  const catalog = await loadStaffRoles(supabase);
+  const catalog = await loadAssignableStaffRoles(supabase, params.tenantId);
   const { data: roleData, error: roleError } = await supabase
     .from("user_roles")
     .select("user_id, tenant_id, role, is_active, created_at, created_by")
@@ -614,7 +615,7 @@ export async function inviteStaff(
     request?: Request;
   }
 ): Promise<{ row: StaffDirectoryRow; existingAccount: boolean }> {
-  const catalog = await loadStaffRoles(supabase);
+  const catalog = await loadAssignableStaffRoles(supabase, params.tenantId);
   const parsed = validateInviteStaffInput((params.input ?? {}) as Record<string, unknown>, catalog);
   if ("error" in parsed) {
     throw new StaffDirectoryError(parsed.error, "VALIDATION", 400);
@@ -903,7 +904,7 @@ export async function resendStaffInvitation(
     email,
     firstName: invitation.first_name ?? "there",
     tenantName: tenant.name,
-    roleLabel: labelForRole(invitation.role, await loadStaffRoles(supabase)) ?? "Staff",
+    roleLabel: labelForRole(invitation.role, await loadAssignableStaffRoles(supabase, params.tenantId)) ?? "Staff",
     actionUrl: buildStaffActivationUrl({
       appOrigin: params.appOrigin,
       hashedToken: token.hashedToken,
@@ -988,7 +989,7 @@ export async function updateStaffMembership(
     throw new StaffDirectoryError("Platform administrators cannot be managed here.", "FORBIDDEN", 403);
   }
 
-  const catalog = await loadStaffRoles(supabase);
+  const catalog = await loadAssignableStaffRoles(supabase, params.tenantId);
   const currentRole = matchStaffRole(membership.role, catalog) ?? matchStaffRole(user?.role, catalog);
 
   if (params.action === "change_role") {
@@ -1155,7 +1156,7 @@ export async function removeStaffMembership(
     .eq("tenant_id", params.tenantId)
     .maybeSingle();
   const membershipRole = (roleRow as { role?: string } | null)?.role;
-  const catalog = await loadStaffRoles(supabase);
+  const catalog = await loadAssignableStaffRoles(supabase, params.tenantId);
   const effectiveRole = matchStaffRole(membershipRole, catalog) ?? matchStaffRole(user?.role, catalog);
   if (effectiveRole?.isAdmin) {
     const remaining = await countActiveAdmins(supabase, params.tenantId, userId);

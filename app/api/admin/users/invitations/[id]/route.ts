@@ -14,7 +14,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 export async function POST(req: NextRequest, context: RouteContext) {
   const auth = await requireStaffApiSession();
   if (auth instanceof NextResponse) return auth;
-  const forbidden = requireUserManagement(auth);
+  const forbidden = await requireUserManagement(auth, "edit");
   if (forbidden) return forbidden;
 
   const limited = await enforceRateLimit(req, {
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 export async function DELETE(req: NextRequest, context: RouteContext) {
   const auth = await requireStaffApiSession();
   if (auth instanceof NextResponse) return auth;
-  const forbidden = requireUserManagement(auth);
+  const forbidden = await requireUserManagement(auth, "delete");
   if (forbidden) return forbidden;
 
   const supabase = createServiceRoleClient();

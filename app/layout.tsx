@@ -8,7 +8,6 @@ import IdleSessionGuard from "@/app/components/IdleSessionGuard";
 import AuthSessionSync from "@/app/components/AuthSessionSync";
 import { BRAAS_PLATFORM_FAVICON } from "@/lib/tenant/tenant-branding";
 import { Toaster } from "react-hot-toast";
-import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 
 const geistSans = Geist({

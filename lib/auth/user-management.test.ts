@@ -1,26 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { canManageStaffUsers, requireUserManagement } from "@/lib/auth/user-management";
-import type { ApiAuthContext } from "@/lib/auth/api-session";
+import { canManageStaffUsers } from "@/lib/auth/user-management";
+import type { StaffApiAuthContext } from "@/lib/auth/api-session";
 
-function auth(role: ApiAuthContext["role"], godAdmin = false): ApiAuthContext {
-  return {
-    userId: "11111111-1111-4111-8111-111111111111",
-    email: "staff@example.com",
-    role,
-    godAdmin,
-    devBypass: false,
-  };
+function auth(godAdmin = false): Pick<StaffApiAuthContext, "godAdmin" | "devBypass"> {
+  return { godAdmin, devBypass: false };
 }
 
 describe("user management authorization", () => {
-  it("blocks recruiters from the admin console", () => {
-    expect(canManageStaffUsers(auth("recruiter"))).toBe(false);
-    expect(requireUserManagement(auth("recruiter"))?.status).toBe(403);
+  it("does not treat a role name as permission to manage users", () => {
+    expect(canManageStaffUsers(auth(false), null)).toBe(false);
+    expect(canManageStaffUsers(auth(false), { canEdit: false })).toBe(false);
   });
 
-  it("allows tenant admins and platform admins", () => {
-    expect(canManageStaffUsers(auth("admin"))).toBe(true);
-    expect(requireUserManagement(auth("admin"))).toBeNull();
-    expect(requireUserManagement(auth("recruiter", true))).toBeNull();
+  it("allows company-settings edit and platform admins", () => {
+    expect(canManageStaffUsers(auth(false), { canEdit: true })).toBe(true);
+    expect(canManageStaffUsers(auth(true), null)).toBe(true);
   });
 });

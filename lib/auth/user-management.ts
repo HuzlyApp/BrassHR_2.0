@@ -1,15 +1,35 @@
 import { NextResponse } from "next/server";
-import type { ApiAuthContext } from "@/lib/auth/api-session";
+import { cookies } from "next/headers";
+import type { StaffApiAuthContext } from "@/lib/auth/api-session";
+import { authorizeStaffHttpAccess } from "@/lib/auth/module-access.server";
+import type { PermissionAction } from "@/lib/auth/permission-catalog";
+import { ONBOARDING_TENANT_SLUG_COOKIE } from "@/lib/tenant/constants";
 
-/** Tenant admin (or platform god admin) may manage staff users and invitations. */
-export function canManageStaffUsers(auth: Pick<ApiAuthContext, "role" | "godAdmin">): boolean {
-  return auth.role === "admin" || auth.godAdmin === true;
+/** Company-settings edit is a stored grant. A role name by itself does not grant it. */
+export function canManageStaffUsers(
+  auth: Pick<StaffApiAuthContext, "godAdmin" | "devBypass">,
+  companySettings: { canEdit: boolean } | null
+): boolean {
+  if (auth.godAdmin || auth.devBypass) return true;
+  return companySettings?.canEdit === true;
 }
 
-export function requireUserManagement(auth: ApiAuthContext): NextResponse | null {
-  if (canManageStaffUsers(auth)) return null;
+export async function requireUserManagement(
+  auth: StaffApiAuthContext,
+  action: PermissionAction = "edit"
+): Promise<NextResponse | null> {
+  if (auth.godAdmin || auth.devBypass) return null;
+  const method = action === "view" ? "GET" : action === "delete" ? "DELETE" : "POST";
+  const jar = await cookies();
+  const decision = await authorizeStaffHttpAccess({
+    user: auth.authUser,
+    pathname: "/api/admin/users",
+    method,
+    tenantSlug: jar.get(ONBOARDING_TENANT_SLUG_COOKIE)?.value ?? null,
+  });
+  if (decision.ok) return null;
   return NextResponse.json(
-    { error: "Forbidden", detail: "Administrator role required to manage users" },
-    { status: 403 }
+    { error: decision.error, detail: decision.detail || "You do not have permission to manage users." },
+    { status: decision.status }
   );
 }

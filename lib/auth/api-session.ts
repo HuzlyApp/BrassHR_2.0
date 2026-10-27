@@ -1,11 +1,14 @@
 import type { User } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { headers } from "next/headers";
+import { headers, cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { loadStaffUserProfileCached } from "@/lib/auth/staff-user-profile";
 import { isGodAdminUser } from "@/lib/auth/god-admin";
 import { isStaffRole, parseAppRole, type AppRole } from "@/lib/auth/app-role";
 import { resolveAppRoleForUser } from "@/lib/auth/resolve-role";
+import { clientIpFromHeaders, noteAuthFailure } from "@/lib/auth/auth-failure-guard";
+import { authorizeStaffHttpAccess } from "@/lib/auth/module-access.server";
+import { ONBOARDING_TENANT_SLUG_COOKIE } from "@/lib/tenant/constants";
 import {
   getUserPlatform,
   isNexusPlatformUser,
@@ -76,6 +79,39 @@ function isAnonymousAuthUser(user: User | null | undefined): boolean {
   return user?.is_anonymous === true;
 }
 
+async function rejectAuth(
+  status: 401 | 403,
+  reason: string,
+  userId?: string | null,
+  detail?: string,
+  count = true,
+  code?: string
+): Promise<NextResponse> {
+  try {
+    const requestHeaders = await headers();
+    const limited = await noteAuthFailure({
+      ip: clientIpFromHeaders(requestHeaders),
+      method: requestHeaders.get("x-brass-method") ?? "GET",
+      path: requestHeaders.get("x-brass-pathname") ?? "/",
+      status,
+      reason,
+      userId,
+      count,
+    });
+    if (limited) return limited;
+  } catch (error) {
+    console.error("[security-auth] failure log skipped", error instanceof Error ? error.message : "unknown");
+  }
+  return NextResponse.json(
+    {
+      error: status === 401 ? "Unauthorized" : "Forbidden",
+      ...(detail ? { detail } : {}),
+      ...(code ? { code } : {}),
+    },
+    { status }
+  );
+}
+
 async function getSessionUser(): Promise<{ user: User | null; error: unknown }> {
   const supabase = await createClient();
   const bearer = await extractBearerToken();
@@ -115,14 +151,14 @@ export async function requireNexusSessionUser(): Promise<User | NextResponse> {
     const { user, error } = await getSessionUser();
     if (error || !user?.id) {
       logAuthDebug("requireNexusSessionUser:no-user", {});
-      return jsonUnauthorized(401);
+      return rejectAuth(401, "no_session");
     }
     if (isPlatformEnforcementEnabled() && !isNexusPlatformUser(user) && !isGodAdminUser(user)) {
       logAuthDebug("requireNexusSessionUser:wrong-platform", {
         userId: user.id,
         platform: getUserPlatform(user),
       });
-      return jsonUnauthorized(403);
+      return rejectAuth(403, "wrong_platform", user.id);
     }
     logAuthDebug("requireNexusSessionUser:ok", {
       userId: user.id,
@@ -131,7 +167,7 @@ export async function requireNexusSessionUser(): Promise<User | NextResponse> {
     return user;
   } catch (e) {
     console.error("[auth] requireNexusSessionUser", e);
-    return jsonUnauthorized(401);
+    return rejectAuth(401, "auth_check_failed");
   }
 }
 
@@ -149,14 +185,14 @@ export async function requireApiSession(): Promise<ApiAuthContext | NextResponse
         return bypass;
       }
       logAuthDebug("requireApiSession:no-user", {});
-      return jsonUnauthorized(401);
+      return rejectAuth(401, "no_session");
     }
     if (isPlatformEnforcementEnabled() && !isNexusPlatformUser(user) && !isGodAdminUser(user)) {
       logAuthDebug("requireApiSession:wrong-platform", {
         userId: user.id,
         platform: getUserPlatform(user),
       });
-      return jsonUnauthorized(403);
+      return rejectAuth(403, "wrong_platform", user.id);
     }
     const role = await resolveAppRoleForUser(user);
     const godAdmin = isGodAdminUser(user) || (await hasGodAdminDbFlag(user.id));
@@ -174,7 +210,7 @@ export async function requireApiSession(): Promise<ApiAuthContext | NextResponse
     };
   } catch (e) {
     console.error("[auth] requireApiSession", e);
-    return jsonUnauthorized(401);
+    return rejectAuth(401, "auth_check_failed");
   }
 }
 
@@ -201,24 +237,22 @@ export async function requireStaffApiSession(): Promise<StaffApiAuthContext | Ne
         };
       }
       logAuthDebug("requireStaffApiSession:no-user", {});
-      return jsonUnauthorized(401);
+      return rejectAuth(401, "no_session");
     }
     if (isPlatformEnforcementEnabled() && !isNexusPlatformUser(user) && !isGodAdminUser(user)) {
       logAuthDebug("requireStaffApiSession:wrong-platform", {
         userId: user.id,
         platform: getUserPlatform(user),
       });
-      return jsonUnauthorized(403);
+      return rejectAuth(403, "wrong_platform", user.id);
     }
 
     if (isAnonymousAuthUser(user)) {
-      return NextResponse.json(
-        {
-          error: "Forbidden",
-          detail:
-            "Staff role required. Sign in again as a recruiter or admin (applicant preview may have replaced your session).",
-        },
-        { status: 403 }
+      return rejectAuth(
+        403,
+        "anonymous_session",
+        user.id,
+        "Staff role required. Sign in again as a recruiter or admin (applicant preview may have replaced your session)."
       );
     }
 
@@ -233,26 +267,60 @@ export async function requireStaffApiSession(): Promise<StaffApiAuthContext | Ne
     };
 
     if (!isStaffRole(role) && !godAdmin) {
-      return NextResponse.json({ error: "Forbidden", detail: "Staff role required" }, { status: 403 });
+      return rejectAuth(403, "not_staff", user.id, "Staff role required");
     }
 
     if (!godAdmin) {
       const profile = await loadStaffUserProfileCached(user.id);
       if (profile?.must_change_password) {
-        return NextResponse.json(
-          {
-            error: "Forbidden",
-            detail: "Set your password using the invitation email before using the application.",
-            code: "PASSWORD_SETUP_REQUIRED",
-          },
-          { status: 403 }
+        return rejectAuth(
+          403,
+          "password_setup_required",
+          user.id,
+          "Set your password using the invitation email before using the application.",
+          false,
+          "PASSWORD_SETUP_REQUIRED"
         );
       }
       if (profile && profile.is_active === false) {
-        return NextResponse.json(
-          { error: "Forbidden", detail: "This account has been disabled.", code: "ACCOUNT_DISABLED" },
-          { status: 403 }
+        return rejectAuth(
+          403,
+          "account_disabled",
+          user.id,
+          "This account has been disabled.",
+          false,
+          "ACCOUNT_DISABLED"
         );
+      }
+    }
+
+    if (!godAdmin && !ctx.devBypass) {
+      let pathname = "";
+      let method = "GET";
+      try {
+        const requestHeaders = await headers();
+        pathname = requestHeaders.get("x-brass-pathname") ?? "";
+        method = requestHeaders.get("x-brass-method") ?? "GET";
+      } catch {
+        return rejectAuth(403, "unavailable", user.id, "Permission data unavailable", false);
+      }
+      if (pathname.startsWith("/api/admin")) {
+        const jar = await cookies();
+        const decision = await authorizeStaffHttpAccess({
+          user,
+          pathname,
+          method,
+          tenantSlug: jar.get(ONBOARDING_TENANT_SLUG_COOKIE)?.value ?? null,
+        });
+        if (!decision.ok) {
+          return rejectAuth(
+            decision.status,
+            decision.code,
+            user.id,
+            decision.detail,
+            decision.code !== "unavailable"
+          );
+        }
       }
     }
 
@@ -266,6 +334,6 @@ export async function requireStaffApiSession(): Promise<StaffApiAuthContext | Ne
     return { ...ctx, authUser: user };
   } catch (e) {
     console.error("[auth] requireStaffApiSession", e);
-    return jsonUnauthorized(401);
+    return rejectAuth(401, "auth_check_failed");
   }
 }

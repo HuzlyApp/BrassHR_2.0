@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import toast from "react-hot-toast";
 import { AdminTenantBrandingProvider } from "@/app/components/tenant/AdminTenantBrandingProvider";
 import { AccountDataProvider } from "@/app/admin_recruiter/account/AccountDataProvider";
 import {
@@ -30,6 +31,15 @@ export default function AdminRecruiterShell({ children }: { children: ReactNode 
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const pathname = usePathname();
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("access") !== "denied") return;
+    toast.error("You don't have access to that page.");
+    params.delete("access");
+    const next = `${window.location.pathname}${params.toString() ? `?${params}` : ""}`;
+    window.history.replaceState(null, "", next);
+  }, [pathname]);
 
   useEffect(() => {
     setMobileSidebarOpen(false);

@@ -2,6 +2,7 @@
 
 import { createBrowserClient } from "@supabase/ssr";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { supabaseAuthCookieOptions } from "@/lib/auth/session-cookie";
 import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase-env";
 
 let client: SupabaseClient | undefined;
@@ -15,7 +16,9 @@ function getClient(): SupabaseClient {
         "Missing Supabase URL or anon key (NEXT_PUBLIC_* or EXPO_PUBLIC_* in .env.local)"
       );
     }
-    client = createBrowserClient(url, key);
+    client = createBrowserClient(url, key, {
+      cookieOptions: supabaseAuthCookieOptions(),
+    });
   }
   return client;
 }

@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
+import { cookies } from "next/headers"
 import { EASTERN_TIME_ZONE } from "@/lib/datetime/eastern"
 import { isActiveReferenceTimezone } from "@/lib/account/reference-timezones"
 import { fetchAccountData, syncAccountChecklist } from "@/lib/account/fetch-account-data"
 import { formatApiError } from "@/lib/api/format-api-error"
+import { isStaffRole, parseAppRole } from "@/lib/auth/app-role"
+import { authorizeStaffHttpAccess } from "@/lib/auth/module-access.server"
 import { createClient } from "@/lib/supabase/server"
+import { ONBOARDING_TENANT_SLUG_COOKIE } from "@/lib/tenant/constants"
 
 export const runtime = "nodejs"
 
@@ -29,6 +33,20 @@ export async function PATCH(req: NextRequest) {
     if (authError) throw authError
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const role = parseAppRole((user.app_metadata as { role?: unknown } | undefined)?.role)
+    if (role && isStaffRole(role)) {
+      const jar = await cookies()
+      const decision = await authorizeStaffHttpAccess({
+        user,
+        pathname: "/api/account/settings",
+        method: "PATCH",
+        tenantSlug: jar.get(ONBOARDING_TENANT_SLUG_COOKIE)?.value ?? null,
+      })
+      if (!decision.ok && decision.code !== "not_staff") {
+        return NextResponse.json({ error: decision.error, detail: decision.detail }, { status: decision.status })
+      }
     }
 
     const body = (await req.json()) as PreferencesBody

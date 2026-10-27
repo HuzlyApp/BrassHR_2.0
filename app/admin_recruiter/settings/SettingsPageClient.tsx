@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import AdminConsolePanel from "@/app/admin_recruiter/settings/AdminConsolePanel";
@@ -9,17 +9,38 @@ import HireJourneyThemePanel from "@/app/admin_recruiter/settings/HireJourneyThe
 import CandidateStatusesPanel from "@/app/admin_recruiter/settings/CandidateStatusesPanel";
 import AssessmentSettingsPanel from "@/app/admin_recruiter/settings/AssessmentSettingsPanel";
 import ProfessionDocumentsPanel from "@/app/admin_recruiter/settings/ProfessionDocumentsPanel";
+import RolePermissionsPanel from "@/app/admin_recruiter/settings/RolePermissionsPanel";
 
 function SettingsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const legacyTab = searchParams.get("tab");
+  const [company, setCompany] = useState({ canEdit: false, canDelete: false });
 
   useEffect(() => {
     if (legacyTab) {
       router.replace("/admin_recruiter/settings");
     }
   }, [legacyTab, router]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/admin/access")
+      .then(async (response) => {
+        if (!response.ok) return;
+        const body = (await response.json()) as {
+          grants?: Array<{ key: string; canEdit?: boolean; canDelete?: boolean }>;
+        };
+        const grant = body.grants?.find((item) => item.key === "settings_company");
+        if (!cancelled && grant) {
+          setCompany({ canEdit: grant.canEdit === true, canDelete: grant.canDelete === true });
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <main className="w-full min-w-0 max-w-full space-y-6 px-5 pb-8 pt-5 lg:px-8">
@@ -33,6 +54,9 @@ function SettingsContent() {
         </p>
       </div>
 
+      <RolePermissionsPanel canEdit={company.canEdit} canDelete={company.canDelete} />
+
+      <fieldset disabled={!company.canEdit} className="min-w-0 space-y-6 border-0 p-0 disabled:opacity-80">
       <section aria-labelledby="admin-console-heading">
         <h2 id="admin-console-heading" className="sr-only">
           Admin Console
@@ -74,6 +98,7 @@ function SettingsContent() {
         </h2>
         <CandidateStatusesPanel />
       </section>
+      </fieldset>
 
     </main>
   );

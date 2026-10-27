@@ -10,7 +10,6 @@ import { SidebarSubmenuToggleIcon } from "@/app/components/sidebar/SidebarSubmen
 import { useTenantBranding } from "@/app/components/tenant/TenantBrandingContext";
 import { BRAAS_PLATFORM_FAVICON } from "@/lib/tenant/tenant-branding";
 import { useAccountData } from "@/app/admin_recruiter/hooks/useAccountData";
-import { isLimitedStaffConsoleRole } from "@/lib/admin/staff-directory-types";
 import {
   ADMIN_RECRUITER_HOME_ROUTE,
   CLIENT_SIDEBAR_SECTIONS,
@@ -19,6 +18,7 @@ import {
   type SidebarLink,
   type SidebarSection,
 } from "@/app/admin_recruiter/components/sidebar-config";
+import { visibleSidebarSections } from "@/lib/auth/sidebar-access";
 import SidebarNavIcon from "@/app/admin_recruiter/components/SidebarNavIcon";
 import { StaffProfileAvatar } from "@/app/admin_recruiter/components/StaffProfileAvatar";
 import {
@@ -109,24 +109,6 @@ function decorateSidebarLink(
 
 const DEFAULT_TENANT_LOGO = BRAAS_PLATFORM_FAVICON;
 const DASHBOARD_HOME_HREF = ADMIN_RECRUITER_HOME_ROUTE;
-const RECRUITER_HIDDEN_SECTIONS = new Set(["Automation", "Templates", "Taskboard"]);
-/** These stay in the shared list for recruiters, and live under Settings for company admins. */
-const ADMIN_SECTIONS_UNDER_SETTINGS = new Set(["Organization", "Templates"]);
-const RECRUITER_SETTINGS_CHILDREN = new Set(["Profile", "Notifications", "Help & Support", "Reports"]);
-
-function settingsChildrenForRecruiter(children: SidebarLink[]): SidebarLink[] {
-  const visible: SidebarLink[] = [];
-  for (const child of children) {
-    if (child.label === "Personal Settings") {
-      for (const nested of child.children ?? []) {
-        if (RECRUITER_SETTINGS_CHILDREN.has(nested.label)) visible.push(nested);
-      }
-      continue;
-    }
-    if (RECRUITER_SETTINGS_CHILDREN.has(child.label)) visible.push(child);
-  }
-  return visible;
-}
 
 export function AdminRecruiterSidebar({
   isMobileOpen = false,
@@ -141,25 +123,36 @@ export function AdminRecruiterSidebar({
   const [openSectionLabels, setOpenSectionLabels] = useState<string[]>([]);
   const { viewer } = useEffectiveBranding();
   const isGodAdmin = viewer?.godAdmin === true;
-  const isRecruiter = isLimitedStaffConsoleRole(profile?.role, profile?.is_admin);
+  const [accessKeys, setAccessKeys] = useState<Set<string> | null>(null);
   const [sidebarHovered, setSidebarHovered] = useState(false);
   const navRef = useRef<HTMLElement>(null);
 
   const sidebarSections = useMemo(() => {
-    if (isGodAdmin) return GOD_ADMIN_SIDEBAR_SECTIONS;
-    if (isRecruiter) {
-      return CLIENT_SIDEBAR_SECTIONS.filter((section) => !RECRUITER_HIDDEN_SECTIONS.has(section.label)).map(
-        (section) => {
-          if (section.label !== "Settings" || !section.children?.length) return section;
-          return {
-            ...section,
-            children: settingsChildrenForRecruiter(section.children),
-          };
+    if (isGodAdmin || accessKeys?.has("*")) return isGodAdmin ? GOD_ADMIN_SIDEBAR_SECTIONS : CLIENT_SIDEBAR_SECTIONS;
+    return visibleSidebarSections(CLIENT_SIDEBAR_SECTIONS, accessKeys ?? new Set(["dashboard"]), false);
+  }, [accessKeys, isGodAdmin]);
+
+  useEffect(() => {
+    if (isGodAdmin) return;
+    let cancelled = false;
+    void fetch("/api/admin/access")
+      .then(async (response) => {
+        if (!response.ok) return;
+        const body = (await response.json()) as { godAdmin?: boolean; viewKeys?: string[] };
+        if (cancelled) return;
+        if (body.godAdmin) {
+          setAccessKeys(new Set(["*"]));
+          return;
         }
-      );
-    }
-    return CLIENT_SIDEBAR_SECTIONS.filter((section) => !ADMIN_SECTIONS_UNDER_SETTINGS.has(section.label));
-  }, [isGodAdmin, isRecruiter]);
+        setAccessKeys(new Set(body.viewKeys ?? ["dashboard"]));
+      })
+      .catch(() => {
+        if (!cancelled) setAccessKeys(new Set(["dashboard"]));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isGodAdmin]);
 
   const handleNavClick = () => {
     onMobileClose?.();

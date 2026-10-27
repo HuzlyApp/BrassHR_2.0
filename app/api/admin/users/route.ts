@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireStaffApiSession } from "@/lib/auth/api-session";
 import { requireUserManagement } from "@/lib/auth/user-management";
 import { inviteStaff, listStaffDirectory, staffDirectoryErrorResponse } from "@/lib/admin/staff-directory";
-import { loadStaffRoles } from "@/lib/admin/staff-roles";
 import { resolveStaffTenantId } from "@/lib/jobs/tenant";
 import { isAllowedAppOrigin, resolveAppOrigin } from "@/lib/resolve-app-origin";
 import { enforceRateLimit, getClientIp } from "@/lib/security/rate-limit";
@@ -13,7 +12,7 @@ export const runtime = "nodejs";
 export async function GET() {
   const auth = await requireStaffApiSession();
   if (auth instanceof NextResponse) return auth;
-  const forbidden = requireUserManagement(auth);
+  const forbidden = await requireUserManagement(auth, "view");
   if (forbidden) return forbidden;
 
   const supabase = createServiceRoleClient();
@@ -25,11 +24,19 @@ export async function GET() {
     const users = await listStaffDirectory(supabase, { tenantId, actorUserId: auth.userId });
     let roles: Array<{ key: string; label: string; isAdmin: boolean }> = [];
     try {
-      roles = (await loadStaffRoles(supabase))
-        .filter((role) => role.isStaff && role.isAssignable)
-        .map((role) => ({ key: role.key, label: role.label, isAdmin: role.isAdmin }));
+      const { data: tenantRoles, error: tenantRoleError } = await supabase
+        .from("tenant_roles")
+        .select("role_key, label, is_admin")
+        .eq("tenant_id", tenantId)
+        .order("label", { ascending: true });
+      if (tenantRoleError) throw tenantRoleError;
+      roles = ((tenantRoles ?? []) as { role_key: string; label: string; is_admin?: boolean }[]).map((role) => ({
+        key: role.role_key,
+        label: role.label,
+        isAdmin: role.is_admin === true,
+      }));
     } catch (error) {
-      console.error("[admin/users] staff role catalog", error instanceof Error ? error.message : error);
+      console.error("[admin/users] tenant roles", error instanceof Error ? error.message : error);
     }
     return NextResponse.json({ users, roles, canManage: true });
   } catch (error) {
@@ -41,7 +48,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const auth = await requireStaffApiSession();
   if (auth instanceof NextResponse) return auth;
-  const forbidden = requireUserManagement(auth);
+  const forbidden = await requireUserManagement(auth, "edit");
   if (forbidden) return forbidden;
 
   const limited = await enforceRateLimit(req, {
