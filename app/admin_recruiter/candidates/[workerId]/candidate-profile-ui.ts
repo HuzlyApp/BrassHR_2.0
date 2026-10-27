@@ -415,9 +415,19 @@ export function overallStatusBadgeClass(status: string): string {
   return "bg-[#FFEDD5] text-[#C2410C]";
 }
 
-export function resumeIconType(fileName: string, fileType: string | null | undefined): "pdf" | "jpeg" {
+export function resumeIconType(
+  fileName: string,
+  fileType: string | null | undefined
+): "pdf" | "jpeg" | "docx" {
   const lower = `${fileName} ${fileType ?? ""}`.toLowerCase();
   if (lower.includes("jpeg") || lower.includes("jpg") || lower.includes("png")) return "jpeg";
+  if (
+    lower.includes("wordprocessingml") ||
+    lower.includes("msword") ||
+    /\.docx?\b/.test(lower)
+  ) {
+    return "docx";
+  }
   return "pdf";
 }
 

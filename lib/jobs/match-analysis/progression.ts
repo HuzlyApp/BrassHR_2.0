@@ -55,7 +55,7 @@ export const MATCH_PROGRESSION_STEPS = [
     stepNumber: 5,
     label: "Submission",
     subtitle: "Enriched Resume",
-    hint: "Step 5 · Submission. Draft the optimized résumé PDF here, then email MSP / upload the portal.",
+    hint: "Step 5 · Submission. Draft the optimized résumé (Word + PDF) here, then email MSP / upload the portal.",
     sectionId: "match-step-submission",
   },
 ] as const;

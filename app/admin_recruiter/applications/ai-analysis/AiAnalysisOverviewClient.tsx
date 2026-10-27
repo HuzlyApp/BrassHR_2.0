@@ -143,6 +143,17 @@ function scrollAiAnalysisBelowHeader(elementId = "ai-analysis-overview-top") {
   const y = el.getBoundingClientRect().top + window.scrollY - headerPx - 16;
   window.scrollTo({ top: Math.max(0, y), behavior: "smooth" });
 }
+
+function resumeFileIconType(
+  fileName?: string | null,
+  fallback?: "pdf" | "jpeg" | "docx"
+): "pdf" | "jpeg" | "docx" {
+  const lower = String(fileName ?? "").toLowerCase();
+  if (/\.docx?$/i.test(lower)) return "docx";
+  if (/\.(jpe?g|png|webp)$/i.test(lower)) return "jpeg";
+  if (fallback) return fallback;
+  return "pdf";
+}
 const FIELD =
   "h-11 w-full rounded-lg border border-[#D0D5DD] bg-white px-3 text-sm text-[#101828] outline-none transition placeholder:text-[#98A2B3] focus:border-[color:var(--brand-primary)]";
 const SELECT_FIELD =
@@ -693,7 +704,7 @@ export function AiAnalysisOverviewClient({
     savingText,
     resumes,
     viewResume,
-    downloadSubmissionDocx,
+    downloadSubmissionResume,
     improvementSummary,
     runAnalyze,
     saveScreeningAnswers,
@@ -1024,14 +1035,20 @@ export function AiAnalysisOverviewClient({
           applicationId,
         })
       : null;
+  /** Prefer Word deliverable in Optimized Preview; fall back to PDF if no .docx exists. */
+  const optimizedPreviewResume =
+    latestSubmissionDocx || latestSubmissionPdf || latestSubmissionResume;
   const optimizedPreviewHref =
-    workerId && (latestSubmissionPdf || latestSubmissionResume)
+    workerId && optimizedPreviewResume
       ? adminWorkerResumePreviewHref({
           workerId,
-          resumeId: (latestSubmissionPdf || latestSubmissionResume)!.id,
+          resumeId: optimizedPreviewResume.id,
           applicationId,
         })
       : null;
+  const optimizedPreviewIsDocx = Boolean(
+    optimizedPreviewResume && /_submission_resume\.docx$/i.test(optimizedPreviewResume.fileName)
+  );
   const canRunPaidDeep = canRunDeepMatch({
     isAnalyzed,
     unlockedIndex,
@@ -1682,28 +1699,68 @@ export function AiAnalysisOverviewClient({
               </SectionHeaderBlock>
               {hasSubmissionResume ? (
                 <div className="mt-4 flex flex-col gap-4">
-                  <div className="flex items-start gap-3 rounded-lg border border-[color:var(--brand-primary)] bg-white px-3 py-3">
-                    <BrandedFileTypeIcon type="pdf" className="mt-0.5 h-7 w-7 shrink-0" />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="m-0 block max-w-full truncate text-sm font-semibold text-[color:var(--brand-primary)]">
-                          {(latestSubmissionDocx || latestSubmissionResume)?.fileName ||
-                            "Optimized submission résumé"}
-                        </p>
-                        <span className="shrink-0 rounded-md bg-[color:var(--brand-primary)] px-2 py-0.5 text-[11px] font-semibold text-white">
-                          Optimized
-                        </span>
+                  {(
+                    [
+                      latestSubmissionDocx,
+                      latestSubmissionPdf &&
+                      latestSubmissionPdf.id !== latestSubmissionDocx?.id
+                        ? latestSubmissionPdf
+                        : null,
+                      !latestSubmissionDocx &&
+                      !latestSubmissionPdf &&
+                      latestSubmissionResume
+                        ? latestSubmissionResume
+                        : null,
+                    ].filter(Boolean) as Array<{
+                      id: string;
+                      fileName: string;
+                      uploadedAt?: string;
+                      uploadedAtLabel?: string;
+                      fileIconType?: "pdf" | "jpeg" | "docx";
+                    }>
+                  ).map((row) => (
+                    <div
+                      key={row.id}
+                      className="flex items-start gap-3 rounded-lg border border-[color:var(--brand-primary)] bg-white px-3 py-3"
+                    >
+                      <BrandedFileTypeIcon
+                        type={resumeFileIconType(row.fileName, row.fileIconType)}
+                        className="mt-0.5 h-7 w-7 shrink-0"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="m-0 block max-w-full truncate text-sm font-semibold text-[color:var(--brand-primary)]">
+                            {row.fileName || "Optimized submission résumé"}
+                          </p>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            <span className="rounded-md bg-[color:var(--brand-primary)] px-2 py-0.5 text-[11px] font-semibold text-white">
+                              Optimized
+                            </span>
+                            <button
+                              type="button"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#E4E7EC] bg-white text-[color:var(--brand-primary)] transition hover:bg-[color-mix(in_srgb,var(--brand-primary)_8%,white)]"
+                              title={`Download ${row.fileName}`}
+                              aria-label={`Download ${row.fileName}`}
+                              onClick={() =>
+                                void downloadSubmissionResume(row.id, row.fileName)
+                              }
+                            >
+                              <BrandedSvgIcon
+                                src="/icons/admin-recruiter/downloadicon.svg"
+                                className="h-4 w-4"
+                                color="var(--brand-primary)"
+                              />
+                            </button>
+                          </div>
+                        </div>
+                        {row.uploadedAtLabel || row.uploadedAt ? (
+                          <p className="mt-0.5 text-xs text-[#667085]">
+                            Created {row.uploadedAtLabel || formatWhen(row.uploadedAt)}
+                          </p>
+                        ) : null}
                       </div>
-                      {(latestSubmissionDocx || latestSubmissionResume)?.uploadedAtLabel ||
-                      (latestSubmissionDocx || latestSubmissionResume)?.uploadedAt ? (
-                        <p className="mt-0.5 text-xs text-[#667085]">
-                          Created{" "}
-                          {(latestSubmissionDocx || latestSubmissionResume)?.uploadedAtLabel ||
-                            formatWhen((latestSubmissionDocx || latestSubmissionResume)?.uploadedAt)}
-                        </p>
-                      ) : null}
                     </div>
-                  </div>
+                  ))}
 
                   {(originalPreviewHref || optimizedPreviewHref) && workerId ? (
                     <div className="grid gap-3 lg:grid-cols-2">
@@ -1735,25 +1792,71 @@ export function AiAnalysisOverviewClient({
                         )}
                       </div>
                       <div className="overflow-hidden rounded-lg border border-[#E4E7EC] bg-[#F9FAFB]">
-                        <div className="flex items-center justify-between border-b border-[#E4E7EC] px-3 py-2">
+                        <div className="flex items-center justify-between gap-2 border-b border-[#E4E7EC] px-3 py-2">
                           <p className="m-0 text-xs font-semibold uppercase tracking-wide text-[#667085]">
                             Optimized preview
                           </p>
-                          {latestSubmissionPdf || latestSubmissionResume ? (
-                            <button
-                              type="button"
-                              className="text-xs font-medium text-[color:var(--brand-primary)] hover:underline"
-                              onClick={() =>
-                                void viewResume((latestSubmissionPdf || latestSubmissionResume)!.id)
-                              }
-                            >
-                              Open
-                            </button>
-                          ) : null}
+                          <div className="flex shrink-0 items-center gap-2">
+                            {latestSubmissionDocx ? (
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1.5 text-xs font-medium text-[color:var(--brand-primary)] hover:underline"
+                                title="Download Word résumé"
+                                aria-label="Download Word résumé"
+                                onClick={() =>
+                                  void downloadSubmissionResume(
+                                    latestSubmissionDocx.id,
+                                    latestSubmissionDocx.fileName
+                                  )
+                                }
+                              >
+                                <BrandedSvgIcon
+                                  src="/icons/admin-recruiter/downloadicon.svg"
+                                  className="h-3.5 w-3.5"
+                                  color="var(--brand-primary)"
+                                />
+                                .docx
+                              </button>
+                            ) : null}
+                            {latestSubmissionPdf ? (
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1.5 text-xs font-medium text-[color:var(--brand-primary)] hover:underline"
+                                title="Download PDF résumé"
+                                aria-label="Download PDF résumé"
+                                onClick={() =>
+                                  void downloadSubmissionResume(
+                                    latestSubmissionPdf.id,
+                                    latestSubmissionPdf.fileName
+                                  )
+                                }
+                              >
+                                <BrandedSvgIcon
+                                  src="/icons/admin-recruiter/downloadicon.svg"
+                                  className="h-3.5 w-3.5"
+                                  color="var(--brand-primary)"
+                                />
+                                .pdf
+                              </button>
+                            ) : null}
+                            {optimizedPreviewResume ? (
+                              <button
+                                type="button"
+                                className="text-xs font-medium text-[color:var(--brand-primary)] hover:underline"
+                                onClick={() => void viewResume(optimizedPreviewResume.id)}
+                              >
+                                {optimizedPreviewIsDocx ? "Open Word" : "Open PDF"}
+                              </button>
+                            ) : null}
+                          </div>
                         </div>
                         {optimizedPreviewHref ? (
                           <iframe
-                            title="Optimized résumé PDF preview"
+                            title={
+                              optimizedPreviewIsDocx
+                                ? "Optimized résumé Word preview"
+                                : "Optimized résumé PDF preview"
+                            }
                             src={optimizedPreviewHref}
                             className="h-[420px] w-full bg-white"
                           />
@@ -1854,15 +1957,39 @@ export function AiAnalysisOverviewClient({
                     {latestSubmissionDocx ? (
                       <button
                         type="button"
-                        className={PRIMARY_BTN}
+                        className={`${PRIMARY_BTN} gap-2`}
                         onClick={() =>
-                          void downloadSubmissionDocx(
+                          void downloadSubmissionResume(
                             latestSubmissionDocx.id,
                             latestSubmissionDocx.fileName
                           )
                         }
                       >
+                        <BrandedSvgIcon
+                          src="/icons/admin-recruiter/downloadicon.svg"
+                          className="h-4 w-4"
+                          color="#FFFFFF"
+                        />
                         Download .docx
+                      </button>
+                    ) : null}
+                    {latestSubmissionPdf ? (
+                      <button
+                        type="button"
+                        className={`${OUTLINE_BTN} gap-2`}
+                        onClick={() =>
+                          void downloadSubmissionResume(
+                            latestSubmissionPdf.id,
+                            latestSubmissionPdf.fileName
+                          )
+                        }
+                      >
+                        <BrandedSvgIcon
+                          src="/icons/admin-recruiter/downloadicon.svg"
+                          className="h-4 w-4"
+                          color="var(--brand-primary)"
+                        />
+                        Download .pdf
                       </button>
                     ) : null}
                     {(latestSubmissionPdf || latestSubmissionResume) && (
@@ -2499,7 +2626,7 @@ export function AiAnalysisOverviewClient({
                       }`}
                     >
                       <BrandedFileTypeIcon
-                        type={resume.fileIconType ?? "pdf"}
+                        type={resumeFileIconType(resume.fileName, resume.fileIconType)}
                         className="mt-0.5 h-7 w-7 shrink-0"
                       />
                       <div className="min-w-0 flex-1">
@@ -2513,15 +2640,34 @@ export function AiAnalysisOverviewClient({
                           >
                             {resume.fileName}
                           </button>
-                          {isOptimized ? (
-                            <span className="shrink-0 rounded-md bg-[color:var(--brand-primary)] px-2 py-0.5 text-[11px] font-semibold text-white">
-                              Optimized
-                            </span>
-                          ) : isLatest ? (
-                            <span className="shrink-0 rounded-md bg-[color:var(--brand-secondary)] px-2 py-0.5 text-[11px] font-semibold text-white">
-                              Latest
-                            </span>
-                          ) : null}
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            {isOptimized ? (
+                              <span className="rounded-md bg-[color:var(--brand-primary)] px-2 py-0.5 text-[11px] font-semibold text-white">
+                                Optimized
+                              </span>
+                            ) : isLatest ? (
+                              <span className="rounded-md bg-[color:var(--brand-secondary)] px-2 py-0.5 text-[11px] font-semibold text-white">
+                                Latest
+                              </span>
+                            ) : null}
+                            {isOptimized ? (
+                              <button
+                                type="button"
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#E4E7EC] bg-white transition hover:bg-[color-mix(in_srgb,var(--brand-primary)_8%,white)]"
+                                title={`Download ${resume.fileName}`}
+                                aria-label={`Download ${resume.fileName}`}
+                                onClick={() =>
+                                  void downloadSubmissionResume(resume.id, resume.fileName)
+                                }
+                              >
+                                <BrandedSvgIcon
+                                  src="/icons/admin-recruiter/downloadicon.svg"
+                                  className="h-3.5 w-3.5"
+                                  color="var(--brand-primary)"
+                                />
+                              </button>
+                            ) : null}
+                          </div>
                         </div>
                         {resume.uploadedAtLabel || resume.uploadedAt ? (
                           <p className="mt-0.5 text-xs text-[#667085]">

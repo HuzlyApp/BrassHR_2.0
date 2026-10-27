@@ -12,7 +12,7 @@ import { ensureApplicationResumeFromWorker } from "@/lib/jobs/match-analysis/ens
 export type AdminJobApplicationResumeHistoryItem = {
   id: string;
   fileName: string;
-  fileIconType: "pdf" | "jpeg";
+  fileIconType: "pdf" | "jpeg" | "docx";
   uploadedAt: string;
   uploadedAtLabel: string;
   uploadedByName: string;
@@ -54,10 +54,20 @@ function formatPersonName(firstName: string | null | undefined, lastName: string
   return [firstName, lastName].map((part) => (part ?? "").trim()).filter(Boolean).join(" ");
 }
 
-function resolveFileIconType(fileName: string, fileType: string | null | undefined): "pdf" | "jpeg" {
+function resolveFileIconType(
+  fileName: string,
+  fileType: string | null | undefined
+): "pdf" | "jpeg" | "docx" {
   const mime = (fileType ?? "").toLowerCase();
   const lower = fileName.toLowerCase();
   if (mime.startsWith("image/") || /\.(jpe?g|png|webp)$/i.test(lower)) return "jpeg";
+  if (
+    mime.includes("wordprocessingml") ||
+    mime === "application/msword" ||
+    /\.docx?$/i.test(lower)
+  ) {
+    return "docx";
+  }
   return "pdf";
 }
 

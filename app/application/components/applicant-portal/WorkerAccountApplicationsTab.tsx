@@ -70,9 +70,16 @@ function workTypeBadgeClass(workType: string): string {
   }
 } */
 
-function resumeIconType(fileName: string, fileType: string | null): "pdf" | "jpeg" {
+function resumeIconType(fileName: string, fileType: string | null): "pdf" | "jpeg" | "docx" {
   const lower = `${fileName} ${fileType ?? ""}`.toLowerCase();
   if (lower.includes("jpeg") || lower.includes("jpg") || lower.includes("png")) return "jpeg";
+  if (
+    lower.includes("wordprocessingml") ||
+    lower.includes("msword") ||
+    /\.docx?\b/.test(lower)
+  ) {
+    return "docx";
+  }
   return "pdf";
 }
 

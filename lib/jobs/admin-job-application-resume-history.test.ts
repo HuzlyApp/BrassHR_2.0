@@ -126,6 +126,18 @@ describe("loadAdminJobApplicationResumeHistory", () => {
                       file_url: "submission-resumes/tenant-1/app-1/pack.pdf",
                       job_application_id: applicationId,
                     },
+                    {
+                      id: "resume-4",
+                      original_file_name: "Shawnda_Watkins_submission_resume.docx",
+                      file_name: "Shawnda_Watkins_submission_resume.docx",
+                      file_type:
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                      uploaded_at: "2026-08-13T12:01:00.000Z",
+                      uploaded_by_user_id: staffUserId,
+                      storage_path: "submission-resumes/tenant-1/app-1/pack.docx",
+                      file_url: "submission-resumes/tenant-1/app-1/pack.docx",
+                      job_application_id: applicationId,
+                    },
                   ],
                   error: null,
                 })
@@ -153,7 +165,7 @@ describe("loadAdminJobApplicationResumeHistory", () => {
     );
 
     expect(result?.jobTitle).toBe("Certified Nursing Assistant (CNA)");
-    expect(result?.resumes).toHaveLength(3);
+    expect(result?.resumes).toHaveLength(4);
     expect(result?.resumes[0]?.fileName).toBe("Shawnda_Watkins_resume.pdf");
     expect(result?.resumes[0]?.fileIconType).toBe("pdf");
     expect(result?.resumes[0]?.uploadedByName).toBe("Shawnda Watkins");
@@ -161,6 +173,9 @@ describe("loadAdminJobApplicationResumeHistory", () => {
     expect(result?.resumes[1]?.uploadedByName).toBe("Test User");
     expect(result?.resumes[1]?.uploadedByType).toBe("staff");
     expect(result?.resumes[2]?.fileName).toBe("Shawnda_Watkins_submission_resume.pdf");
+    expect(result?.resumes[2]?.fileIconType).toBe("pdf");
+    expect(result?.resumes[3]?.fileName).toBe("Shawnda_Watkins_submission_resume.docx");
+    expect(result?.resumes[3]?.fileIconType).toBe("docx");
   });
 });
 

@@ -10,7 +10,7 @@ import { MAX_RESUME_UPLOADS_PER_ROLE, resumeUploadLimitMessage } from "@/lib/res
 export type ResumeHistoryItem = {
   id: string;
   fileName: string;
-  fileIconType?: "pdf" | "jpeg";
+  fileIconType?: "pdf" | "jpeg" | "docx";
   uploadedAtLabel: string;
   uploadedByName: string;
   uploadedByPhotoUrl?: string | null;
@@ -86,7 +86,14 @@ function ResumeHistoryRow({
   onDelete: () => void;
   onParse: () => void;
 }) {
-  const fileIconType = resume.fileIconType ?? "pdf";
+  const lowerName = resume.fileName.toLowerCase();
+  const fileIconType =
+    resume.fileIconType ??
+    (/\.docx?$/i.test(lowerName)
+      ? "docx"
+      : /\.(jpe?g|png|webp)$/i.test(lowerName)
+        ? "jpeg"
+        : "pdf");
   const parsingStatus = resume.parsingStatus ?? "pending";
   const parsed = parsingStatus === "completed";
   const parsing = parsingStatus === "processing";

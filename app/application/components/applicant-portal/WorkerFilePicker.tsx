@@ -16,7 +16,7 @@ type WorkerFilePickerProps = {
   error?: string;
 };
 
-function iconTypeForFile(file: File): "pdf" | "jpeg" {
+function iconTypeForFile(file: File): "pdf" | "jpeg" | "docx" {
   const name = file.name.toLowerCase();
   const type = file.type.toLowerCase();
   if (name.endsWith(".pdf") || type === "application/pdf") return "pdf";
@@ -26,7 +26,7 @@ function iconTypeForFile(file: File): "pdf" | "jpeg" {
     type === "application/msword" ||
     type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
   ) {
-    return "pdf";
+    return "docx";
   }
   if (
     type.startsWith("image/") ||
