@@ -24,24 +24,8 @@ describe("job all-candidates columns", () => {
     Object.assign(globalThis, { window: {}, localStorage });
   }
 
-  it("leaves Progress Status off the default All candidates table", () => {
-    expect(DEFAULT_APPLICATION_COLUMNS).not.toContain("status");
-    expect(withoutRetiredProgressStatusColumn(["assignee", "status", "actions"])).toEqual([
-      "assignee",
-      "actions",
-    ]);
-  });
-
-  it("drops Progress Status from a layout saved before the column was removed", () => {
-    installStorage();
-    store.set(
-      "nexus-job-applications-list-columns-v6",
-      JSON.stringify([...DEFAULT_APPLICATION_COLUMNS.filter((id) => id !== "actions"), "status", "actions"])
-    );
-
-    const order = loadApplicationColumnOrder();
-    expect(order).not.toContain("status");
-    expect(order.at(-1)).toBe("actions");
+  it("includes Status on the default All candidates table", () => {
+    expect(DEFAULT_APPLICATION_COLUMNS).toContain("status");
   });
 
   it("keeps Progress Status when the current layout still includes it", () => {

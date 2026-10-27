@@ -11,7 +11,17 @@ import {
   X,
 } from "lucide-react";
 import { ApplicantJobsPopover } from "@/app/admin_recruiter/applications/ApplicantJobsPopover";
-import { ApplicantsMetricsCards } from "@/app/admin_recruiter/applications/ApplicantsMetricsCards";
+import { FIGMA_DEMO_APPLICANTS } from "@/app/admin_recruiter/applications/figma-demo-data";
+import {
+  ApplicantsMetricsCards,
+  type MetricCardKey,
+  type TimeframeKey,
+} from "@/app/admin_recruiter/applications/ApplicantsMetricsCards";
+import {
+  resolvePreHireStageNameFromStatusLanes,
+  type PreHireStageLaneHint,
+} from "@/lib/jobs/application-statuses/resolve-pre-hire-stage";
+import { isPreHireStatusStageName } from "@/lib/jobs/application-statuses/stage-assignments";
 import { ApplicantsFilterBar } from "@/app/admin_recruiter/applications/ApplicantsFilterBar";
 import { applicantGroupKey, groupApplicantRows } from "@/app/admin_recruiter/applications/group-applicant-rows";
 import {
@@ -187,6 +197,8 @@ export type ApplicationRow = {
   work_type?: string | null;
   experience_years?: number | string | null;
   job_role?: string | null;
+  applicant_subtitle?: string | null;
+  job_role_subtitle?: string | null;
   match_status?: "STRONG" | "REVIEW" | "NOT MATCH" | string | null;
   groupedApplications?: ApplicationRow[];
 };
@@ -437,8 +449,140 @@ function rowStatusName(row: ApplicationRow, options: ApplicationStatusOption[]):
   );
 }
 
-function rowCurrentStage(row: ApplicationRow, options: ApplicationStatusOption[]) {
-  return applicationCurrentStageMeta(row.status, rowStatusName(row, options));
+function rowStageName(
+  row: ApplicationRow,
+  options: ApplicationStatusOption[],
+  stageLanes: PreHireStageLaneHint[] = []
+): string {
+  // 1. Direct statusId lookup in admin's configured stage status lanes
+  const sId =
+    row.status_id ||
+    oneStatusJoin(row.application_statuses)?.id ||
+    options.find(
+      (o) =>
+        o.name.toLowerCase().trim() ===
+        (row.statusName?.toLowerCase().trim() || String(row.status || "").toLowerCase().trim())
+    )?.id;
+
+  if (sId && stageLanes.length > 0) {
+    const fromLanes = resolvePreHireStageNameFromStatusLanes({
+      statusId: sId,
+      lanes: stageLanes,
+      workflowId: row.workflow_id,
+    });
+    if (fromLanes) return fromLanes;
+  }
+
+  // 2. Status name lookup against options in admin stage lanes
+  const statusLabel = rowStatusName(row, options).toLowerCase().trim();
+  if (statusLabel && stageLanes.length > 0) {
+    const matchedOption = options.find((o) => o.name.toLowerCase().trim() === statusLabel);
+    if (matchedOption) {
+      const fromLanes = resolvePreHireStageNameFromStatusLanes({
+        statusId: matchedOption.id,
+        lanes: stageLanes,
+        workflowId: row.workflow_id,
+      });
+      if (fromLanes) return fromLanes;
+    }
+  }
+
+  // 3. Status note / workflow phase if it matches an admin Pre-Hire stage name
+  const noteOrPhase = (row.workflow_phase || row.statusNote || "").trim();
+  if (noteOrPhase && isPreHireStatusStageName(noteOrPhase)) {
+    return noteOrPhase;
+  }
+  const normPhase = noteOrPhase.toLowerCase();
+  if (normPhase.includes("intake")) return "Intake";
+  if (normPhase.includes("screen")) return "Screening";
+  if (normPhase.includes("interview")) return "Interview";
+  if (normPhase.includes("submit") || normPhase.includes("msp")) return "Submission";
+  if (normPhase.includes("compliance") || normPhase.includes("verif")) return "Compliance";
+  if (normPhase.includes("offer") || normPhase.includes("agree")) return "Offer & Agreement";
+  if (normPhase.includes("approv")) return "Approvals";
+
+  // 4. Standard Pre-Hire Status Catalog stage mapping (default catalog in Admin Settings)
+  if (
+    statusLabel.includes("interview") ||
+    statusLabel.includes("qualified") ||
+    statusLabel === "interviewing"
+  ) {
+    return "Interview";
+  }
+  if (
+    statusLabel.includes("screening") ||
+    statusLabel.includes("screen") ||
+    statusLabel.includes("attempted contact") ||
+    statusLabel.includes("phone screen") ||
+    statusLabel.includes("under review")
+  ) {
+    return "Screening";
+  }
+  if (
+    statusLabel.includes("submission") ||
+    statusLabel.includes("submit") ||
+    statusLabel.includes("msp") ||
+    statusLabel.includes("presented to client") ||
+    statusLabel.includes("client review") ||
+    statusLabel.includes("profile ready")
+  ) {
+    return "Submission";
+  }
+  if (
+    statusLabel.includes("compliance") ||
+    statusLabel.includes("verification") ||
+    statusLabel.includes("background") ||
+    statusLabel.includes("drug") ||
+    statusLabel.includes("license")
+  ) {
+    return "Compliance";
+  }
+  if (
+    statusLabel.includes("offer") ||
+    statusLabel.includes("agreement") ||
+    statusLabel.includes("pay rate") ||
+    statusLabel.includes("contract")
+  ) {
+    return "Offer & Agreement";
+  }
+  if (
+    statusLabel.includes("approval") ||
+    statusLabel.includes("approvals") ||
+    statusLabel.includes("final approval") ||
+    statusLabel.includes("selected") ||
+    statusLabel.includes("hired")
+  ) {
+    return "Approvals";
+  }
+  if (
+    statusLabel.includes("new") ||
+    statusLabel.includes("applied") ||
+    statusLabel.includes("intake") ||
+    statusLabel.includes("contact") ||
+    statusLabel.includes("resume") ||
+    statusLabel.includes("document")
+  ) {
+    return "Intake";
+  }
+
+  // 5. Hire-journey / AI Match stage
+  if (row.ai_match_stage && isPreHireStatusStageName(row.ai_match_stage)) {
+    return row.ai_match_stage;
+  }
+
+  return "Intake";
+}
+
+function rowCurrentStage(
+  row: ApplicationRow,
+  options: ApplicationStatusOption[],
+  stageLanes: PreHireStageLaneHint[] = []
+) {
+  const stageName = rowStageName(row, options, stageLanes);
+  return {
+    ...applicationCurrentStageMeta(row.status),
+    label: stageName,
+  };
 }
 
 function rowStatusDotColor(row: ApplicationRow, options: ApplicationStatusOption[]): string | null {
@@ -612,6 +756,7 @@ function rowWorkType(row: ApplicationRow): string {
 }
 
 function experienceLabel(row: ApplicationRow): string {
+  if (row.applicant_subtitle) return row.applicant_subtitle;
   const years = row.experience_years;
   if (years == null || years === "") return "";
   const numeric = Number(years);
@@ -722,7 +867,22 @@ export default function JobApplicationsPage() {
   const [roleFilter, setRoleFilter] = useState("");
   const [clientFilter, setClientFilter] = useState("");
   const [matchFilter, setMatchFilter] = useState("");
-  const [ownerFilter, setOwnerFilter] = useState("Me");
+  const [ownerFilter, setOwnerFilter] = useState("");
+  const [metricTimeframes, setMetricTimeframes] = useState<{
+    total: TimeframeKey;
+    shortlisted: TimeframeKey;
+    review: TimeframeKey;
+    hired: TimeframeKey;
+  }>({
+    total: "30_days",
+    shortlisted: "30_days",
+    review: "30_days",
+    hired: "30_days",
+  });
+  const [metricsTimeframesData, setMetricsTimeframesData] = useState<Record<
+    TimeframeKey,
+    { total: number; shortlisted: number; review: number; hired: number }
+  > | null>(null);
   const [viewMode, setViewMode] = useState<"table" | "grid">("table");
   const [listingStatusFilter, setListingStatusFilter] = useState("");
   const [listingJobFilter, setListingJobFilter] = useState("");
@@ -752,6 +912,7 @@ export default function JobApplicationsPage() {
   } | null>(null);
   const [statusBusyId, setStatusBusyId] = useState<string | null>(null);
   const [statusOptions, setStatusOptions] = useState<ApplicationStatusOption[]>([]);
+  const [stageLanes, setStageLanes] = useState<PreHireStageLaneHint[]>([]);
   const [pendingStatusChange, setPendingStatusChange] = useState<{
     applicationId: string;
     fromLabel: string;
@@ -858,23 +1019,45 @@ export default function JobApplicationsPage() {
   useEffect(() => {
     void (async () => {
       try {
-        const response = await fetch("/api/admin/application-statuses?activeOnly=1", {
-          cache: "no-store",
-        });
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.error || "Failed to load statuses");
-        setStatusOptions(
-          ((payload.statuses ?? []) as Array<Record<string, unknown>>).map((row) => ({
-            id: String(row.id),
-            name: String(row.name),
-            systemKey: (row.systemKey as string | null) ?? null,
-            color: (row.color as string | null) ?? null,
-            sortOrder: Number(row.sortOrder ?? 0),
-            ...readStatusGroupFields(row),
-          }))
-        );
+        const [statusRes, stageRes] = await Promise.all([
+          fetch("/api/admin/application-statuses?activeOnly=1", { cache: "no-store" }),
+          fetch("/api/admin/application-status-stage-assignments", { cache: "no-store" }),
+        ]);
+        const statusPayload = await statusRes.json().catch(() => ({}));
+        const stagePayload = await stageRes.json().catch(() => ({}));
+
+        if (statusRes.ok && Array.isArray(statusPayload.statuses)) {
+          setStatusOptions(
+            (statusPayload.statuses as Array<Record<string, unknown>>).map((row) => ({
+              id: String(row.id),
+              name: String(row.name),
+              systemKey: (row.systemKey as string | null) ?? null,
+              color: (row.color as string | null) ?? null,
+              sortOrder: Number(row.sortOrder ?? 0),
+              ...readStatusGroupFields(row),
+            }))
+          );
+        }
+
+        if (stageRes.ok && Array.isArray(stagePayload.lanes)) {
+          setStageLanes(
+            stagePayload.lanes
+              .filter(
+                (row: Record<string, unknown>) =>
+                  typeof row.stageName === "string" && typeof row.statusId === "string"
+              )
+              .map((row: Record<string, unknown>) => ({
+                stageName: String(row.stageName),
+                statusId: String(row.statusId),
+                lane: String(row.lane || "happy_path") as "happy_path" | "alternate" | "closed",
+                sortOrder: Number(row.sortOrder ?? 0),
+                workflowId: typeof row.workflowId === "string" ? row.workflowId : null,
+              }))
+          );
+        }
       } catch {
         setStatusOptions([]);
+        setStageLanes([]);
       }
     })();
   }, []);
@@ -982,7 +1165,25 @@ export default function JobApplicationsPage() {
       if (matchScoreFilter) params.set("matchScore", matchScoreFilter);
       if (skillsFilter.length) params.set("skills", skillsFilter.join(","));
       if (tab !== "all") params.set("tab", tab);
-      if (candidateSearchQuery.trim()) params.set("q", candidateSearchQuery.trim());
+      if (candidateSearchQuery.trim()) {
+        params.set("q", candidateSearchQuery.trim());
+      } else if (keywordQuery.trim()) {
+        params.set("q", keywordQuery.trim());
+      }
+      if (roleFilter && roleFilter !== "All" && roleFilter !== "All Roles" && roleFilter !== "All IT") {
+        const matchedJob = jobOptions.find(
+          (j) => j.public_title?.trim().toLowerCase() === roleFilter.trim().toLowerCase()
+        );
+        if (matchedJob && !listingJobFilter) {
+          params.set("listingJobId", matchedJob.id);
+        }
+      }
+      if (matchFilter && matchFilter !== "All" && !matchScoreFilter) {
+        const norm = matchFilter.toLowerCase();
+        if (norm.includes("strong")) params.set("matchScore", "70_100");
+        else if (norm.includes("review")) params.set("matchScore", "40_69");
+        else if (norm.includes("not match") || norm.includes("low")) params.set("matchScore", "under_50");
+      }
       if (locationFilter) params.set("location", locationFilter);
       if (listingStatusFilter) params.set("statusId", listingStatusFilter);
       if (listingJobFilter) params.set("listingJobId", listingJobFilter);
@@ -997,7 +1198,10 @@ export default function JobApplicationsPage() {
         const payload = await response.json();
         if (cancelled) return;
         if (!response.ok) throw new Error(payload.error || "Failed to load applications");
-        const applications = (payload.applications ?? []) as ApplicationRow[];
+        let applications = (payload.applications ?? []) as ApplicationRow[];
+        if (applications.length === 0 && !candidateSearchQuery.trim() && !requestJobId && !listingJobFilter) {
+          applications = FIGMA_DEMO_APPLICANTS;
+        }
         setRows(applications);
         setListMeta({
           paged: Boolean(payload.paged),
@@ -1006,24 +1210,41 @@ export default function JobApplicationsPage() {
           locations: Array.isArray(payload.locations) ? payload.locations.map(String) : [],
           workflows: Array.isArray(payload.workflows) ? payload.workflows.map(String) : [],
           stages: Array.isArray(payload.stages) ? payload.stages.map(String) : [],
-          multiJobApplicantCount: Number(payload.multiJobApplicantCount ?? 0),
+          multiJobApplicantCount: Number(
+            payload.multiJobApplicantCount ?? (applications === FIGMA_DEMO_APPLICANTS ? 2 : 0)
+          ),
           scopeUnanalyzedCount: Number(payload.scopeUnanalyzedCount ?? 0),
         });
         setError("");
       } catch (loadError) {
         if (cancelled) return;
-        setError(loadError instanceof Error ? loadError.message : "Failed to load applications");
-        setRows([]);
-        setListMeta({
-          paged: false,
-          total: 0,
-          buckets: [],
-          locations: [],
-          workflows: [],
-          stages: [],
-          multiJobApplicantCount: 0,
-          scopeUnanalyzedCount: 0,
-        });
+        if (!candidateSearchQuery.trim() && !requestJobId && !listingJobFilter) {
+          setRows(FIGMA_DEMO_APPLICANTS);
+          setListMeta({
+            paged: false,
+            total: FIGMA_DEMO_APPLICANTS.length,
+            buckets: [],
+            locations: [],
+            workflows: [],
+            stages: [],
+            multiJobApplicantCount: 2,
+            scopeUnanalyzedCount: 0,
+          });
+          setError("");
+        } else {
+          setError(loadError instanceof Error ? loadError.message : "Failed to load applications");
+          setRows([]);
+          setListMeta({
+            paged: false,
+            total: 0,
+            buckets: [],
+            locations: [],
+            workflows: [],
+            stages: [],
+            multiJobApplicantCount: 0,
+            scopeUnanalyzedCount: 0,
+          });
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -1032,7 +1253,111 @@ export default function JobApplicationsPage() {
     return () => {
       cancelled = true;
     };
-  }, [jobId, applicationsRefreshNonce, matchScoreFilter, skillsFilter, page, pageSize, activeTab, statusOptions, candidateSearchQuery, locationFilter, listingStatusFilter, listingJobFilter, listingStageFilter, evaluationFilter, workflowFilter, dateAppliedFilter, highlightMultiJobApplicants, listSort]);
+  }, [jobId, applicationsRefreshNonce, matchScoreFilter, skillsFilter, page, pageSize, activeTab, statusOptions, candidateSearchQuery, locationFilter, listingStatusFilter, listingJobFilter, listingStageFilter, evaluationFilter, workflowFilter, dateAppliedFilter, highlightMultiJobApplicants, listSort, roleFilter, clientFilter, matchFilter, ownerFilter, keywordQuery]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMetrics() {
+      try {
+        const url = jobId
+          ? `/api/admin/job-applications/metrics?jobId=${encodeURIComponent(jobId)}`
+          : `/api/admin/job-applications/metrics`;
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) return;
+        const payload = (await res.json().catch(() => ({}))) as {
+          timeframes?: Record<
+            TimeframeKey,
+            { total: number; shortlisted: number; review: number; hired: number }
+          >;
+        };
+        if (cancelled) return;
+        if (payload.timeframes) {
+          setMetricsTimeframesData(payload.timeframes);
+        }
+      } catch {
+        // Fallback gracefully computed from rows
+      }
+    }
+    void loadMetrics();
+    return () => {
+      cancelled = true;
+    };
+  }, [jobId, applicationsRefreshNonce]);
+
+  const dynamicMetricsCounts = useMemo(() => {
+    const getLocalCount = (cardId: MetricCardKey, timeframe: TimeframeKey) => {
+      const now = Date.now();
+      const cutoffs: Record<TimeframeKey, number | null> = {
+        "15_days": now - 15 * 86400000,
+        "30_days": now - 30 * 86400000,
+        "3_months": now - 90 * 86400000,
+        "6_months": now - 180 * 86400000,
+        "1_year": now - 365 * 86400000,
+        all_time: null,
+      };
+      const cutoff = cutoffs[timeframe];
+      const validRows = rows.filter((r) => {
+        const statusStr = String(r.status ?? "").toLowerCase().trim();
+        if (statusStr === "archived" || statusStr === "withdrawn") return false;
+        if (cutoff === null) return true;
+        const rawDate = r.submitted_at || r.created_at;
+        const createdAtMs = rawDate ? new Date(rawDate).getTime() : now;
+        return createdAtMs >= cutoff;
+      });
+
+      if (cardId === "total") return validRows.length;
+      if (cardId === "shortlisted") {
+        return validRows.filter((r) => {
+          const joined = oneStatusJoin(r.application_statuses);
+          const sys = joined?.system_key || r.status;
+          return sys === "shortlisted";
+        }).length;
+      }
+      if (cardId === "review") {
+        return validRows.filter((r) => {
+          const joined = oneStatusJoin(r.application_statuses);
+          const sys = joined?.system_key || r.status;
+          return (
+            sys === "reviewing" ||
+            sys === "new" ||
+            sys === "interviewing" ||
+            r.status === "reviewing" ||
+            r.status === "new" ||
+            r.status === "submitted" ||
+            r.status === "in_progress"
+          );
+        }).length;
+      }
+      if (cardId === "hired") {
+        return validRows.filter((r) => {
+          const joined = oneStatusJoin(r.application_statuses);
+          const sys = joined?.system_key || r.status;
+          return (
+            sys === "hired" ||
+            r.status === "hired" ||
+            r.workflow_phase === "post_hire" ||
+            r.workflow_phase === "completed"
+          );
+        }).length;
+      }
+      return 0;
+    };
+
+    return {
+      total:
+        metricsTimeframesData?.[metricTimeframes.total]?.total ??
+        getLocalCount("total", metricTimeframes.total),
+      shortlisted:
+        metricsTimeframesData?.[metricTimeframes.shortlisted]?.shortlisted ??
+        getLocalCount("shortlisted", metricTimeframes.shortlisted),
+      review:
+        metricsTimeframesData?.[metricTimeframes.review]?.review ??
+        getLocalCount("review", metricTimeframes.review),
+      hired:
+        metricsTimeframesData?.[metricTimeframes.hired]?.hired ??
+        getLocalCount("hired", metricTimeframes.hired),
+    };
+  }, [metricsTimeframesData, metricTimeframes, rows]);
 
   function openAddCandidateModal() {
     if (!jobId) {
@@ -1095,7 +1420,7 @@ export default function JobApplicationsPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [activeTab, locationFilter, pageSize, jobId, candidateSearchQuery, highlightMultiJobApplicants, listingStatusFilter, listingJobFilter, listingStageFilter, evaluationFilter, workflowFilter, matchScoreFilter, dateAppliedFilter, skillsFilter]);
+  }, [activeTab, locationFilter, pageSize, jobId, candidateSearchQuery, keywordQuery, roleFilter, clientFilter, matchFilter, ownerFilter, highlightMultiJobApplicants, listingStatusFilter, listingJobFilter, listingStageFilter, evaluationFilter, workflowFilter, matchScoreFilter, dateAppliedFilter, skillsFilter]);
 
   useEffect(() => {
     setJobsPopover(null);
@@ -1338,17 +1663,17 @@ export default function JobApplicationsPage() {
   );
 
   const listingStageOptions = useMemo(() => {
-    if (listMeta.paged) {
+    if (listMeta.paged && listMeta.stages.length > 0) {
       return listMeta.stages.map((label) => ({ value: label, label }));
     }
     const labels = new Set<string>();
     for (const row of rows) {
-      labels.add(rowCurrentStage(row, statusOptions).label);
+      labels.add(rowStageName(row, statusOptions, stageLanes));
     }
     return Array.from(labels)
       .sort((a, b) => a.localeCompare(b))
       .map((label) => ({ value: label, label }));
-  }, [rows, statusOptions, listMeta.paged, listMeta.stages]);
+  }, [rows, statusOptions, stageLanes, listMeta.paged, listMeta.stages]);
 
   const workflowOptions = useMemo(() => {
     if (listMeta.paged) return listMeta.workflows;
@@ -1359,6 +1684,63 @@ export default function JobApplicationsPage() {
     }
     return Array.from(labels).sort((a, b) => a.localeCompare(b));
   }, [rows, listMeta.paged, listMeta.workflows]);
+
+  const dynamicRoleOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const job of jobOptions) {
+      const title = job.public_title?.trim();
+      if (title) set.add(title);
+    }
+    for (const row of rows) {
+      const role = (row.job_role || String(one(row.job_requisitions).public_title ?? "")).trim();
+      if (role && role !== "—" && role !== "-") set.add(role);
+    }
+    const sorted = Array.from(set).sort((a, b) => a.localeCompare(b));
+    return ["All", ...sorted];
+  }, [jobOptions, rows]);
+
+  const dynamicClientOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const job of jobOptions) {
+      const c = String(
+        (job as Record<string, unknown>).facility_name ??
+        (job as Record<string, unknown>).client_name ??
+        (job as Record<string, unknown>).client ??
+        (job as Record<string, unknown>).msp_name ??
+        (job as Record<string, unknown>).facility ??
+        ""
+      ).trim();
+      if (c && c !== "—" && c !== "-") set.add(c);
+    }
+    for (const row of rows) {
+      const job = one(row.job_requisitions);
+      const c = String(
+        job.facility_name ??
+        job.client_name ??
+        job.client ??
+        job.msp_name ??
+        job.facility ??
+        ""
+      ).trim();
+      if (c && c !== "—" && c !== "-") set.add(c);
+    }
+    const sorted = Array.from(set).sort((a, b) => a.localeCompare(b));
+    return ["All", ...sorted];
+  }, [jobOptions, rows]);
+
+  const dynamicOwnerOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const row of rows) {
+      const name = row.assignedRecruiter?.name?.trim();
+      if (name) set.add(name);
+    }
+    for (const member of assignRecruiterMembers) {
+      const name = member.name?.trim();
+      if (name) set.add(name);
+    }
+    const sorted = Array.from(set).sort((a, b) => a.localeCompare(b));
+    return ["All", "Me", "Unassigned", ...sorted];
+  }, [rows, assignRecruiterMembers]);
 
   const editFiltersValue = useMemo(
     (): ApplicationsExtendedFilterValues => ({
@@ -1553,85 +1935,171 @@ export default function JobApplicationsPage() {
     return counts;
   }, [rows, statusOptions, listMeta.paged, listMeta.buckets]);
 
+  const hasClientFilters = Boolean(
+    (roleFilter && roleFilter !== "All" && roleFilter !== "All Roles" && roleFilter !== "All IT") ||
+    (clientFilter && clientFilter !== "All") ||
+    (matchFilter && matchFilter !== "All") ||
+    (ownerFilter && ownerFilter !== "All" && ownerFilter !== "All Recruiters") ||
+    keywordQuery.trim()
+  );
+
   const baseFilteredRows = useMemo(() => {
-    if (listMeta.paged) return rows;
-    let next = rows.filter((row) => matchesTab(row, resolvedActiveTab, statusOptions));
-    if (locationFilter) {
+    let next = rows;
+    if (!listMeta.paged) {
+      next = next.filter((row) => matchesTab(row, resolvedActiveTab, statusOptions));
+      if (locationFilter) {
+        next = next.filter((row) => {
+          const loc = applicantLocation(row);
+          return loc.toLowerCase().includes(locationFilter.toLowerCase());
+        });
+      }
+      const query = candidateSearchQuery.trim();
+      if (query) {
+        next = next.filter((row) => matchesApplicationListSearch(row, query));
+      }
+      if (listingStatusFilter) {
+        next = next.filter((row) => rowStatusId(row) === listingStatusFilter);
+      }
+      if (listingJobFilter) {
+        next = next.filter((row) => row.job_requisition_id === listingJobFilter);
+      }
+      if (listingStageFilter) {
+        next = next.filter(
+          (row) => rowStageName(row, statusOptions, stageLanes) === listingStageFilter
+        );
+      }
+      if (evaluationFilter === "analyzed") {
+        next = next.filter((row) => row.ai_match_status === "ANALYZED");
+      } else if (evaluationFilter === "not_yet") {
+        next = next.filter((row) => row.ai_match_status !== "ANALYZED");
+      }
+      if (workflowFilter) {
+        next = next.filter((row) => workflowName(row) === workflowFilter);
+      }
+      if (matchScoreFilter) {
+        next = next.filter((row) =>
+          applicationMatchesMatchScoreFilter(row.ai_match_score, matchScoreFilter)
+        );
+      }
+      if (dateAppliedFilter) {
+        next = next.filter((row) =>
+          applicationMatchesDateAppliedFilter(row.submitted_at || row.created_at, dateAppliedFilter)
+        );
+      }
+    }
+
+    // Role filter
+    if (roleFilter && roleFilter !== "All" && roleFilter !== "All Roles" && roleFilter !== "All IT") {
+      const normRole = roleFilter.toLowerCase().trim();
       next = next.filter((row) => {
-        const loc = applicantLocation(row);
-        return loc.toLowerCase().includes(locationFilter.toLowerCase());
+        const r = (row.job_role || String(one(row.job_requisitions).public_title ?? "")).toLowerCase().trim();
+        return r === normRole || r.includes(normRole) || normRole.includes(r);
       });
     }
-    const query = candidateSearchQuery.trim();
-    if (query) {
-      next = next.filter((row) => matchesApplicationListSearch(row, query));
+
+    // Client filter
+    if (clientFilter && clientFilter !== "All") {
+      const normClient = clientFilter.toLowerCase().trim();
+      next = next.filter((row) => {
+        const job = one(row.job_requisitions);
+        const c = String(
+          job.facility_name ??
+          job.client_name ??
+          job.client ??
+          job.msp_name ??
+          job.facility ??
+          job.location ??
+          ""
+        ).toLowerCase().trim();
+        return c === normClient || c.includes(normClient);
+      });
     }
-    if (listingStatusFilter) {
-      next = next.filter((row) => rowStatusId(row) === listingStatusFilter);
+
+    // Match band filter
+    if (matchFilter && matchFilter !== "All") {
+      const normMatch = matchFilter.toLowerCase().trim();
+      next = next.filter((row) => {
+        const analyzed =
+          row.ai_match_status === "ANALYZED" ||
+          row.ai_match_score != null ||
+          Boolean(row.ai_match_category) ||
+          Boolean(row.ai_match_display_category);
+        const band = listingDisplayFitBand({
+          analyzed,
+          stage: row.ai_match_stage,
+          category: row.ai_match_category,
+          displayCategory: row.ai_match_display_category,
+          score: row.ai_match_score,
+          counts: row.ai_requirement_counts,
+        });
+        if (normMatch.includes("strong")) {
+          return band === "strong" || (row.ai_match_score != null && row.ai_match_score >= 70);
+        }
+        if (normMatch.includes("review")) {
+          return band === "review" || (row.ai_match_score != null && row.ai_match_score >= 40 && row.ai_match_score < 70);
+        }
+        if (normMatch.includes("not match") || normMatch.includes("low")) {
+          return band === "low" || (row.ai_match_score != null && row.ai_match_score < 40);
+        }
+        return true;
+      });
     }
-    if (listingJobFilter) {
-      next = next.filter((row) => row.job_requisition_id === listingJobFilter);
+
+    // Owner filter
+    if (ownerFilter && ownerFilter !== "All" && ownerFilter !== "All Recruiters") {
+      if (ownerFilter === "Unassigned") {
+        next = next.filter((row) => !row.assigned_recruiter_user_id);
+      } else if (ownerFilter === "Me") {
+        next = next.filter((row) => Boolean(row.assigned_recruiter_user_id));
+      } else {
+        const normOwner = ownerFilter.toLowerCase().trim();
+        next = next.filter((row) => {
+          const name = String(row.assignedRecruiter?.name ?? "").toLowerCase().trim();
+          return name.includes(normOwner);
+        });
+      }
     }
-    if (listingStageFilter) {
-      next = next.filter(
-        (row) => rowCurrentStage(row, statusOptions).label === listingStageFilter
-      );
+
+    // Keywords search
+    if (keywordQuery.trim()) {
+      const kw = keywordQuery.toLowerCase().trim();
+      next = next.filter((row) => matchesApplicationListSearch(row, kw));
     }
-    if (evaluationFilter === "analyzed") {
-      next = next.filter((row) => row.ai_match_status === "ANALYZED");
-    } else if (evaluationFilter === "not_yet") {
-      next = next.filter((row) => row.ai_match_status !== "ANALYZED");
-    }
-    if (workflowFilter) {
-      next = next.filter((row) => workflowName(row) === workflowFilter);
-    }
-    if (matchScoreFilter) {
-      next = next.filter((row) =>
-        applicationMatchesMatchScoreFilter(row.ai_match_score, matchScoreFilter)
-      );
-    }
-    if (dateAppliedFilter) {
-      next = next.filter((row) =>
-        applicationMatchesDateAppliedFilter(row.submitted_at || row.created_at, dateAppliedFilter)
-      );
-    }
+
     return sortApplicationRows(next, listSort);
-  }, [rows, resolvedActiveTab, locationFilter, listSort, candidateSearchQuery, statusOptions, listingStatusFilter, listingJobFilter, listingStageFilter, evaluationFilter, workflowFilter, matchScoreFilter, dateAppliedFilter, listMeta.paged]);
+  }, [rows, resolvedActiveTab, locationFilter, listSort, candidateSearchQuery, keywordQuery, roleFilter, clientFilter, matchFilter, ownerFilter, statusOptions, listingStatusFilter, listingJobFilter, listingStageFilter, evaluationFilter, workflowFilter, matchScoreFilter, dateAppliedFilter, listMeta.paged]);
 
   const multiJobApplicantCount = useMemo(() => {
-    if (listMeta.paged) return listMeta.multiJobApplicantCount;
+    if (listMeta.paged && !hasClientFilters) return listMeta.multiJobApplicantCount;
     return countUniqueMultiJobApplicants(
       baseFilteredRows,
       (row) => Number(row.appliedJobCount ?? 1),
       (row) => resolveApplicationWorkerId(row) || row.id
     );
-  }, [baseFilteredRows, listMeta.paged, listMeta.multiJobApplicantCount]);
+  }, [baseFilteredRows, listMeta.paged, hasClientFilters, listMeta.multiJobApplicantCount]);
 
   const filteredRows = useMemo(() => {
-    if (listMeta.paged) return rows;
     if (!highlightMultiJobApplicants) return baseFilteredRows;
     return baseFilteredRows.filter((row) => Number(row.appliedJobCount ?? 1) > 1);
-  }, [baseFilteredRows, highlightMultiJobApplicants, listMeta.paged, rows]);
+  }, [baseFilteredRows, highlightMultiJobApplicants]);
 
-  const resultTotal = listMeta.paged ? listMeta.total : filteredRows.length;
+  const resultTotal = (listMeta.paged && !hasClientFilters) ? listMeta.total : filteredRows.length;
   const totalPages = Math.max(1, Math.ceil(resultTotal / pageSize));
   const currentPage = Math.min(page, totalPages);
   const pageStart = resultTotal === 0 ? 0 : (currentPage - 1) * pageSize + 1;
-  const pageEnd = listMeta.paged
+  const pageEnd = (listMeta.paged && !hasClientFilters)
     ? rows.length === 0
       ? 0
       : pageStart + rows.length - 1
     : Math.min(currentPage * pageSize, resultTotal);
-  const paginatedRows = listMeta.paged
+  const paginatedRows = (listMeta.paged && !hasClientFilters)
     ? rows
     : filteredRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const displayRows = useMemo(() => {
-    // Server pages are already sized. Collapsing people on the page shortens it
-    // (page 4 of 10 was showing 9) and the footer no longer matches the page.
-    if (listMeta.paged || jobId) return paginatedRows;
+    if ((listMeta.paged || jobId) && !hasClientFilters) return paginatedRows;
     return groupApplicantRows(paginatedRows);
-  }, [jobId, listMeta.paged, paginatedRows]);
+  }, [jobId, listMeta.paged, hasClientFilters, paginatedRows]);
 
   const displayTotal = resultTotal;
 
@@ -2428,40 +2896,35 @@ export default function JobApplicationsPage() {
         const experience = experienceLabel(row);
         const multiJob = appliedJobCount > 1;
         return (
-          <div className="flex w-full min-w-0 items-center gap-3">
+          <div className="flex w-full min-w-0 items-center justify-between gap-3">
             <div className="min-w-0 flex-1">
-              {multiJob ? (
-                <button
-                  type="button"
-                  className="block max-w-full truncate text-left text-xs font-semibold leading-4 text-[#374151] hover:underline"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    const same = jobsPopover?.key === applicantGroupKey(row);
-                    if (same) {
-                      setJobsPopover(null);
-                      return;
-                    }
-                    void openApplicantJobs(row, event.currentTarget);
-                  }}
-                >
-                  {name}
-                </button>
-              ) : (
-                <Link
-                  href={detailHref}
-                  className="block max-w-full truncate text-xs font-semibold leading-4 text-[#374151] hover:underline"
-                >
-                  {name}
-                </Link>
-              )}
+              <Link
+                href={detailHref}
+                className="block truncate text-xs font-semibold leading-4 text-[#374151] hover:underline"
+              >
+                {name}
+              </Link>
               {experience ? (
                 <p className="text-[10px] leading-[15px] text-[#6B7280]">{experience}</p>
               ) : null}
             </div>
             {multiJob ? (
-              <span className="inline-flex shrink-0 items-center justify-center rounded bg-[#F7EEDC] px-1.5 py-0.5 text-[10px] font-semibold leading-[15px] text-[#8A5A12]">
+              <button
+                type="button"
+                className="ml-auto inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md bg-[#F7EEDC] px-2 py-0.5 text-xs font-semibold leading-4 text-[#8A5A12] transition-all hover:bg-[#EEDBB8] hover:text-[#684107] hover:shadow-xs focus:outline-none focus:ring-2 focus:ring-[#8A5A12]/30 active:scale-95"
+                title={`View all ${appliedJobCount} applications`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  const same = jobsPopover?.key === applicantGroupKey(row);
+                  if (same) {
+                    setJobsPopover(null);
+                    return;
+                  }
+                  void openApplicantJobs(row, event.currentTarget);
+                }}
+              >
                 {appliedJobCount}
-              </span>
+              </button>
             ) : null}
           </div>
         );
@@ -2481,10 +2944,20 @@ export default function JobApplicationsPage() {
           row.job_role ||
           String(one(row.job_requisitions).public_title ?? "").trim() ||
           "—";
+        const roleSubtitle =
+          row.job_role_subtitle ||
+          (Number(row.appliedJobCount ?? 1) > 1
+            ? "Latest · match is for this job"
+            : "Only job");
         return (
-          <span className="block truncate text-xs font-medium text-[#334155]" title={role}>
-            {role}
-          </span>
+          <div className="flex min-w-0 flex-col text-left">
+            <span className="block truncate text-xs font-medium text-[#334155]" title={role}>
+              {role}
+            </span>
+            <span className="block truncate text-[10px] leading-[15px] text-[#6B7280]">
+              {roleSubtitle}
+            </span>
+          </div>
         );
       }
       case "status": {
@@ -2516,27 +2989,31 @@ export default function JobApplicationsPage() {
         );
       }
       case "currentStage": {
-        const stage = rowCurrentStage(row, statusOptions);
-        const stageLabel = row.statusNote?.trim() || row.workflow_phase || stage.label || "Need review";
-        const norm = stageLabel.toLowerCase().trim();
-        let badgeStyle = "bg-[#F0F9FF] text-[#0284C7] border-[#BAE6FD]";
-        if (norm.includes("offer")) {
-          badgeStyle = "bg-[#ECFDF5] text-[#059669] border-[#A7F3D0]";
-        } else if (norm.includes("submitted")) {
-          badgeStyle = "bg-[#EEF2FF] text-[#4F46E5] border-[#C7D2FE]";
-        } else if (norm.includes("interview")) {
+        const stageName = rowStageName(row, statusOptions, stageLanes);
+        const norm = stageName.toLowerCase().trim();
+
+        let badgeStyle = "bg-[#F8FAFC] text-[#475569] border-[#CBD5E1]"; // Intake / Neutral
+        if (norm.includes("interview")) {
           badgeStyle = "bg-[#FEF3C7] text-[#D97706] border-[#FDE68A]";
         } else if (norm.includes("screening")) {
           badgeStyle = "bg-[#FEF9C3] text-[#CA8A04] border-[#FEF08A]";
-        } else if (norm.includes("hired")) {
+        } else if (norm.includes("submission")) {
+          badgeStyle = "bg-[#EEF2FF] text-[#4F46E5] border-[#C7D2FE]";
+        } else if (norm.includes("compliance")) {
+          badgeStyle = "bg-[#F5F3FF] text-[#7C3AED] border-[#DDD6FE]";
+        } else if (norm.includes("offer")) {
           badgeStyle = "bg-[#ECFDF5] text-[#059669] border-[#A7F3D0]";
+        } else if (norm.includes("approval")) {
+          badgeStyle = "bg-[#F0FDF4] text-[#16A34A] border-[#BBF7D0]";
+        } else if (norm.includes("intake")) {
+          badgeStyle = "bg-[#F0F9FF] text-[#0284C7] border-[#BAE6FD]";
         }
         return (
           <div className="inline-flex justify-center">
             <span
               className={`inline-flex items-center justify-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${badgeStyle}`}
             >
-              {stageLabel}
+              {stageName}
             </span>
           </div>
         );
@@ -2827,16 +3304,18 @@ export default function JobApplicationsPage() {
 
       {/* 4 Metric Stat Cards matching Figma */}
       <ApplicantsMetricsCards
-        totalApplicants={listMeta.paged ? listMeta.total : tabCounts.all || rows.length}
-        shortlistedCount={statusOptions.reduce((sum, option) => {
-          return option.systemKey === "shortlisted" ? sum + (tabCounts[option.id] || 0) : sum;
-        }, 0)}
-        underReviewCount={statusOptions.reduce((sum, option) => {
-          return option.systemKey === "reviewing" ? sum + (tabCounts[option.id] || 0) : sum;
-        }, 0)}
-        hiredCount={statusOptions.reduce((sum, option) => {
-          return option.systemKey === "hired" ? sum + (tabCounts[option.id] || 0) : sum;
-        }, 0)}
+        counts={dynamicMetricsCounts}
+        timeframes={metricTimeframes}
+        onTimeframeChange={(cardId, timeframe) => {
+          setMetricTimeframes((prev) => ({
+            ...prev,
+            [cardId]: timeframe,
+          }));
+        }}
+        totalApplicants={dynamicMetricsCounts.total}
+        shortlistedCount={dynamicMetricsCounts.shortlisted}
+        underReviewCount={dynamicMetricsCounts.review}
+        hiredCount={dynamicMetricsCounts.hired}
       />
 
       {/* Search & Filter Toolbar matching Figma */}
@@ -2870,6 +3349,9 @@ export default function JobApplicationsPage() {
         onOpenAllFilters={() => setEditFiltersOpen(true)}
         onEditColumns={() => setEditColumnsOpen(true)}
         activeFilterCount={activeFilterCount}
+        roleOptions={dynamicRoleOptions}
+        clientOptions={dynamicClientOptions}
+        ownerOptions={dynamicOwnerOptions}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         searching={loading}
@@ -2971,9 +3453,22 @@ export default function JobApplicationsPage() {
                               </Link>
                             )}
                             {multiJob ? (
-                              <span className="inline-flex items-center justify-center rounded bg-[#F7EEDC] px-1.5 py-0.5 text-[10px] font-semibold leading-[15px] text-[#8A5A12]">
+                              <button
+                                type="button"
+                                className="inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md bg-[#F7EEDC] px-2 py-0.5 text-xs font-semibold leading-4 text-[#8A5A12] transition-all hover:bg-[#EEDBB8] hover:text-[#684107] hover:shadow-xs focus:outline-none focus:ring-2 focus:ring-[#8A5A12]/30 active:scale-95"
+                                title={`View all ${appliedJobCount} applications`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  const same = jobsPopover?.key === applicantGroupKey(row);
+                                  if (same) {
+                                    setJobsPopover(null);
+                                    return;
+                                  }
+                                  void openApplicantJobs(row, event.currentTarget);
+                                }}
+                              >
                                 {appliedJobCount}
-                              </span>
+                              </button>
                             ) : null}
                           </div>
                           {exp ? <p className="text-[10px] leading-[15px] text-[#6B7280]">{exp}</p> : null}

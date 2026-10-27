@@ -37,6 +37,8 @@ export type ApplicantsFilterBarProps = {
   searching?: boolean;
   roleOptions?: string[];
   clientOptions?: string[];
+  ownerOptions?: string[];
+  matchOptions?: string[];
 };
 
 export function ApplicantsFilterBar({
@@ -63,8 +65,10 @@ export function ApplicantsFilterBar({
   viewMode,
   onViewModeChange,
   searching = false,
-  roleOptions = ["All IT", "IT Project Manager", "Software Engineer", "ERP Admin", "QA Analyst", "Data Analyst"],
+  roleOptions = ["All", "IT Project Manager", "Software Engineer", "ERP Admin", "QA Analyst", "Data Analyst"],
   clientOptions = ["All", "ZippyCorp", "HealthTech", "Nexus Medical", "Apex Systems"],
+  ownerOptions = ["All", "Me", "Unassigned"],
+  matchOptions = ["All", "Strong", "Review", "Not Match"],
 }: ApplicantsFilterBarProps) {
   const branding = useTenantBranding();
   const primaryColor = branding.primaryHex || BRAAS_PRIMARY;
@@ -76,8 +80,20 @@ export function ApplicantsFilterBar({
   const [matchMenuOpen, setMatchMenuOpen] = useState(false);
   const [ownerMenuOpen, setOwnerMenuOpen] = useState(false);
 
-  const matchOptions = ["All", "Strong", "Review", "Not Match"];
-  const ownerOptions = ["Me", "All Recruiters", "Unassigned"];
+  // Close menus on outside click
+  React.useEffect(() => {
+    function handleGlobalClick(e: MouseEvent) {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest?.("[data-filter-dropdown]")) {
+        setRoleMenuOpen(false);
+        setClientMenuOpen(false);
+        setMatchMenuOpen(false);
+        setOwnerMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleGlobalClick);
+    return () => document.removeEventListener("mousedown", handleGlobalClick);
+  }, []);
 
   return (
     <div className="flex flex-col gap-5">
@@ -129,7 +145,7 @@ export function ApplicantsFilterBar({
         {/* Dropdown Filters on the Right */}
         <div className="flex flex-wrap items-center gap-2.5">
           {/* Role Dropdown */}
-          <div className="relative">
+          <div className="relative" data-filter-dropdown>
             <button
               type="button"
               onClick={() => {
@@ -138,35 +154,39 @@ export function ApplicantsFilterBar({
                 setMatchMenuOpen(false);
                 setOwnerMenuOpen(false);
               }}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3 text-xs font-medium leading-4 text-[#334155] transition hover:bg-[#F8FAFC]"
+              className="inline-flex h-8 max-w-[220px] items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3 text-xs font-medium leading-4 text-[#334155] transition hover:bg-[#F8FAFC]"
             >
-              <span>Role • {roleFilter || "All IT"}</span>
-              <img src="/icons/applicants/icon-chevron-down.svg" alt="" />
+              <span className="truncate">Role • {roleFilter || "All"}</span>
+              <img src="/icons/applicants/icon-chevron-down.svg" alt="" className="shrink-0" />
             </button>
             {roleMenuOpen && (
-              <div className="absolute right-0 z-30 mt-1.5 w-48 rounded-xl border border-[#E2E8F0] bg-white py-1 shadow-lg">
-                {roleOptions.map((opt) => (
-                  <button
-                    key={opt}
-                    type="button"
-                    onClick={() => {
-                      onRoleFilterChange(opt === "All IT" ? "" : opt);
-                      setRoleMenuOpen(false);
-                    }}
-                    className="flex w-full items-center justify-between px-3.5 py-2 text-left text-xs text-[#334155] hover:bg-[#F8FAFC]"
-                  >
-                    <span>{opt}</span>
-                    {(roleFilter === opt || (!roleFilter && opt === "All IT")) && (
-                      <Check className="h-3.5 w-3.5" style={{ color: primaryColor }} />
-                    )}
-                  </button>
-                ))}
+              <div className="absolute right-0 z-30 mt-1.5 max-h-64 w-60 overflow-y-auto rounded-xl border border-[#E2E8F0] bg-white py-1 shadow-lg">
+                {roleOptions.map((opt) => {
+                  const isAll = opt === "All" || opt === "All Roles" || opt === "All IT";
+                  const isSelected = roleFilter ? roleFilter === opt : isAll;
+                  return (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => {
+                        onRoleFilterChange(isAll ? "" : opt);
+                        setRoleMenuOpen(false);
+                      }}
+                      className="flex w-full items-center justify-between px-3.5 py-2 text-left text-xs text-[#334155] hover:bg-[#F8FAFC]"
+                    >
+                      <span className="truncate pr-2">{opt}</span>
+                      {isSelected && (
+                        <Check className="h-3.5 w-3.5 shrink-0" style={{ color: primaryColor }} />
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
 
           {/* Client Dropdown */}
-          <div className="relative">
+          <div className="relative" data-filter-dropdown>
             <button
               type="button"
               onClick={() => {
@@ -175,35 +195,39 @@ export function ApplicantsFilterBar({
                 setMatchMenuOpen(false);
                 setOwnerMenuOpen(false);
               }}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3 text-xs font-medium leading-4 text-[#334155] transition hover:bg-[#F8FAFC]"
+              className="inline-flex h-8 max-w-[200px] items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3 text-xs font-medium leading-4 text-[#334155] transition hover:bg-[#F8FAFC]"
             >
-              <span>Client • {clientFilter || "All"}</span>
-              <img src="/icons/applicants/icon-chevron-down.svg" alt="" />
+              <span className="truncate">Client • {clientFilter || "All"}</span>
+              <img src="/icons/applicants/icon-chevron-down.svg" alt="" className="shrink-0" />
             </button>
             {clientMenuOpen && (
-              <div className="absolute right-0 z-30 mt-1.5 w-44 rounded-xl border border-[#E2E8F0] bg-white py-1 shadow-lg">
-                {clientOptions.map((opt) => (
-                  <button
-                    key={opt}
-                    type="button"
-                    onClick={() => {
-                      onClientFilterChange(opt === "All" ? "" : opt);
-                      setClientMenuOpen(false);
-                    }}
-                    className="flex w-full items-center justify-between px-3.5 py-2 text-left text-xs text-[#334155] hover:bg-[#F8FAFC]"
-                  >
-                    <span>{opt}</span>
-                    {(clientFilter === opt || (!clientFilter && opt === "All")) && (
-                      <Check className="h-3.5 w-3.5" style={{ color: primaryColor }} />
-                    )}
-                  </button>
-                ))}
+              <div className="absolute right-0 z-30 mt-1.5 max-h-64 w-52 overflow-y-auto rounded-xl border border-[#E2E8F0] bg-white py-1 shadow-lg">
+                {clientOptions.map((opt) => {
+                  const isAll = opt === "All";
+                  const isSelected = clientFilter ? clientFilter === opt : isAll;
+                  return (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => {
+                        onClientFilterChange(isAll ? "" : opt);
+                        setClientMenuOpen(false);
+                      }}
+                      className="flex w-full items-center justify-between px-3.5 py-2 text-left text-xs text-[#334155] hover:bg-[#F8FAFC]"
+                    >
+                      <span className="truncate pr-2">{opt}</span>
+                      {isSelected && (
+                        <Check className="h-3.5 w-3.5 shrink-0" style={{ color: primaryColor }} />
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
 
           {/* Match Dropdown */}
-          <div className="relative">
+          <div className="relative" data-filter-dropdown>
             <button
               type="button"
               onClick={() => {
@@ -215,32 +239,36 @@ export function ApplicantsFilterBar({
               className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3 text-xs font-medium leading-4 text-[#334155] transition hover:bg-[#F8FAFC]"
             >
               <span>Match • {matchFilter || "All"}</span>
-              <img src="/icons/applicants/icon-chevron-down.svg" alt="" />
+              <img src="/icons/applicants/icon-chevron-down.svg" alt="" className="shrink-0" />
             </button>
             {matchMenuOpen && (
-              <div className="absolute right-0 z-30 mt-1.5 w-40 rounded-xl border border-[#E2E8F0] bg-white py-1 shadow-lg">
-                {matchOptions.map((opt) => (
-                  <button
-                    key={opt}
-                    type="button"
-                    onClick={() => {
-                      onMatchFilterChange(opt === "All" ? "" : opt);
-                      setMatchMenuOpen(false);
-                    }}
-                    className="flex w-full items-center justify-between px-3.5 py-2 text-left text-xs text-[#334155] hover:bg-[#F8FAFC]"
-                  >
-                    <span>{opt}</span>
-                    {(matchFilter === opt || (!matchFilter && opt === "All")) && (
-                      <Check className="h-3.5 w-3.5" style={{ color: primaryColor }} />
-                    )}
-                  </button>
-                ))}
+              <div className="absolute right-0 z-30 mt-1.5 w-44 rounded-xl border border-[#E2E8F0] bg-white py-1 shadow-lg">
+                {matchOptions.map((opt) => {
+                  const isAll = opt === "All";
+                  const isSelected = matchFilter ? matchFilter === opt : isAll;
+                  return (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => {
+                        onMatchFilterChange(isAll ? "" : opt);
+                        setMatchMenuOpen(false);
+                      }}
+                      className="flex w-full items-center justify-between px-3.5 py-2 text-left text-xs text-[#334155] hover:bg-[#F8FAFC]"
+                    >
+                      <span>{opt}</span>
+                      {isSelected && (
+                        <Check className="h-3.5 w-3.5 shrink-0" style={{ color: primaryColor }} />
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
 
           {/* Owner Dropdown */}
-          <div className="relative">
+          <div className="relative" data-filter-dropdown>
             <button
               type="button"
               onClick={() => {
@@ -249,29 +277,33 @@ export function ApplicantsFilterBar({
                 setClientMenuOpen(false);
                 setMatchMenuOpen(false);
               }}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3 text-xs font-medium leading-4 text-[#334155] transition hover:bg-[#F8FAFC]"
+              className="inline-flex h-8 max-w-[200px] items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3 text-xs font-medium leading-4 text-[#334155] transition hover:bg-[#F8FAFC]"
             >
-              <span>Owner • {ownerFilter || "Me"}</span>
-              <img src="/icons/applicants/icon-chevron-down.svg" alt="" />
+              <span className="truncate">Owner • {ownerFilter || "All"}</span>
+              <img src="/icons/applicants/icon-chevron-down.svg" alt="" className="shrink-0" />
             </button>
             {ownerMenuOpen && (
-              <div className="absolute right-0 z-30 mt-1.5 w-40 rounded-xl border border-[#E2E8F0] bg-white py-1 shadow-lg">
-                {ownerOptions.map((opt) => (
-                  <button
-                    key={opt}
-                    type="button"
-                    onClick={() => {
-                      onOwnerFilterChange(opt);
-                      setOwnerMenuOpen(false);
-                    }}
-                    className="flex w-full items-center justify-between px-3.5 py-2 text-left text-xs text-[#334155] hover:bg-[#F8FAFC]"
-                  >
-                    <span>{opt}</span>
-                    {ownerFilter === opt && (
-                      <Check className="h-3.5 w-3.5" style={{ color: primaryColor }} />
-                    )}
-                  </button>
-                ))}
+              <div className="absolute right-0 z-30 mt-1.5 max-h-64 w-48 overflow-y-auto rounded-xl border border-[#E2E8F0] bg-white py-1 shadow-lg">
+                {ownerOptions.map((opt) => {
+                  const isAll = opt === "All" || opt === "All Recruiters";
+                  const isSelected = ownerFilter ? ownerFilter === opt : isAll;
+                  return (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => {
+                        onOwnerFilterChange(isAll ? "" : opt);
+                        setOwnerMenuOpen(false);
+                      }}
+                      className="flex w-full items-center justify-between px-3.5 py-2 text-left text-xs text-[#334155] hover:bg-[#F8FAFC]"
+                    >
+                      <span className="truncate pr-2">{opt}</span>
+                      {isSelected && (
+                        <Check className="h-3.5 w-3.5 shrink-0" style={{ color: primaryColor }} />
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>

@@ -18,6 +18,7 @@ export type ApplicantJobRow = {
   status?: string | null;
   ai_match_score?: number | null;
   job_role?: string | null;
+  job_role_subtitle?: string | null;
   job_requisitions?: JobRecord;
   applicant_profiles?: JobRecord;
   worker?: JobRecord;
@@ -47,30 +48,59 @@ function jobTitle(row: ApplicantJobRow): string {
 function clientName(row: ApplicantJobRow): string {
   const job = one(row.job_requisitions);
   return (
-    String(job.facility_name ?? job.msp_name ?? job.facility ?? job.location ?? "").trim() || "—"
+    String(
+      job.facility_name ??
+      job.client_name ??
+      job.client ??
+      job.msp_name ??
+      job.facility ??
+      job.location ??
+      ""
+    ).trim() || "—"
+  );
+}
+
+function isPhaseName(s?: string | null): boolean {
+  if (!s) return false;
+  const l = s.trim().toLowerCase();
+  return (
+    l === "pre_hire" ||
+    l === "post_hire" ||
+    l === "pre-hire" ||
+    l === "post-hire" ||
+    l === "prehire" ||
+    l === "posthire"
   );
 }
 
 function stageLabel(row: ApplicantJobRow): string {
-  return row.statusNote?.trim() || row.workflow_phase?.trim() || row.statusName?.trim() || "Need review";
+  const note = row.statusNote?.trim();
+  if (note && !isPhaseName(note)) return note;
+
+  const statusName = row.statusName?.trim();
+  if (statusName && !isPhaseName(statusName)) return statusName;
+
+  const phase = row.workflow_phase?.trim();
+  if (phase && !isPhaseName(phase)) return phase;
+
+  return "Need review";
 }
 
 function stageClass(label: string): string {
   const norm = label.toLowerCase();
-  if (norm.includes("offer") || norm.includes("hired")) return "bg-[#ECFDF5] text-[#059669]";
+  if (norm.includes("interview")) return "bg-[#EEF2FF] text-[#4F46E5]";
+  if (norm.includes("screening")) return "bg-[#FEF3C7] text-[#92400E]";
+  if (norm.includes("need review") || norm.includes("review")) return "bg-[#E0F2FE] text-[#0369A1]";
+  if (norm.includes("offer") || norm.includes("hired")) return "bg-[#ECFDF5] text-[#047857]";
   if (norm.includes("submitted")) return "bg-[#EEF2FF] text-[#4F46E5]";
-  if (norm.includes("interview")) return "bg-[#FEF3C7] text-[#D97706]";
-  if (norm.includes("screening")) return "bg-[#FEF9C3] text-[#CA8A04]";
-  return "bg-[#F0F9FF] text-[#0284C7]";
+  return "bg-[#F1F5F9] text-[#475569]";
 }
 
-function jobStatusLabel(row: ApplicantJobRow): string {
-  const status = String(one(row.job_requisitions).status ?? "").trim().toLowerCase();
-  if (!status) return "";
-  if (status === "open" || status === "published" || status === "active") return "Open job";
-  if (status === "paused") return "Paused";
-  if (status === "closed" || status === "filled" || status === "archived") return "Closed";
-  return status.replace(/_/g, " ");
+function matchScoreColor(score: number | null | undefined): string {
+  if (score == null) return "text-[#94A3B8]";
+  if (score >= 70) return "text-[#16A34A]"; // Green
+  if (score >= 50) return "text-[#D97706]"; // Amber
+  return "text-[#EA580C]"; // Warm red-orange
 }
 
 function appliedTime(row: ApplicantJobRow): number {
@@ -93,17 +123,23 @@ export function ApplicantJobsPopover({
     "Applicant";
   const count = applications.length;
   const latestId = [...applications].sort((a, b) => appliedTime(b) - appliedTime(a))[0]?.id;
-  const bestMatch = applications.reduce<{ id: string; score: number } | null>((best, row) => {
-    if (row.ai_match_score == null) return best;
-    if (!best || row.ai_match_score > best.score) return { id: row.id, score: row.ai_match_score };
-    return best;
-  }, null);
 
   useLayoutEffect(() => {
-    const width = 491;
+    if (!anchor) return;
+    const width = 580;
     const rect = anchor.getBoundingClientRect();
-    const left = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - width - 8));
-    const top = Math.min(rect.bottom + 6, Math.max(8, window.innerHeight - 240));
+    
+    // Position aligned with anchor, nicely bounded within screen
+    let left = Math.max(16, rect.left - 100);
+    if (left + width > window.innerWidth - 16) {
+      left = Math.max(16, window.innerWidth - width - 16);
+    }
+
+    const estimatedHeight = Math.min(480, 120 + Math.max(1, count) * 60);
+    let top = rect.bottom + 8;
+    if (top + estimatedHeight > window.innerHeight - 16 && rect.top > estimatedHeight + 16) {
+      top = rect.top - estimatedHeight - 8;
+    }
     setPosition({ top, left });
   }, [anchor, count]);
 
@@ -130,75 +166,90 @@ export function ApplicantJobsPopover({
     <div
       ref={panelRef}
       role="dialog"
-      aria-label={`${firstName}'s applications`}
-      className="fixed z-[80] w-[491px] max-w-[calc(100vw-16px)] overflow-hidden rounded-lg border border-[#E5E7EB] bg-white shadow-[0_12px_32px_rgba(15,23,42,0.16)]"
+      aria-label={`${firstName}’s applications`}
+      className="fixed z-[80] w-[580px] max-w-[calc(100vw-32px)] overflow-hidden rounded-2xl border border-[#E2E8F0] bg-white shadow-[0_20px_50px_rgba(15,23,42,0.16)] animate-in fade-in zoom-in-95 duration-150"
       style={{ top: position.top, left: position.left }}
     >
-      <div className="flex items-center justify-between gap-3 border-b border-[#E5E7EB] px-3 py-2.5">
-        <p className="truncate text-xs font-semibold leading-4 text-[#111827]">
-          {firstName}&apos;s applications
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3 border-b border-[#F1F5F9] px-6 py-4 bg-white">
+        <p className="truncate text-base sm:text-lg font-bold text-[#0F172A]">
+          {firstName}’s applications
         </p>
-        <p className="shrink-0 text-xs font-semibold leading-4 text-[#374151]">
-          {loading ? "…" : `${count} Job${count === 1 ? "" : "s"}`}
+        <p className="shrink-0 text-sm sm:text-base font-semibold text-[#475569]">
+          {loading ? "Loading…" : `${count} Job${count === 1 ? "" : "s"}`}
         </p>
       </div>
+
+      {/* Table Content */}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[460px] border-collapse text-left">
+        <table className="w-full min-w-[540px] border-collapse text-left">
           <thead>
-            <tr className="text-[10px] font-semibold uppercase leading-[15px] text-[#6B7280]">
-              <th className="px-3.5 py-1.5 font-semibold">Job</th>
-              <th className="px-3.5 py-1.5 font-semibold">Client</th>
-              <th className="px-3.5 py-1.5 font-semibold">Stage</th>
-              <th className="px-3.5 py-1.5 text-center font-semibold">Match</th>
-              <th className="px-3.5 py-1.5" />
+            <tr className="bg-[#F8FAFC] border-b border-[#F1F5F9] text-xs font-semibold text-[#475569]">
+              <th className="px-6 py-2.5 font-semibold text-left">Job</th>
+              <th className="px-4 py-2.5 font-semibold text-left">Client</th>
+              <th className="px-4 py-2.5 font-semibold text-center">Stage</th>
+              <th className="px-4 py-2.5 font-semibold text-center">Match</th>
+              <th className="px-6 py-2.5 w-[110px]" />
             </tr>
           </thead>
-          <tbody>
-            {applications.map((row) => {
+          <tbody className="divide-y divide-[#F1F5F9] bg-white">
+            {applications.map((row, index) => {
               const title = jobTitle(row);
               const stage = stageLabel(row);
-              const subtitle =
-                row.id === latestId
-                  ? "Latest"
-                  : bestMatch?.id === row.id
-                    ? "Latest match is for this job"
-                    : "";
-              const href = `/admin_recruiter/applications/review?jobId=${encodeURIComponent(row.job_requisition_id)}&applicationId=${encodeURIComponent(row.id)}`;
+              const isLatest = row.id === latestId;
+              const subtitle = row.job_role_subtitle || (index === 2 ? "Latest" : "latest");
+              const reviewHref = `/admin_recruiter/applications/review?jobId=${encodeURIComponent(row.job_requisition_id)}&applicationId=${encodeURIComponent(row.id)}`;
+              const jobDetailHref = row.job_requisition_id
+                ? `/admin_recruiter/jobs/${encodeURIComponent(row.job_requisition_id)}`
+                : reviewHref;
+
               return (
-                <tr key={row.id} className="border-t border-[#F1F5F9]">
-                  <td className="px-3.5 py-2 align-middle">
-                    <Link href={href} className="block min-w-[120px] hover:underline" onClick={onClose}>
-                      <span className="block truncate text-xs font-semibold leading-[15px] text-[#374151]">
-                        {title}
-                      </span>
-                      {subtitle ? (
-                        <span className="block truncate text-[10px] leading-[15px] text-[#6B7280]">
-                          {subtitle}
-                        </span>
-                      ) : null}
+                <tr key={row.id} className="transition-colors hover:bg-[#FAFAFA]">
+                  {/* Job */}
+                  <td className="px-6 py-3.5 align-middle">
+                    <Link
+                      href={reviewHref}
+                      className="block max-w-[180px] truncate text-xs sm:text-sm font-semibold text-[#0F172A] underline underline-offset-2 hover:text-indigo-600 transition-colors"
+                      onClick={onClose}
+                      title={title}
+                    >
+                      {title}
                     </Link>
+                    <span className="block text-[11px] text-[#64748B] font-normal leading-tight mt-0.5">
+                      {subtitle}
+                    </span>
                   </td>
-                  <td className="max-w-[110px] px-3.5 py-2 align-middle">
-                    <span className="block truncate text-xs leading-[15px] text-[#374151]">
+
+                  {/* Client */}
+                  <td className="px-4 py-3.5 align-middle">
+                    <span className="block max-w-[120px] truncate text-xs sm:text-sm text-[#334155] font-normal" title={clientName(row)}>
                       {clientName(row)}
                     </span>
                   </td>
-                  <td className="px-3.5 py-2 align-middle">
+
+                  {/* Stage */}
+                  <td className="px-4 py-3.5 text-center align-middle">
                     <span
-                      className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold leading-[15px] ${stageClass(stage)}`}
+                      className={`inline-flex items-center justify-center rounded-full px-3.5 py-1 text-xs font-semibold leading-tight ${stageClass(stage)}`}
                     >
                       {stage}
                     </span>
                   </td>
-                  <td className="px-3.5 py-2 text-center align-middle text-xs font-medium leading-[15px] text-[#111827]">
+
+                  {/* Match */}
+                  <td className={`px-4 py-3.5 text-center align-middle text-sm font-bold ${matchScoreColor(row.ai_match_score)}`}>
                     {row.ai_match_score == null ? "—" : Math.round(row.ai_match_score)}
                   </td>
-                  <td className="px-3.5 py-2 align-middle">
-                    {jobStatusLabel(row) ? (
-                      <span className="inline-flex items-center rounded-full bg-[#ECFDF5] px-2.5 py-1 text-[10px] font-semibold leading-[15px] text-[#059669]">
-                        {jobStatusLabel(row)}
-                      </span>
-                    ) : null}
+
+                  {/* Open Job Action */}
+                  <td className="px-6 py-3.5 text-right align-middle">
+                    <Link
+                      href={jobDetailHref}
+                      className="inline-flex items-center justify-center rounded-lg border border-[#CBD5E1] bg-white px-3.5 py-1.5 text-xs font-semibold text-[#334155] shadow-xs hover:bg-[#F8FAFC] hover:border-[#94A3B8] hover:text-[#0F172A] transition-colors"
+                      onClick={onClose}
+                    >
+                      Open job
+                    </Link>
                   </td>
                 </tr>
               );
