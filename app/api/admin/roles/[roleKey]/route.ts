@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireStaffApiSession } from "@/lib/auth/api-session";
 import { requireUserManagement } from "@/lib/auth/user-management";
-import type { StoredGrant } from "@/lib/auth/permission-catalog";
+import { withRequiredView, type StoredGrant } from "@/lib/auth/permission-catalog";
 import { resolveStaffTenantId } from "@/lib/jobs/tenant";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { loadStaffRoles, matchStaffRole } from "@/lib/admin/staff-roles";
@@ -38,9 +38,11 @@ async function readPermissions(
     seen.add(resourceKey);
     grants.push({
       resourceKey,
-      canView: item.canView === true,
-      canEdit: item.canEdit === true,
-      canDelete: item.canDelete === true,
+      ...withRequiredView({
+        canView: item.canView === true,
+        canEdit: item.canEdit === true,
+        canDelete: item.canDelete === true,
+      }),
     });
   }
   for (const key of allowed) {

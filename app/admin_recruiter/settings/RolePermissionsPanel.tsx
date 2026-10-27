@@ -3,6 +3,7 @@
 import { FormEvent, Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
 import toast from "react-hot-toast";
+import { applyGrantSelection, withRequiredView } from "@/lib/auth/permission-catalog";
 
 type ResourceRow = {
   key: string;
@@ -45,9 +46,11 @@ function grantsForRole(role: RoleRow, resources: ResourceRow[]): Grant[] {
     const existing = role.permissions.find((permission) => permission.resourceKey === resource.key);
     return {
       resourceKey: resource.key,
-      canView: existing?.canView === true,
-      canEdit: existing?.canEdit === true,
-      canDelete: existing?.canDelete === true,
+      ...withRequiredView({
+        canView: existing?.canView === true,
+        canEdit: existing?.canEdit === true,
+        canDelete: existing?.canDelete === true,
+      }),
     };
   });
 }
@@ -117,7 +120,9 @@ export default function RolePermissionsPanel({ canEdit, canDelete }: { canEdit: 
 
   function toggle(resourceKey: string, action: Action, checked: boolean) {
     setGrants((current) =>
-      current.map((grant) => (grant.resourceKey === resourceKey ? { ...grant, [action]: checked } : grant))
+      current.map((grant) =>
+        grant.resourceKey === resourceKey ? { ...grant, ...applyGrantSelection(grant, action, checked) } : grant
+      )
     );
   }
 
@@ -168,8 +173,8 @@ export default function RolePermissionsPanel({ canEdit, canDelete }: { canEdit: 
         <div>
           <h3 className="text-base font-semibold text-[#0F172A]">Roles</h3>
           <p className="mt-0.5 text-sm text-[#64748B]">
-            Choose which sidebar modules and Settings sections each role can view, edit, or delete. Dashboard stays
-            available to every signed-in staff member.
+            Choose which sidebar modules and Settings sections each role can view, edit, or delete. Edit or Delete
+            also turns on View. Dashboard stays available to every signed-in staff member.
           </p>
         </div>
         <button

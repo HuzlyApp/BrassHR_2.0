@@ -7,8 +7,10 @@ import {
   actionForMethod,
   classifyProtectedPath,
   editorPermissionResources,
+  applyGrantSelection,
   grantAllows,
   seededGrantForRole,
+  withRequiredView,
 } from "@/lib/auth/permission-catalog";
 
 const ROOT = path.resolve(__dirname, "../..");
@@ -45,6 +47,29 @@ describe("permission catalog", () => {
     expect(grantAllows(grant, "delete")).toBe(false);
     expect(grantAllows({ canView: true, canEdit: false, canDelete: true }, "edit")).toBe(false);
     expect(grantAllows(null, "view")).toBe(false);
+  });
+
+  it("turns view on with edit or delete, and clears both when view is turned off", () => {
+    const none = { canView: false, canEdit: false, canDelete: false };
+    expect(applyGrantSelection(none, "canEdit", true)).toEqual({
+      canView: true,
+      canEdit: true,
+      canDelete: false,
+    });
+    expect(applyGrantSelection(none, "canDelete", true)).toEqual({
+      canView: true,
+      canEdit: false,
+      canDelete: true,
+    });
+    expect(
+      applyGrantSelection({ canView: true, canEdit: true, canDelete: true }, "canView", false)
+    ).toEqual(none);
+    expect(withRequiredView({ canView: false, canEdit: true, canDelete: false })).toEqual({
+      canView: true,
+      canEdit: true,
+      canDelete: false,
+    });
+    expect(grantAllows({ canView: false, canEdit: true, canDelete: false }, "view")).toBe(true);
   });
 
   it("classifies methods into the three supported actions", () => {

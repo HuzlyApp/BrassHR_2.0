@@ -347,11 +347,37 @@ export type StoredGrant = {
   canDelete: boolean;
 };
 
+/** Edit or Delete includes View. Clearing View clears Edit and Delete. */
+export function applyGrantSelection(
+  grant: StoredGrant,
+  action: keyof StoredGrant,
+  checked: boolean
+): StoredGrant {
+  if (action === "canView" && !checked) {
+    return { canView: false, canEdit: false, canDelete: false };
+  }
+  const next: StoredGrant = { ...grant, [action]: checked };
+  if ((action === "canEdit" || action === "canDelete") && checked) next.canView = true;
+  return next;
+}
+
+/** A stored Edit or Delete grant always keeps View. */
+export function withRequiredView(grant: StoredGrant): StoredGrant {
+  const canEdit = grant.canEdit === true;
+  const canDelete = grant.canDelete === true;
+  return {
+    canView: grant.canView === true || canEdit || canDelete,
+    canEdit,
+    canDelete,
+  };
+}
+
 export function grantAllows(grant: StoredGrant | null, action: PermissionAction): boolean {
   if (!grant) return false;
-  if (action === "view") return grant.canView;
-  if (action === "edit") return grant.canEdit;
-  return grant.canDelete;
+  const normalized = withRequiredView(grant);
+  if (action === "view") return normalized.canView;
+  if (action === "edit") return normalized.canEdit;
+  return normalized.canDelete;
 }
 
 /** Seed grants. Admin keeps every configurable action. Limited staff keep prior screens only. */
