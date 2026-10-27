@@ -2974,14 +2974,37 @@ export default function JobApplicationsPage() {
           (Number(row.appliedJobCount ?? 1) > 1
             ? "Latest · match is for this job"
             : "Only job");
+        const jobId =
+          row.job_requisition_id ||
+          String(one(row.job_requisitions).id ?? "").trim();
+        const jobHref = jobId ? `/admin_recruiter/jobs/${encodeURIComponent(jobId)}` : null;
+
         return (
           <div className="flex min-w-0 flex-col text-left">
-            <span className="block truncate text-xs font-medium text-[#334155]" title={role}>
-              {role}
-            </span>
-            <span className="block truncate text-[10px] leading-[15px] text-[#6B7280]">
-              {roleSubtitle}
-            </span>
+            {jobHref ? (
+              <Link
+                href={jobHref}
+                className="group block min-w-0 truncate"
+                title={role}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <span className="block truncate text-xs font-semibold text-[#012352] transition-colors group-hover:text-[color:var(--brand-primary)] group-hover:underline">
+                  {role}
+                </span>
+                <span className="block truncate text-[10px] leading-[15px] text-[#6B7280]">
+                  {roleSubtitle}
+                </span>
+              </Link>
+            ) : (
+              <>
+                <span className="block truncate text-xs font-medium text-[#334155]" title={role}>
+                  {role}
+                </span>
+                <span className="block truncate text-[10px] leading-[15px] text-[#6B7280]">
+                  {roleSubtitle}
+                </span>
+              </>
+            )}
           </div>
         );
       }

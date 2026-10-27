@@ -308,13 +308,13 @@ const EXTRA_TOP_SECTIONS: SidebarSection[] = [
     iconType: ICON.mail,
     matchPrefixes: [MAIL_ROUTE],
   },
-  {
-    label: "Templates",
-    href: "#",
-    iconType: ICON.templateBuilder,
-    matchPrefixes: TEMPLATES_ACTIVE_PREFIXES,
-    children: TEMPLATES_CHILDREN,
-  },
+  // {
+  //   label: "Templates",
+  //   href: "#",
+  //   iconType: ICON.templateBuilder,
+  //   matchPrefixes: TEMPLATES_ACTIVE_PREFIXES,
+  //   children: TEMPLATES_CHILDREN,
+  // }, // Moved under Settings.
   // {
   //   label: "Taskboard",
   //   href: "#",
@@ -363,6 +363,17 @@ const SETTINGS_CHILDREN: SidebarLink[] = [
     ],
   },
   {
+    label: "Locations",
+    href: "/admin_recruiter/facilities",
+    matchPrefixes: ["/admin_recruiter/facilities"],
+  },
+  {
+    label: "Templates",
+    href: "#",
+    matchPrefixes: TEMPLATES_ACTIVE_PREFIXES,
+    children: TEMPLATES_CHILDREN,
+  },
+  {
     label: "Notifications",
     href: NOTIFICATIONS_ROUTE,
     matchPrefixes: [NOTIFICATIONS_ROUTE],
@@ -403,6 +414,8 @@ const SHARED_FOOTER_SECTIONS: SidebarSection[] = [
       HELP_SUPPORT_ROUTE,
       NOTIFICATIONS_ROUTE,
       REPORTS_BASE,
+      "/admin_recruiter/facilities",
+      ...TEMPLATES_ACTIVE_PREFIXES,
       ...AUTOMATION_ACTIVE_PREFIXES,
     ],
     children: SETTINGS_CHILDREN,
@@ -432,13 +445,13 @@ export const CLIENT_SIDEBAR_SECTIONS: SidebarSection[] = [
     matchPrefixes: ["/admin_recruiter/workers", "/admin_recruiter/managers"],
     children: WORKFORCE_CHILDREN,
   },
-  {
-    label: "Organization",
-    href: "#",
-    iconType: ICON.organization,
-    matchPrefixes: ["/admin_recruiter/facilities"],
-    children: ORGANIZATION_CHILDREN,
-  },
+  // {
+  //   label: "Organization",
+  //   href: "#",
+  //   iconType: ICON.organization,
+  //   matchPrefixes: ["/admin_recruiter/facilities"],
+  //   children: ORGANIZATION_CHILDREN,
+  // }, // Moved under Settings.
   {
     label: "Jobs",
     href: JOBS_ROUTE,
@@ -480,13 +493,13 @@ export const CLIENT_SIDEBAR_SECTIONS: SidebarSection[] = [
   //   matchPrefixes: ["/admin_recruiter/reports"],
   //   children: REPORTS_CHILDREN,
   // }, // Moved under Settings.
-  {
-    label: "Templates",
-    href: "#",
-    iconType: ICON.templateBuilder,
-    matchPrefixes: TEMPLATES_ACTIVE_PREFIXES,
-    children: TEMPLATES_CHILDREN,
-  },
+  // {
+  //   label: "Templates",
+  //   href: "#",
+  //   iconType: ICON.templateBuilder,
+  //   matchPrefixes: TEMPLATES_ACTIVE_PREFIXES,
+  //   children: TEMPLATES_CHILDREN,
+  // }, // Moved under Settings.
   // {
   //   label: "Taskboard",
   //   href: "#",
@@ -549,13 +562,13 @@ export const GOD_ADMIN_SIDEBAR_SECTIONS: SidebarSection[] = [
       { label: "Facilities", href: "/admin_recruiter/facilities", matchPrefixes: ["/admin_recruiter/facilities"] },
     ],
   },
-  {
-    label: "Organization",
-    href: "#",
-    iconType: ICON.organization,
-    matchPrefixes: ["/admin_recruiter/facilities"],
-    children: ORGANIZATION_CHILDREN,
-  },
+  // {
+  //   label: "Organization",
+  //   href: "#",
+  //   iconType: ICON.organization,
+  //   matchPrefixes: ["/admin_recruiter/facilities"],
+  //   children: ORGANIZATION_CHILDREN,
+  // }, // Moved under Settings.
   {
     label: "Jobs",
     href: JOBS_ROUTE,

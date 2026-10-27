@@ -208,7 +208,7 @@ export function ApplicantJobsPopover({
                   {/* Job */}
                   <td className="px-6 py-3.5 align-middle">
                     <Link
-                      href={reviewHref}
+                      href={jobDetailHref}
                       className="block max-w-[180px] truncate text-xs sm:text-sm font-semibold text-[#0F172A] underline underline-offset-2 hover:text-indigo-600 transition-colors"
                       onClick={onClose}
                       title={title}
