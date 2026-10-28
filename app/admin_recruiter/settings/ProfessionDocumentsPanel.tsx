@@ -1,7 +1,7 @@
 "use client";
 
 import { Children, isValidElement, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { Check, ChevronDown, FileBadge, Plus, Trash2 } from "lucide-react";
+import { Check, ChevronDown, Plus, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import {
   PROFESSION_DOCUMENT_KINDS,
@@ -341,21 +341,13 @@ export default function ProfessionDocumentsPanel() {
   }
 
   return (
-    <section className="rounded-xl border border-[#E5E7EB] bg-white p-5 shadow-sm sm:p-6">
-      <div className="mb-5 flex items-start gap-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#F1F5F9] text-[#012352]">
-          <FileBadge className="h-4 w-4" aria-hidden />
-        </span>
-        <div>
-          <h3 className="text-base font-semibold text-[#0F172A]">Upload documents</h3>
-          <p className="mt-1 max-w-2xl text-sm leading-6 text-[#64748B]">
-            Choose the certificates and licenses each profession uploads. Mark each one required or optional,
-            and whether an expiry date is required on upload. Applicants can attach up to 5 files per
-            document. This list is for your organization
-            {industryLabel ? ` in ${industryLabel}` : ""}.
-          </p>
-        </div>
-      </div>
+    <section className="space-y-5">
+      <p className="max-w-2xl text-sm leading-6 text-[#64748B]">
+        Choose the certificates and licenses each profession uploads. Mark each one required or optional,
+        and whether an expiry date is required on upload. Applicants can attach up to 5 files per document.
+        This list is for your organization
+        {industryLabel ? ` in ${industryLabel}` : ""}.
+      </p>
 
       {error ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>
@@ -380,7 +372,9 @@ export default function ProfessionDocumentsPanel() {
                         aria-selected={active}
                         onClick={() => selectProfession(profession.id)}
                         className={`rounded-full px-3 py-1.5 text-sm font-medium ${
-                          active ? "bg-[#012352] text-white" : "bg-[#F1F5F9] text-[#012352] hover:bg-[#E2E8F0]"
+                          active
+                            ? "bg-[color:var(--brand-primary)] text-white"
+                            : "bg-[#F1F5F9] text-[#012352] hover:bg-[#E2E8F0]"
                         }`}
                       >
                         {profession.name}
@@ -524,7 +518,7 @@ export default function ProfessionDocumentsPanel() {
                   type="button"
                   disabled={!canManage || !dirty || saving}
                   onClick={() => void save()}
-                  className="inline-flex h-10 items-center justify-center rounded-lg bg-[#012352] px-5 text-sm font-medium text-white disabled:opacity-60"
+                  className="inline-flex h-10 items-center justify-center rounded-lg bg-[color:var(--brand-primary)] px-5 text-sm font-medium text-white disabled:opacity-60"
                 >
                   {saving ? "Saving…" : "Save documents"}
                 </button>

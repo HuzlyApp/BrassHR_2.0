@@ -15,7 +15,7 @@ const menuItems = [
   { icon: '📋', label: 'Applications', href: '/admin_recruiter/applications' },
   { icon: '🛎️', label: 'Notifications', href: '/admin_recruiter/notifications' },
   { icon: '🎯', label: 'Skills', href: '/admin_recruiter/skills' },
-  { icon: '⚙️', label: 'Settings', href: '/admin_recruiter/settings' },
+  { icon: '⚙️', label: 'Settings', href: '/admin_recruiter/settings/branding' },
 ];
 
 export default function Sidebar() {

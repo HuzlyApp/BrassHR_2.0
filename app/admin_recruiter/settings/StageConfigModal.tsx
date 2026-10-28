@@ -499,7 +499,7 @@ export function StageConfigModal({
                                     type="button"
                                     disabled={saving}
                                     onClick={() => commitRename(status.id)}
-                                    className="inline-flex h-7 items-center rounded-md bg-[#012352] px-2 text-xs font-semibold text-white disabled:opacity-40"
+                                    className="inline-flex h-7 items-center rounded-md bg-[color:var(--brand-primary)] px-2 text-xs font-semibold text-white disabled:opacity-40"
                                   >
                                     Apply status name
                                   </button>
@@ -731,7 +731,7 @@ export function StageConfigModal({
                   <button
                     type="button"
                     onClick={onClose}
-                    className="inline-flex h-8 items-center rounded-md bg-[#012352] px-3 text-xs font-semibold text-white"
+                    className="inline-flex h-8 items-center rounded-md bg-[color:var(--brand-primary)] px-3 text-xs font-semibold text-white"
                   >
                     Discard
                   </button>
@@ -760,7 +760,7 @@ export function StageConfigModal({
                       setSaveHint(null);
                       onSave(draft);
                     }}
-                    className="inline-flex h-8 items-center rounded-md bg-[#012352] px-3 text-sm font-semibold text-white disabled:opacity-50"
+                    className="inline-flex h-8 items-center rounded-md bg-[color:var(--brand-primary)] px-3 text-sm font-semibold text-white disabled:opacity-50"
                   >
                     {saving ? "Saving…" : "Save changes"}
                   </button>

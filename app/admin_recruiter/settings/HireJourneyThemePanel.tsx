@@ -189,7 +189,8 @@ export default function HireJourneyThemePanel() {
           type="button"
           disabled={saving}
           onClick={() => void save(false)}
-          className="rounded-lg bg-[#012352] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          style={{ backgroundColor: "var(--brand-primary)" }}
         >
           {saving ? "Saving…" : "Save hiring journey colors"}
         </button>

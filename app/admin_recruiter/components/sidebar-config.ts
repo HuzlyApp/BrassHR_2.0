@@ -347,16 +347,73 @@ const EXTRA_TOP_SECTIONS: SidebarSection[] = [
 
 const PROFILE_ROUTE = "/admin_recruiter/account/personal";
 const SETTINGS_ROUTE = "/admin_recruiter/settings";
+const SETTINGS_BRANDING_ROUTE = `${SETTINGS_ROUTE}/branding`;
 const HELP_SUPPORT_ROUTE = "/admin_recruiter/help-support";
 const NOTIFICATIONS_ROUTE = "/admin_recruiter/notifications";
 
 /** Admins see Personal Settings > Profile. Recruiters get Profile as a direct Settings item. */
 const SETTINGS_CHILDREN: SidebarLink[] = [
   {
-    label: "Company settings",
-    href: SETTINGS_ROUTE,
+    label: "Company",
+    href: "#",
     resourceKey: "settings_company",
-    matchPrefixes: [SETTINGS_ROUTE],
+    matchPrefixes: [
+      SETTINGS_BRANDING_ROUTE,
+      `${SETTINGS_ROUTE}/admin-console`,
+      `${SETTINGS_ROUTE}/roles`,
+      `${SETTINGS_ROUTE}/hiring-theme`,
+    ],
+    children: [
+      {
+        label: "Branding",
+        href: SETTINGS_BRANDING_ROUTE,
+        matchPrefixes: [SETTINGS_BRANDING_ROUTE, `${SETTINGS_ROUTE}/hiring-theme`],
+      },
+      {
+        label: "Admin Console",
+        href: `${SETTINGS_ROUTE}/admin-console`,
+        matchPrefixes: [`${SETTINGS_ROUTE}/admin-console`],
+      },
+      {
+        label: "User Roles",
+        href: `${SETTINGS_ROUTE}/roles`,
+        matchPrefixes: [`${SETTINGS_ROUTE}/roles`],
+      },
+    ],
+  },
+  {
+    label: "Hiring Setup",
+    href: "#",
+    resourceKey: "settings_company",
+    matchPrefixes: [
+      `${SETTINGS_ROUTE}/profession`,
+      `${SETTINGS_ROUTE}/assessment`,
+      `${SETTINGS_ROUTE}/statuses`,
+      ...TEMPLATES_ACTIVE_PREFIXES,
+    ],
+    children: [
+      {
+        label: "Professions",
+        href: `${SETTINGS_ROUTE}/profession`,
+        matchPrefixes: [`${SETTINGS_ROUTE}/profession`],
+      },
+      {
+        label: "Statuses",
+        href: `${SETTINGS_ROUTE}/statuses`,
+        matchPrefixes: [`${SETTINGS_ROUTE}/statuses`],
+      },
+      {
+        label: "Assessment",
+        href: `${SETTINGS_ROUTE}/assessment`,
+        matchPrefixes: [`${SETTINGS_ROUTE}/assessment`],
+      },
+      {
+        label: "Templates",
+        href: "#",
+        matchPrefixes: TEMPLATES_ACTIVE_PREFIXES,
+        children: TEMPLATES_CHILDREN,
+      },
+    ],
   },
   {
     label: "Personal Settings",
@@ -367,7 +424,20 @@ const SETTINGS_CHILDREN: SidebarLink[] = [
       {
         label: "Profile",
         href: PROFILE_ROUTE,
-        matchPrefixes: ["/admin_recruiter/account"],
+        matchPrefixes: ["/admin_recruiter/account/personal"],
+      },
+      {
+        label: "Account",
+        href: "/admin_recruiter/account/account-settings",
+        matchPrefixes: [
+          "/admin_recruiter/account/account-settings",
+          "/admin_recruiter/account/business-info",
+        ],
+      },
+      {
+        label: "Security",
+        href: "/admin_recruiter/account/security",
+        matchPrefixes: ["/admin_recruiter/account/security"],
       },
     ],
   },
@@ -400,22 +470,15 @@ const SETTINGS_MATCH_PREFIXES = [
   REPORTS_BASE,
 ];
 
-/** Company admin: Organization, Automation, and Templates live under Settings, with their existing submenus. */
+/** Company admin: Automation lives under Settings (Templates already under Hiring Setup). */
 const ADMIN_SETTINGS_CHILDREN: SidebarLink[] = [
   ...SETTINGS_CHILDREN,
   {
-    label: "Automation",
+    label: "Workflows",
     href: "#",
     resourceKey: "settings_automation",
     matchPrefixes: AUTOMATION_ACTIVE_PREFIXES,
     children: AUTOMATION_CHILDREN,
-  },
-  {
-    label: "Templates",
-    href: "#",
-    resourceKey: "settings_templates",
-    matchPrefixes: TEMPLATES_ACTIVE_PREFIXES,
-    children: TEMPLATES_CHILDREN,
   },
 ];
 

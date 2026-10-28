@@ -74,6 +74,7 @@ import {
 import SuccessModal from "@/app/components/SuccessModal";
 import ErrorModal from "@/app/components/ErrorModal";
 import { CandidateProfileIconLink } from "@/app/admin_recruiter/candidates/CandidateProfileIconLink";
+import { candidateProfileHref } from "@/app/admin_recruiter/candidates/candidate-links";
 import { CandidatePreHireIconLink } from "@/app/admin_recruiter/candidates/CandidatePreHireIconLink";
 import { useTenantBranding } from "@/app/components/tenant/TenantBrandingContext";
 import {
@@ -2916,7 +2917,8 @@ export default function JobApplicationsPage() {
     switch (colId) {
       case "candidates": {
         const name = applicantName(row);
-        const detailHref = `/admin_recruiter/applications/review?jobId=${encodeURIComponent(row.job_requisition_id)}&applicationId=${encodeURIComponent(row.id)}`;
+        const workerId = resolveApplicationWorkerId(row) || row.worker_id || row.id;
+        const profileHref = candidateProfileHref(workerId);
         const appliedJobCount = Number(row.appliedJobCount ?? 1);
         const experience = experienceLabel(row);
         const multiJob = appliedJobCount > 1;
@@ -2924,7 +2926,7 @@ export default function JobApplicationsPage() {
           <div className="flex w-full min-w-0 items-center justify-between gap-3">
             <div className="min-w-0 flex-1">
               <Link
-                href={detailHref}
+                href={profileHref}
                 className="block truncate text-xs font-semibold leading-4 text-[#374151] hover:underline"
               >
                 {name}
@@ -3462,7 +3464,8 @@ export default function JobApplicationsPage() {
                 row.job_role ||
                 String(one(row.job_requisitions).public_title ?? "").trim() ||
                 "—";
-              const detailHref = `/admin_recruiter/applications/review?jobId=${encodeURIComponent(row.job_requisition_id)}&applicationId=${encodeURIComponent(row.id)}`;
+              const workerId = resolveApplicationWorkerId(row) || row.worker_id || row.id;
+              const profileHref = candidateProfileHref(workerId);
               const exp = experienceLabel(row);
               const appliedJobCount = Number(row.appliedJobCount ?? 1);
               const multiJob = appliedJobCount > 1;
@@ -3477,29 +3480,12 @@ export default function JobApplicationsPage() {
                         <CandidateListAvatar name={name || "NA"} />
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5">
-                            {multiJob ? (
-                              <button
-                                type="button"
-                                className="truncate text-left text-xs font-semibold text-[#374151] hover:underline"
-                                onClick={(event) => {
-                                  const same = jobsPopover?.key === applicantGroupKey(row);
-                                  if (same) {
-                                    setJobsPopover(null);
-                                    return;
-                                  }
-                                  void openApplicantJobs(row, event.currentTarget);
-                                }}
-                              >
-                                {name}
-                              </button>
-                            ) : (
-                              <Link
-                                href={detailHref}
-                                className="truncate text-xs font-semibold text-[#374151] hover:underline"
-                              >
-                                {name}
-                              </Link>
-                            )}
+                            <Link
+                              href={profileHref}
+                              className="truncate text-xs font-semibold text-[#374151] hover:underline"
+                            >
+                              {name}
+                            </Link>
                             {multiJob ? (
                               <button
                                 type="button"

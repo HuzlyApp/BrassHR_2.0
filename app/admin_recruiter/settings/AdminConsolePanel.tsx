@@ -73,12 +73,19 @@ function ConfirmDialog({
   );
 }
 
-export default function AdminConsolePanel() {
+type DirectoryTab = "admins" | "recruiters";
+
+export default function AdminConsolePanel({
+  embedInSettingsPage = false,
+}: {
+  embedInSettingsPage?: boolean;
+} = {}) {
   const [users, setUsers] = useState<StaffDirectoryRow[]>([]);
   const [roleOptions, setRoleOptions] = useState<StaffRoleOption[]>([]);
   const [visible, setVisible] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [directoryTab, setDirectoryTab] = useState<DirectoryTab>("admins");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [menuId, setMenuId] = useState<string | null>(null);
@@ -235,37 +242,90 @@ export default function AdminConsolePanel() {
     );
   }
 
-  const empty = !loading && users.length === 0;
+  const adminRoleKeys = useMemo(
+    () => new Set(roleOptions.filter((option) => option.isAdmin).map((option) => option.key)),
+    [roleOptions]
+  );
+  const filteredUsers = useMemo(() => {
+    if (adminRoleKeys.size === 0) return users;
+    return users.filter((row) => {
+      const isAdminRole = adminRoleKeys.has(row.role);
+      return directoryTab === "admins" ? isAdminRole : !isAdminRole;
+    });
+  }, [adminRoleKeys, directoryTab, users]);
+  const empty = !loading && filteredUsers.length === 0;
   const pendingCount = useMemo(() => users.filter((row) => row.status === "pending").length, [users]);
 
   if (!visible && !loading) return null;
 
+  const inviteButton = (
+    <button
+      type="button"
+      onClick={() => {
+        resetInviteForm();
+        setInviteOpen(true);
+      }}
+      disabled={loading}
+      className="inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium text-white hover:brightness-95 disabled:opacity-60"
+      style={{ backgroundColor: "var(--brand-primary)" }}
+    >
+      <UserPlus className="h-4 w-4" aria-hidden />
+      Invite User
+    </button>
+  );
+
   return (
-    <section className="rounded-xl border border-[#E5E7EB] bg-white p-5 shadow-sm sm:p-6">
-      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#F1F5F9] text-[#012352]">
-            <Users className="h-4 w-4" aria-hidden />
-          </span>
-          <div>
-            <h3 className="text-base font-semibold text-[#0F172A]">Admin Console</h3>
-            <p className="mt-0.5 text-sm text-[#64748B]">
-              Invite recruiters, assign roles, and manage access for this organization.
-            </p>
+    <section
+      className={
+        embedInSettingsPage
+          ? "space-y-5"
+          : "rounded-xl border border-[#E5E7EB] bg-white p-5 shadow-sm sm:p-6"
+      }
+    >
+      <div
+        className={`flex flex-col gap-3 sm:flex-row sm:items-start ${
+          embedInSettingsPage ? "sm:justify-end" : "sm:justify-between"
+        }`}
+      >
+        {embedInSettingsPage ? null : (
+          <div className="flex items-start gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#F1F5F9] text-[#012352]">
+              <Users className="h-4 w-4" aria-hidden />
+            </span>
+            <div>
+              <h3 className="text-base font-semibold text-[#0F172A]">Admin Console</h3>
+              <p className="mt-0.5 text-sm text-[#64748B]">
+                Invite recruiters, assign roles, and manage access for this organization.
+              </p>
+            </div>
           </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            resetInviteForm();
-            setInviteOpen(true);
-          }}
-          disabled={loading}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#012352] px-4 text-sm font-medium text-white hover:brightness-95 disabled:opacity-60"
-        >
-          <UserPlus className="h-4 w-4" aria-hidden />
-          Invite staff
-        </button>
+        )}
+        {inviteButton}
+      </div>
+
+      <div className="flex items-center gap-4 border-b border-[#E5E7EB]">
+        {(
+          [
+            { id: "admins" as const, label: "Admins" },
+            { id: "recruiters" as const, label: "Recruiters" },
+          ] as const
+        ).map((tab) => {
+          const active = directoryTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setDirectoryTab(tab.id)}
+              className={`border-b-[1.5px] px-1 pb-2.5 pt-1 text-sm transition-colors ${
+                active
+                  ? "border-[color:var(--brand-primary)] text-[color:var(--brand-primary)]"
+                  : "border-transparent text-[#012352] hover:text-[color:var(--brand-primary)]"
+              }`}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
       {error ? (
@@ -303,7 +363,7 @@ export default function AdminConsolePanel() {
               </tr>
             </thead>
             <tbody>
-              {users.map((row) => (
+              {filteredUsers.map((row) => (
                 <tr key={row.id} className="border-b border-[#F1F5F9] last:border-0">
                   <td className="py-3 pr-3 font-medium text-[#0F172A]">{row.name}</td>
                   <td className="py-3 pr-3 text-[#334155]">{row.email}</td>
@@ -562,7 +622,8 @@ export default function AdminConsolePanel() {
               <button
                 type="submit"
                 disabled={submitting}
-                className="rounded-lg bg-[#012352] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                className="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                style={{ backgroundColor: "var(--brand-primary)" }}
               >
                 {submitting ? "Sending…" : "Send invitation"}
               </button>

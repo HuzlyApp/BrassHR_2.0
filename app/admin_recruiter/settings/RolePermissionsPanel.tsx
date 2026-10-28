@@ -168,55 +168,76 @@ export default function RolePermissionsPanel({ canEdit, canDelete }: { canEdit: 
   const userCount = editing?.userCount ?? 0;
 
   return (
-    <section className="rounded-xl border border-[#E5E7EB] bg-white p-5 shadow-sm sm:p-6">
-      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h3 className="text-base font-semibold text-[#0F172A]">Roles</h3>
-          <p className="mt-0.5 text-sm text-[#64748B]">
-            Choose which sidebar modules and Settings sections each role can view, edit, or delete. Edit or Delete
-            also turns on View. Dashboard stays available to every signed-in staff member.
-          </p>
+    <section className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <p className="sr-only">
+          Choose which sidebar modules and Settings sections each role can view, edit, or delete.
+        </p>
+        <div className="sm:ml-auto">
+          <button
+            type="button"
+            onClick={openCreate}
+            disabled={!canEdit || loading}
+            className="inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm font-semibold text-white hover:brightness-95 disabled:opacity-60"
+            style={{ backgroundColor: "var(--brand-primary)" }}
+          >
+            + Create Custom Role
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={openCreate}
-          disabled={!canEdit || loading}
-          className="inline-flex h-10 items-center justify-center rounded-lg bg-[#C6A15B] px-4 text-sm font-semibold text-white hover:brightness-95 disabled:opacity-60"
-        >
-          Create role
-        </button>
       </div>
 
       {loading ? <p className="text-sm text-[#64748B]">Loading roles…</p> : null}
       {!loading ? (
-        <ul className="divide-y divide-[#ECF1F9]">
-          {roles.map((role) => (
-            <li key={role.roleKey} className="flex items-center justify-between gap-3 py-3">
-              <div>
-                <p className="text-sm font-semibold text-[#012352]">{role.label}</p>
-                <p className="text-xs text-[#6B7280]">
-                  {role.userCount} {role.userCount === 1 ? "user" : "users"}
-                  {role.description ? ` · ${role.description}` : ""}
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <button type="button" className="text-sm font-medium text-[#012352]" onClick={() => openEdit(role)}>
-                  Edit
-                </button>
-                {!role.isSystem ? (
-                  <button
-                    type="button"
-                    className="text-sm font-medium text-[#B91C1C] disabled:opacity-40"
-                    disabled={!canDelete}
-                    onClick={() => void remove(role)}
-                  >
-                    Delete
-                  </button>
-                ) : null}
-              </div>
-            </li>
-          ))}
-        </ul>
+        <div className="overflow-x-auto rounded-lg border border-[#E5E7EB] bg-white">
+          <table className="min-w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-[#E5E7EB] text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
+                <th className="px-4 py-3">Role Name</th>
+                <th className="px-4 py-3">Description</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Number of users</th>
+                <th className="px-4 py-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {roles.map((role) => (
+                <tr key={role.roleKey} className="border-b border-[#F3F4F6] last:border-0">
+                  <td className="px-4 py-3 font-semibold text-[#012352]">{role.label}</td>
+                  <td className="px-4 py-3 text-[#6B7280]">{role.description || "—"}</td>
+                  <td className="px-4 py-3">
+                    <span className="inline-flex rounded-full bg-[#DCFCE7] px-2 py-0.5 text-xs font-medium text-[#166534]">
+                      Active
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-[#334155]">
+                    {role.userCount} {role.userCount === 1 ? "user" : "users"}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex justify-end gap-3">
+                      <button
+                        type="button"
+                        className="text-sm font-medium text-[color:var(--brand-primary)] hover:underline"
+                        onClick={() => openEdit(role)}
+                      >
+                        Edit
+                      </button>
+                      {!role.isSystem ? (
+                        <button
+                          type="button"
+                          className="text-sm font-medium text-[#B91C1C] disabled:opacity-40"
+                          disabled={!canDelete}
+                          onClick={() => void remove(role)}
+                        >
+                          Delete
+                        </button>
+                      ) : null}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : null}
 
       {open ? (
@@ -341,7 +362,8 @@ export default function RolePermissionsPanel({ canEdit, canDelete }: { canEdit: 
                 <button
                   type="submit"
                   disabled={!canEdit || saving}
-                  className="h-10 rounded-lg bg-[#C6A15B] px-8 text-sm font-semibold text-white disabled:opacity-60"
+                  className="h-10 rounded-lg px-8 text-sm font-semibold text-white disabled:opacity-60"
+                  style={{ backgroundColor: "var(--brand-primary)" }}
                 >
                   {saving ? "Saving…" : editing ? "Save" : "Create"}
                 </button>

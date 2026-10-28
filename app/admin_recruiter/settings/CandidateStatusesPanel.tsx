@@ -484,7 +484,7 @@ export default function CandidateStatusesPanel() {
 
 
   return (
-    <section className="rounded-xl border border-[#E5E7EB] bg-white p-5 shadow-sm sm:p-6">
+    <section className="space-y-5">
       {saveMessage ? (
         <div
           role="status"

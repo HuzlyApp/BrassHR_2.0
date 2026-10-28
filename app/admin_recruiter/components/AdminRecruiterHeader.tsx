@@ -581,7 +581,7 @@ export function AdminRecruiterHeader({
               <p className="px-2 py-1 text-xs font-semibold text-[#0F172A]">{displayName}</p>
               <p className="px-2 pb-2 text-[11px] text-[#64748B]">{displayRole}</p>
               <Link
-                href={isRecruiter ? "/admin_recruiter/account/personal" : "/admin_recruiter/settings"}
+                href={isRecruiter ? "/admin_recruiter/account/personal" : "/admin_recruiter/settings/branding"}
                 className="block rounded-md px-2 py-1 text-xs text-[#0F172A] hover:bg-[#f2f8f7]"
               >
                 {isRecruiter ? "Profile" : "Settings"}

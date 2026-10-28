@@ -6,7 +6,6 @@ import {
   Copy,
   Eye,
   GripVertical,
-  ListChecks,
   Pencil,
   Plus,
   Trash2,
@@ -59,7 +58,7 @@ function Toggle({
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition disabled:opacity-50 ${
-        checked ? "bg-[#012352]" : "bg-[#CBD5E1]"
+        checked ? "bg-[color:var(--brand-primary)]" : "bg-[#CBD5E1]"
       }`}
     >
       <span
@@ -472,33 +471,21 @@ export default function AssessmentSettingsPanel() {
   }
 
   return (
-    <section className="rounded-xl border border-[#E5E7EB] bg-white p-5 shadow-sm sm:p-6">
-      <div className="mb-5 flex items-start gap-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#F1F5F9] text-[#012352]">
-          <ListChecks className="h-4 w-4" aria-hidden />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-base font-semibold text-[#0F172A]">Assessment</h3>
-            {dirty ? (
-              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
-                Unsaved
-              </span>
-            ) : unpublished ? (
-              <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800">
-                Unpublished draft
-              </span>
-            ) : (
-              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
-                Published
-              </span>
-            )}
-          </div>
-          <p className="mt-0.5 text-sm text-[#64748B]">
-            Customize the Skill Assessment Quiz shown in the applicant flow. Publishing affects new
-            assessments only; completed records stay as they were.
-          </p>
-        </div>
+    <section className="space-y-5">
+      <div className="flex flex-wrap items-center gap-2">
+        {dirty ? (
+          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+            Unsaved
+          </span>
+        ) : unpublished ? (
+          <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800">
+            Unpublished draft
+          </span>
+        ) : (
+          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
+            Published
+          </span>
+        )}
       </div>
 
       <div className="space-y-4 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-4">
@@ -624,7 +611,7 @@ export default function AssessmentSettingsPanel() {
                   ],
                 }))
               }
-              className="inline-flex h-9 items-center gap-1 rounded-lg bg-[#012352] px-3 text-xs font-medium text-white"
+              className="inline-flex h-9 items-center gap-1 rounded-lg bg-[color:var(--brand-primary)] px-3 text-xs font-medium text-white"
             >
               <Plus className="h-3.5 w-3.5" />
               Add category
@@ -944,7 +931,7 @@ export default function AssessmentSettingsPanel() {
               type="button"
               disabled={saving}
               onClick={() => void publish()}
-              className="h-10 rounded-lg bg-[#012352] px-4 text-sm font-medium text-white disabled:opacity-50"
+              className="h-10 rounded-lg bg-[color:var(--brand-primary)] px-4 text-sm font-medium text-white disabled:opacity-50"
             >
               Publish Changes
             </button>
