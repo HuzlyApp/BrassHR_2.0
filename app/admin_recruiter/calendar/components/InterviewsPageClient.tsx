@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import Link from "next/link";
 import type { AdminInterviewItem } from "@/app/api/admin/applicant-appointments/route";
 import { formatInterviewDate, formatInterviewTimeRange } from "@/lib/interviews/format";
 import {
@@ -480,6 +481,72 @@ function InterviewCalendarView({
   );
 }
 
+function formatInterviewWhen(startsAt: string): { date: string; time: string } {
+  const d = new Date(startsAt);
+  if (Number.isNaN(d.getTime())) return { date: startsAt, time: "" };
+  const date = d.toLocaleDateString("en-US", {
+    timeZone: "America/New_York",
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+  });
+  const weekday = d.toLocaleDateString("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+  });
+  const time = d.toLocaleTimeString("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+  return { date, time: `${weekday} ${time}` };
+}
+
+function InterviewStatusPill({ status }: { status: string }) {
+  const norm = status.trim().toLowerCase();
+  if (norm === "confirmed" || norm === "upcoming") {
+    return (
+      <span className="inline-flex items-center rounded-md bg-[#EBF5FF] px-3 py-1 text-xs font-semibold text-[#2563EB]">
+        Confirmed
+      </span>
+    );
+  }
+  if (norm === "invite sent" || norm === "invited") {
+    return (
+      <span className="inline-flex items-center rounded-md bg-[#EEF2FF] px-3 py-1 text-xs font-semibold text-[#4F46E5]">
+        Invite sent
+      </span>
+    );
+  }
+  if (norm === "walk-in" || norm === "walkin") {
+    return (
+      <span className="inline-flex items-center rounded-md bg-[#FEF3C7] px-3 py-1 text-xs font-semibold text-[#D97706]">
+        Walk-in
+      </span>
+    );
+  }
+  if (norm === "completed") {
+    return (
+      <span className="inline-flex items-center rounded-md bg-[#DCFCE7] px-3 py-1 text-xs font-semibold text-[#16A34A]">
+        Completed
+      </span>
+    );
+  }
+  if (norm === "cancelled") {
+    return (
+      <span className="inline-flex items-center rounded-md bg-[#FEE2E2] px-3 py-1 text-xs font-semibold text-[#DC2626]">
+        Cancelled
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center rounded-md bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-700 capitalize">
+      {status}
+    </span>
+  );
+}
+
 type InterviewsPageClientProps = {
   /** When set, shows only this candidate's interviews and hides applicant dropdown in schedule modal. */
   workerId?: string;
@@ -883,14 +950,124 @@ export default function InterviewsPageClient({
   }
 
   return (
-    <main className="px-4 py-6 sm:px-8 sm:py-8">
-      <div className="mb-5">
-        <h1 className="text-[30px] font-semibold leading-9 text-black">Interviews</h1>
-        <p className="mt-1 text-base text-[#374151]">Manage applicant interviews</p>
+    <main className="box-border w-full min-w-0 max-w-full px-4 py-6 sm:px-8 sm:py-8 font-[Inter,sans-serif]">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-[#111827] sm:text-3xl">
+            Applicant Interviews
+          </h1>
+          <p className="mt-1 text-sm text-[#6B7280]">
+            Manage applicant interviews
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={openCreateSchedule}
+          className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[color:var(--brand-primary)] px-4 py-2.5 text-sm font-semibold text-white shadow-xs transition hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--brand-primary)]"
+        >
+          <Plus className="size-4" strokeWidth={2.5} />
+          Schedule an Interview
+        </button>
       </div>
 
-      <div className="rounded-xl border border-[#E5E7EB] bg-white p-5">
-        {panel}
+      {invitationNotice ? (
+        <p role="alert" className="mb-4 rounded-lg bg-amber-50 p-4 text-sm text-amber-800">
+          {invitationNotice}
+        </p>
+      ) : null}
+
+      {error ? (
+        <p className="mb-4 rounded-lg bg-red-50 p-4 text-sm text-red-700">{error}</p>
+      ) : null}
+
+      <div className="overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-xs">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-[#E5E7EB] bg-white text-xs font-semibold text-[#6B7280]">
+                <th className="px-6 py-4">When</th>
+                <th className="px-6 py-4">Candidate</th>
+                <th className="px-6 py-4">Job</th>
+                <th className="px-6 py-4">Location</th>
+                <th className="px-6 py-4">Interviewer</th>
+                <th className="px-6 py-4">Status</th>
+                <th className="px-6 py-4 text-right"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#E5E7EB]">
+              {loading && interviews.length === 0 ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <tr key={i}>
+                    <td colSpan={7} className="px-6 py-4">
+                      <div className="h-6 w-full animate-pulse rounded bg-gray-100" />
+                    </td>
+                  </tr>
+                ))
+              ) : interviews.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-12 text-center text-sm text-gray-500">
+                    No interviews found.
+                  </td>
+                </tr>
+              ) : (
+                interviews.map((item) => {
+                  const when = formatInterviewWhen(item.startsAt);
+                  const jobLabel = item.jobTitle?.trim() || "—";
+                  const interviewer =
+                    item.interviewers?.map((row) => row.name || row.email).filter(Boolean).join(", ") ||
+                    "—";
+                  const statusLabel = item.status || "upcoming";
+                  const locationLabel =
+                    item.meetingType === "online"
+                      ? item.location?.trim() || "Remote"
+                      : item.location?.trim() || "—";
+
+                  return (
+                    <tr key={item.id} className="transition-colors hover:bg-gray-50/70">
+                      <td className="whitespace-nowrap px-6 py-4 align-middle">
+                        <div className="text-xs font-normal text-[#6B7280]">{when.date}</div>
+                        <div className="text-xs text-[#6B7280]">{when.time}</div>
+                      </td>
+                      <td className="whitespace-nowrap px-6 py-4 align-middle font-bold text-[#111827]">
+                        {item.applicantName || "—"}
+                      </td>
+                      <td className="whitespace-nowrap px-6 py-4 align-middle">
+                        {item.jobId ? (
+                          <Link
+                            href={`/admin_recruiter/jobs/${item.jobId}`}
+                            className="text-xs font-normal text-[color:var(--brand-primary)] underline hover:brightness-90"
+                          >
+                            {jobLabel}
+                          </Link>
+                        ) : (
+                          <span className="text-xs font-normal text-[#6B7280]">{jobLabel}</span>
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-6 py-4 align-middle text-xs text-[#6B7280]">
+                        {locationLabel}
+                      </td>
+                      <td className="whitespace-nowrap px-6 py-4 align-middle text-xs text-[#374151]">
+                        {interviewer}
+                      </td>
+                      <td className="whitespace-nowrap px-6 py-4 align-middle">
+                        <InterviewStatusPill status={statusLabel} />
+                      </td>
+                      <td className="whitespace-nowrap px-6 py-4 align-middle text-right">
+                        <button
+                          type="button"
+                          onClick={() => openInterviewDetail(item)}
+                          className="inline-flex items-center justify-center rounded-md border border-[color:var(--brand-primary)] px-4 py-1 text-xs font-semibold text-[color:var(--brand-primary)] transition hover:bg-[color:color-mix(in_srgb,var(--brand-primary)_8%,white)]"
+                        >
+                          View
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {modals}

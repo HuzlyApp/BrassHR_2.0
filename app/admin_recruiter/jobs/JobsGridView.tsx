@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { Archive, Loader2, PlusSquare, SquarePen, Trash2, UserPlus } from "lucide-react";
+import { Archive, ChevronDown, ExternalLink, Loader2, MoreHorizontal, PlusSquare, SquarePen, Trash2, UserPlus } from "lucide-react";
 import { useTenantBranding } from "@/app/components/tenant/TenantBrandingContext";
 import { brandingToCssVars } from "@/lib/tenant/tenant-branding";
 import { CandidatesListSkeleton } from "@/app/admin_recruiter/candidates/CandidatesListSkeleton";
@@ -12,9 +12,12 @@ import {
   jobStatusDisplayLabel,
   normalizeJobRequisitionStatus,
 } from "@/lib/jobs/job-status";
+import { employmentTypeDisplayLabel } from "@/lib/jobs/employment-type";
 import {
   analyzedApplicantCount,
   applicantCount,
+  hiredApplicantCount,
+  inProcessApplicantCount,
   jobAnalyzedCandidatesHref,
   jobCandidatesHref,
   JobSourceTypeBadge,
@@ -251,40 +254,24 @@ function JobGridCard({
 }) {
   const title = jobListDisplayTitle(job);
   const location = jobLocation(job);
+  const empRaw = job.employment_type || job.placement_type || "";
+  const empType = empRaw ? employmentTypeDisplayLabel(String(empRaw)) : "—";
+  const subtitle = `${location} • ${empType}`;
   const publicHref = publicJobPathFor(job, tenantSlug);
-  const candidateCount = applicantCount(job);
-  const candidatesHref = jobCandidatesHref(job.id);
   const canSelect = Boolean(onToggleSelect);
   const blockNavigation = selectionMode && canSelect;
-  const metrics = [
-    {
-      label: "CAND",
-      value: candidateCount,
-      href: candidatesHref,
-      ariaLabel: `View ${candidateCount} candidate${candidateCount === 1 ? "" : "s"} for ${title}`,
-    },
-    {
-      label: "ANALYSIS",
-      value: analyzedApplicantCount(job),
-      href: jobAnalyzedCandidatesHref(job.id),
-      ariaLabel: `View ${analyzedApplicantCount(job)} analyzed applicant${analyzedApplicantCount(job) === 1 ? "" : "s"} for ${title}`,
-    },
-    {
-      label: "STRONG",
-      value: strongMatchCount(job),
-    },
-    {
-      label: "READY",
-      value: readyToSubmitCount(job),
-    },
-  ];
+
+  const appliedCount = applicantCount(job);
+  const interviewCount = inProcessApplicantCount(job);
+  const offerCount = readyToSubmitCount(job);
+  const hiredCount = hiredApplicantCount(job);
 
   return (
     <article
-      className={`flex cursor-pointer flex-col overflow-hidden rounded-lg bg-white transition-shadow ${
+      className={`group relative flex cursor-pointer flex-col justify-between overflow-hidden rounded-xl bg-white p-4 sm:p-5 transition shadow-xs hover:shadow-md ${
         isSelected
-          ? "border-2 border-[color:var(--brand-primary)] shadow-[0_0_0_1px_color-mix(in_srgb,var(--brand-primary)_35%,transparent)]"
-          : "border border-[#E5E7EB] hover:border-[color:color-mix(in_srgb,var(--brand-primary)_45%,#E5E7EB)]"
+          ? "border-2 border-[color:var(--brand-primary,#bc8b41)] shadow-[0_0_0_1px_color-mix(in_srgb,var(--brand-primary,#bc8b41)_35%,transparent)]"
+          : "border border-[#E5E7EB] hover:border-[#D1D5DB]"
       }`}
       onClick={(event) => {
         if (!canSelect) return;
@@ -306,76 +293,73 @@ function JobGridCard({
       aria-pressed={canSelect ? isSelected : undefined}
       aria-label={canSelect ? `${isSelected ? "Deselect" : "Select"} ${title}` : undefined}
     >
-      <div className="flex items-start px-3 pb-1.5 pt-3">
-        <div className="flex min-h-[31px] w-full items-start justify-between gap-1">
-          <div className="min-w-0 flex-1">
-            {blockNavigation ? (
-              <p className="truncate font-[Inter,sans-serif] text-xs font-semibold leading-4 text-black">
-                {title}
-              </p>
-            ) : (
-              <Link
-                href={`/admin_recruiter/jobs/${job.id}`}
-                className="block truncate font-[Inter,sans-serif] text-xs font-semibold leading-4 text-black hover:underline"
-                onMouseEnter={() => prefetchJobDetails(job.id)}
-                onFocus={() => prefetchJobDetails(job.id)}
-              >
-                {title}
-              </Link>
-            )}
-            <p className="truncate font-[Inter,sans-serif] text-[10px] font-light leading-[15px] text-[#6B7280]">
-              {location}
+      {/* Top Header: Title, Location • Type, Status */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          {blockNavigation ? (
+            <p className="truncate font-[Inter,sans-serif] text-sm font-bold text-[#111827]">
+              {title}
             </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <span className="inline-flex items-center justify-center rounded-full border border-[#94A3B8] bg-white px-2 py-0.5 font-[Inter,sans-serif] text-[10px] font-semibold leading-[15px] text-[#374151]">
-              {gridStatusLabel(job)}
+          ) : (
+            <Link
+              href={`/admin_recruiter/jobs/${job.id}`}
+              className="block truncate font-[Inter,sans-serif] text-sm font-bold text-[#111827] hover:text-[color:var(--brand-primary)]"
+              onMouseEnter={() => prefetchJobDetails(job.id)}
+              onFocus={() => prefetchJobDetails(job.id)}
+            >
+              {title}
+            </Link>
+          )}
+          <p className="mt-0.5 truncate font-[Inter,sans-serif] text-xs text-[#6B7280]">
+            {subtitle}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <span className="inline-flex items-center justify-center rounded-full border border-[#D1D5DB] bg-white px-2.5 py-0.5 font-[Inter,sans-serif] text-xs font-normal text-[#374151] capitalize">
+            {gridStatusLabel(job)}
+          </span>
+          {isHot ? (
+            <span className="inline-flex items-center justify-center rounded-full bg-[#E11D48] px-2 py-0.5 font-[Inter,sans-serif] text-[10px] font-semibold text-white">
+              Hot
             </span>
-            {isHot ? (
-              <span className="inline-flex items-center justify-center rounded-full bg-[#E11D48] px-2 py-0.5 font-[Inter,sans-serif] text-[10px] font-semibold leading-[15px] text-white">
-                Hot
-              </span>
-            ) : null}
-          </div>
+          ) : null}
         </div>
       </div>
 
-      <div className="flex items-center gap-2 border-y border-[#E5E7EB] px-3 py-2.5">
-        {metrics.map((metric) => {
-          const metricClassName =
-            "flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded bg-[#F8F8F8] px-1 py-1.5 text-center";
-          const body = (
-            <>
-              <p className="w-full font-[Inter,sans-serif] text-xs font-semibold leading-4 text-black">
-                {metric.value}
-              </p>
-              <p className="w-full font-[Inter,sans-serif] text-[8px] font-normal leading-none text-[#6B7280]">
-                {metric.label}
-              </p>
-            </>
-          );
-          if (!blockNavigation && "href" in metric && metric.href) {
-            return (
-              <Link
-                key={metric.label}
-                href={metric.href}
-                aria-label={metric.ariaLabel}
-                title={metric.ariaLabel}
-                className={`${metricClassName} cursor-pointer transition hover:bg-[#F1F5F9] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563EB]`}
-              >
-                {body}
-              </Link>
-            );
-          }
-          return (
-            <div key={metric.label} className={metricClassName}>
-              {body}
-            </div>
-          );
-        })}
+      {/* Middle Box: 4 Stage Pipeline Table */}
+      <div className="my-3.5 grid grid-cols-4 divide-x divide-[#E5E7EB] rounded-lg border border-[#E5E7EB] bg-white py-2.5 text-center">
+        <Link
+          href={jobCandidatesHref(job.id)}
+          className="flex flex-col items-center justify-center hover:bg-gray-50/80 transition"
+          onClick={(e) => blockNavigation && e.preventDefault()}
+        >
+          <p className="font-[Inter,sans-serif] text-sm font-bold text-[#111827]">{appliedCount}</p>
+          <p className="font-[Inter,sans-serif] text-[9px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+            APPLIED
+          </p>
+        </Link>
+        <div className="flex flex-col items-center justify-center">
+          <p className="font-[Inter,sans-serif] text-sm font-bold text-[#111827]">{interviewCount}</p>
+          <p className="font-[Inter,sans-serif] text-[9px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+            INTERVIEW
+          </p>
+        </div>
+        <div className="flex flex-col items-center justify-center">
+          <p className="font-[Inter,sans-serif] text-sm font-bold text-[#111827]">{offerCount}</p>
+          <p className="font-[Inter,sans-serif] text-[9px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+            OFFER
+          </p>
+        </div>
+        <div className="flex flex-col items-center justify-center">
+          <p className="font-[Inter,sans-serif] text-sm font-bold text-[#111827]">{hiredCount}</p>
+          <p className="font-[Inter,sans-serif] text-[9px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+            HIRED
+          </p>
+        </div>
       </div>
 
-      <div className="flex items-center justify-between gap-2 px-3 py-2.5">
+      {/* Bottom: Source Badge & Actions */}
+      <div className="flex items-center justify-between pt-1">
         <JobSourceTypeBadge job={job} />
         {!blockNavigation ? (
           <div className="flex shrink-0 items-center gap-2">
@@ -384,31 +368,15 @@ function JobGridCard({
                 href={publicHref}
                 target="_blank"
                 rel="noopener noreferrer"
-                className={iconButtonClass()}
+                className="inline-flex size-6 items-center justify-center text-[#9CA3AF] transition hover:text-[#4B5563]"
                 aria-label={`Open public page for ${title}`}
                 title="Public view"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={JOB_OPEN_ICON_SRC}
-                  alt=""
-                  width={14}
-                  height={14}
-                  className="size-[14px] shrink-0"
-                  aria-hidden
-                />
+                <ExternalLink className="size-3.5" />
               </Link>
             ) : (
-              <span className={iconButtonClass(true)} title="Publish this job to view the public page">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={JOB_OPEN_ICON_SRC}
-                  alt=""
-                  width={14}
-                  height={14}
-                  className="size-[14px] shrink-0"
-                  aria-hidden
-                />
+              <span className="inline-flex size-6 items-center justify-center text-[#D1D5DB] cursor-not-allowed" title="Publish this job to view the public page">
+                <ExternalLink className="size-3.5" />
               </span>
             )}
             <button
@@ -423,15 +391,7 @@ function JobGridCard({
                 onOpenMenu(job, event.currentTarget);
               }}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={JOB_DOTS_ICON_SRC}
-                alt=""
-                width={14}
-                height={14}
-                className="size-[14px] shrink-0 rotate-90"
-                aria-hidden
-              />
+              <MoreHorizontal className="size-4 text-[#9CA3AF]" />
             </button>
           </div>
         ) : null}
@@ -469,7 +429,7 @@ export function JobsGridView({
   const infiniteEnabled = pageSize != null;
   const [visibleCount, setVisibleCount] = useState(pageSize ?? jobs.length);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const sentinelRef = useRef<HTMLButtonElement | null>(null);
   const loadLockRef = useRef(false);
   const jobsSignature = jobs.map((job) => job.id).join("|");
 
@@ -536,7 +496,7 @@ export function JobsGridView({
   return (
     <>
       <div
-        className={`grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 ${padded ? "p-4" : ""}`}
+        className={`grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3 ${padded ? "p-4" : ""}`}
       >
         {visibleJobs.map((job) => (
           <JobGridCard
@@ -557,30 +517,34 @@ export function JobsGridView({
         ))}
       </div>
 
-      {infiniteEnabled && (hasMore || isLoadingMore) ? (
-        <div
-          ref={sentinelRef}
-          className="flex w-full items-center justify-center gap-2 py-5"
-          aria-live="polite"
-          aria-busy={isLoadingMore}
-        >
-          {isLoadingMore ? (
-            <>
-              <span className="font-[Inter,sans-serif] text-sm font-medium leading-5 text-[#94A3B8]">
-                Show more
-              </span>
-              <Loader2
-                className="size-4 shrink-0 animate-spin text-[#CBD5E1]"
-                strokeWidth={2}
-                aria-hidden
-              />
-              <span className="sr-only">Loading more jobs</span>
-            </>
-          ) : (
-            <span className="h-4 w-px" aria-hidden />
-          )}
-        </div>
-      ) : null}
+      <div className="flex w-full items-center justify-center py-6">
+        {infiniteEnabled && (hasMore || isLoadingMore) ? (
+          <button
+            ref={sentinelRef}
+            type="button"
+            onClick={loadNextPage}
+            disabled={isLoadingMore}
+            className="inline-flex items-center gap-1.5 rounded-full border border-gray-300 bg-white px-5 py-2 text-xs font-semibold text-gray-700 shadow-xs transition hover:bg-gray-50 disabled:opacity-60"
+            aria-live="polite"
+            aria-busy={isLoadingMore}
+          >
+            <span>Show more</span>
+            {isLoadingMore ? (
+              <Loader2 className="size-3.5 shrink-0 animate-spin text-[color:var(--brand-primary)]" />
+            ) : (
+              <ChevronDown className="size-3.5 shrink-0 text-gray-500" />
+            )}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-full border border-gray-300 bg-white px-5 py-2 text-xs font-semibold text-gray-700 shadow-xs transition hover:bg-gray-50"
+          >
+            <span>Show more</span>
+            <ChevronDown className="size-3.5 shrink-0 text-gray-500" />
+          </button>
+        )}
+      </div>
 
       {openMenu ? (
         <JobGridCardMenu

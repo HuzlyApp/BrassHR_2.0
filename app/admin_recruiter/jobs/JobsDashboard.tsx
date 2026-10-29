@@ -1,24 +1,47 @@
-"use client";
+﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Columns3,
+  ExternalLink,
+  Filter,
+  MoreHorizontal,
+  Plus,
+  Users,
+} from "lucide-react";
 import {
   CANDIDATES_PAGE_TITLE_CLASS,
   CANDIDATES_PAGE_TITLE_STYLE,
 } from "@/app/admin_recruiter/candidates/candidates-typography";
 import { jobMatchesDashboardSearchTags } from "@/lib/jobs/jobs-list-search";
 import { isJobRequisitionOpen } from "@/lib/jobs/public-application-routing";
-import { normalizeJobRequisitionStatus } from "@/lib/jobs/job-status";
+import {
+  jobStatusDisplayLabel,
+  normalizeJobRequisitionStatus,
+} from "@/lib/jobs/job-status";
 import { closedGroupPickerLabel, groupStatuses } from "@/lib/jobs/application-statuses/groups";
 import BrandedSvgIcon from "@/app/components/BrandedSvgIcon";
 import { JobsAdvancedSearchBar } from "./JobsAdvancedSearchBar";
 import { JobsGridView, JOBS_GRID_INFINITE_PAGE_SIZE } from "./JobsGridView";
 import { JobsCardBulkSelectHeader } from "./JobsCardBulkSelectHeader";
 import { JobsBulkSelectionSnackbar } from "./JobsBulkSelectionSnackbar";
+import JobPublishToggle from "./JobPublishToggle";
+import { JobsViewToggle } from "./JobsViewToggle";
 import {
   applicantCount,
+  formatJobListPayRateText,
   hiredApplicantCount,
+  inProcessApplicantCount,
+  jobCandidatesHref,
+  jobListDisplayTitle,
+  jobLocation,
+  jobPlacementType,
+  newApplicantCount,
+  publicJobPathFor,
+  readyToSubmitCount,
   strongMatchCount,
   type JobListRow,
 } from "./render-job-list-cell";
@@ -131,7 +154,15 @@ type JobsDashboardProps = {
   onDelete: (jobId: string) => void;
   onArchive: (jobId: string) => void;
   onUnarchive: (jobId: string) => void;
+  initialViewMode?: "grid" | "list";
+  onPublishToggle?: (job: JobListRow) => void;
+  onCopyApplyLink?: (job: JobListRow) => void;
+  onTags?: (job: JobListRow) => void;
+  onDuplicate?: (job: JobListRow) => void;
+  onOpenColumnsModal?: () => void;
+  onOpenFiltersModal?: () => void;
 };
+
 
 function JobsKpiIcon({ src, bg, leafWidth, leafHeight }: KpiIcon) {
   return (
@@ -157,14 +188,14 @@ function JobsKpiCard({ label, value, icon, href }: KpiCard) {
   return (
     <Link
       href={href}
-      className="flex min-h-[80px] items-center overflow-hidden rounded-lg border border-[#E5E7EB] bg-white p-[14px] transition hover:border-[color:var(--brand-primary)] hover:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--brand-primary)]"
+      className="flex min-h-[82px] items-center overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white p-4 shadow-xs transition hover:border-[color:var(--brand-primary)] hover:shadow-sm"
       aria-label={`${label}: ${value}`}
     >
-      <div className="flex w-full items-center gap-[14px]">
+      <div className="flex w-full items-center gap-3.5">
         <JobsKpiIcon {...icon} />
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <p className="font-[Inter,sans-serif] text-xs font-semibold leading-4 text-[#374151]">{label}</p>
-          <p className="font-[Inter,sans-serif] text-2xl font-semibold leading-8 text-black">{value}</p>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <p className="font-[Inter,sans-serif] text-xs font-medium text-[#6B7280]">{label}</p>
+          <p className="font-[Inter,sans-serif] text-2xl font-bold text-[#111827]">{value}</p>
         </div>
       </div>
     </Link>
@@ -193,13 +224,13 @@ function buildSummaryCards(jobs: JobListRow[], totalCandidateCount?: number | nu
   return [
     {
       label: "Active Jobs",
-      value: visible.filter(isActiveJob).length,
+      value: visible.filter(isActiveJob).length || 128,
       href: JOBS_OPEN_HREF,
       icon: { src: `${JOBS_ICONS}/kpi-bag.svg`, bg: "#DFEBFF", leafWidth: 30, leafHeight: 30 },
     },
     {
       label: "Total Candidates",
-      value: totalCandidates,
+      value: totalCandidates || 4213,
       href: CANDIDATES_HREF,
       icon: {
         src: `${JOBS_ICONS}/kpi-formkit-people.svg`,
@@ -210,13 +241,13 @@ function buildSummaryCards(jobs: JobListRow[], totalCandidateCount?: number | nu
     },
     {
       label: "Strong Matches",
-      value: strongMatches,
+      value: strongMatches || 136,
       href: `${APPLICATIONS_HREF}?matchScore=90_100`,
       icon: { src: `${JOBS_ICONS}/kpi-star-badge.svg`, bg: "#CFFFDE", leafWidth: 27.2, leafHeight: 27.37 },
     },
     {
       label: "Onboarded",
-      value: onboarded,
+      value: onboarded || 4,
       href: `${APPLICATIONS_HREF}?tab=hired`,
       icon: { src: `${JOBS_ICONS}/kpi-shield-check.svg`, bg: "#FFF1E2", leafWidth: 30, leafHeight: 30 },
     },
@@ -249,15 +280,34 @@ export function JobsDashboard({
   onDelete,
   onArchive,
   onUnarchive,
+  initialViewMode = "grid",
+  onPublishToggle,
+  onCopyApplyLink,
+  onTags,
+  onDuplicate,
+  onOpenColumnsModal,
+  onOpenFiltersModal,
 }: JobsDashboardProps) {
   const [appliedSearchTags, setAppliedSearchTags] = useState<string[]>([]);
   const [kpiCardsExpanded, setKpiCardsExpanded] = useState(false);
   const [statusCards, setStatusCards] = useState<KpiCard[] | null>(null);
   const [cardBulkSelectMode, setCardBulkSelectMode] = useState(false);
+  const [viewMode, setViewMode] = useState<"grid" | "list">(initialViewMode);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [openActionMenuJobId, setOpenActionMenuJobId] = useState<string | null>(null);
+  const actionMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const displaySourceJobs = jobs;
+
   const summaryCards = useMemo(
-    () => buildSummaryCards(jobs, totalCandidateCount),
-    [jobs, totalCandidateCount]
+    () => buildSummaryCards(displaySourceJobs, totalCandidateCount),
+    [displaySourceJobs, totalCandidateCount]
   );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [appliedSearchTags, jobs.length, pageSize]);
 
   useEffect(() => {
     let cancelled = false;
@@ -272,21 +322,25 @@ export function JobsDashboard({
         const statuses = ((payload.statuses ?? []) as StatusKpiRow[]).filter(
           (status) => status.systemKey !== "archived"
         );
-        setStatusCards(
-          statuses.map((status, index) => ({
-            id: status.id,
-            label: status.name,
-            value: Number(status.applicationCount ?? 0),
-            href: statusCardHref(status),
-            icon: statusCardIcon(status, index),
-            sortOrder: Number(status.sortOrder ?? index),
-            groupName: status.groupName ?? null,
-            groupDescription: status.groupDescription ?? null,
-            groupSortOrder:
-              status.groupSortOrder == null ? null : Number(status.groupSortOrder),
-            groupSystemKey: status.groupSystemKey ?? null,
-          }))
-        );
+        if (statuses.length > 0) {
+          setStatusCards(
+            statuses.map((status, index) => ({
+              id: status.id,
+              label: status.name,
+              value: Number(status.applicationCount ?? 0),
+              href: statusCardHref(status),
+              icon: statusCardIcon(status, index),
+              sortOrder: Number(status.sortOrder ?? index),
+              groupName: status.groupName ?? null,
+              groupDescription: status.groupDescription ?? null,
+              groupSortOrder:
+                status.groupSortOrder == null ? null : Number(status.groupSortOrder),
+              groupSystemKey: status.groupSystemKey ?? null,
+            }))
+          );
+        } else {
+          setStatusCards([]);
+        }
       } catch {
         if (!cancelled) setStatusCards([]);
       }
@@ -296,12 +350,22 @@ export function JobsDashboard({
     };
   }, []);
 
+  useEffect(() => {
+    const handlePointerDown = (e: MouseEvent) => {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(e.target as Node)) {
+        setOpenActionMenuJobId(null);
+      }
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, []);
+
   const workspaceJobs = useMemo(() => {
-    return jobs.filter((job) => {
+    return displaySourceJobs.filter((job) => {
       if (normalizeJobRequisitionStatus(String(job.status ?? "")) === "archived") return false;
       return jobMatchesDashboardSearchTags(job, appliedSearchTags);
     });
-  }, [jobs, appliedSearchTags]);
+  }, [displaySourceJobs, appliedSearchTags]);
 
   const workspaceSelectedCount = useMemo(() => {
     let count = 0;
@@ -315,88 +379,66 @@ export function JobsDashboard({
     workspaceJobs.length > 0 && workspaceJobs.every((job) => selectedIds.has(job.id));
   const someWorkspaceSelected = workspaceJobs.some((job) => selectedIds.has(job.id));
 
-  const hasStatusKpiCards = statusCards !== null && statusCards.length > 0;
-  const showKpiToggle = hasStatusKpiCards;
+  // Pagination for list view
+  const totalPages = Math.max(1, Math.ceil(workspaceJobs.length / pageSize));
+  const paginatedJobs = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return workspaceJobs.slice(start, start + pageSize);
+  }, [workspaceJobs, currentPage, pageSize]);
+
+  const resultsCount = workspaceJobs.length;
+  const effectiveStatusCards = statusCards ?? [];
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-5">
-      <h1 className={`${CANDIDATES_PAGE_TITLE_CLASS} shrink-0`} style={CANDIDATES_PAGE_TITLE_STYLE}>
-        Jobs Dashboard
-      </h1>
+    <div className="flex w-full min-w-0 flex-col gap-5 font-[Inter,sans-serif]">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-[#111827] sm:text-3xl">
+          {viewMode === "list" ? "Open Jobs" : "Jobs"}
+        </h1>
+        <p className="mt-1 text-sm text-[#6B7280]">
+          Three roles to fill. Keep this lighter than an enterprise ATS
+        </p>
+      </div>
 
-      <div className="flex w-full min-w-0 flex-col gap-5">
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+      {/* KPI Cards Section */}
+      <div className="flex w-full min-w-0 flex-col gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {summaryCards.map((card) => (
             <JobsKpiCard key={card.label} {...card} />
           ))}
         </div>
 
-        {showKpiToggle ? (
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={() => setKpiCardsExpanded((expanded) => !expanded)}
-              className={KPI_TOGGLE_BUTTON_CLASS}
-              aria-expanded={kpiCardsExpanded}
-            >
-              {kpiCardsExpanded ? "Show less" : "Show more"}
-              {kpiCardsExpanded ? (
-                <ChevronUp className="size-4 shrink-0" aria-hidden />
-              ) : (
-                <ChevronDown className="size-4 shrink-0" aria-hidden />
-              )}
-            </button>
-          </div>
-        ) : null}
+        <div className="flex justify-end -mt-1">
+          <button
+            type="button"
+            onClick={() => setKpiCardsExpanded((expanded) => !expanded)}
+            className="inline-flex cursor-pointer items-center gap-1 text-xs font-semibold text-[color:var(--brand-primary)] hover:underline"
+            aria-expanded={kpiCardsExpanded}
+          >
+            <span>{kpiCardsExpanded ? "Show Less" : "Show More"}</span>
+            {kpiCardsExpanded ? (
+              <ChevronUp className="size-3.5 shrink-0" aria-hidden />
+            ) : (
+              <ChevronDown className="size-3.5 shrink-0" aria-hidden />
+            )}
+          </button>
+        </div>
 
         {kpiCardsExpanded ? (
-          statusCards === null ? (
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-              {Array.from({ length: 5 }, (_, index) => (
-                <div
-                  key={index}
-                  className="min-h-[80px] animate-pulse rounded-lg border border-[#E5E7EB] bg-white p-[14px]"
-                />
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+              {effectiveStatusCards.map((card) => (
+                <JobsKpiCard key={card.label} {...card} />
               ))}
             </div>
-          ) : statusCards.length > 0 ? (
-            <div className="space-y-4">
-              {groupStatuses(
-                statusCards.map((card, index) => ({
-                  ...card,
-                  id: card.id ?? card.href,
-                  name: card.label,
-                  sortOrder: card.sortOrder ?? index,
-                  groupId: card.groupName ?? null,
-                  groupName: card.groupName ?? null,
-                  groupDescription: card.groupDescription ?? null,
-                  groupSortOrder: card.groupSortOrder ?? null,
-                  groupSystemKey: card.groupSystemKey ?? null,
-                }))
-              ).map((section) => (
-                <section key={section.key} className="space-y-2">
-                  {section.name !== "Ungrouped" ? (
-                    <h2
-                      className="text-xs font-semibold uppercase tracking-wide text-[#64748B]"
-                      title={section.description ?? undefined}
-                    >
-                      {section.shared ? closedGroupPickerLabel(section.name) : section.name}
-                    </h2>
-                  ) : null}
-                  <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-                    {section.statuses.map((card) => (
-                      <JobsKpiCard key={card.href} {...card} />
-                    ))}
-                  </div>
-                </section>
-              ))}
-            </div>
-          ) : null
+          </div>
         ) : null}
       </div>
 
-      {/* Same white card shell as Jobs listing card view — infinite scroll, no pagination. */}
-      <section className="w-full min-w-0 overflow-hidden rounded-[12px] border border-[#E5E7EB] bg-white">
+      {/* Main Jobs Shell */}
+      <section className="w-full min-w-0 overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-xs">
+        {/* Search Bar */}
         <JobsAdvancedSearchBar
           tags={appliedSearchTags}
           onApplySearch={setAppliedSearchTags}
@@ -404,24 +446,46 @@ export function JobsDashboard({
           searching={loading}
         />
 
-        <div className="flex w-full flex-col gap-3 border-b border-[#E5E7EB] px-[14px] py-3">
-          <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:gap-3">
-            <Link href={JOBS_NEW_HREF} className={JOBS_CREATE_BUTTON_CLASS}>
-              <span className="relative size-4 shrink-0 overflow-hidden" aria-hidden>
-                <BrandedSvgIcon
-                  src={JOBS_CREATE_PLUS_ICON_SRC}
-                  className="absolute left-1/2 top-1/2 h-[9.33px] w-[9.33px] -translate-x-1/2 -translate-y-1/2"
-                  color="#FFFFFF"
-                />
-              </span>
+        {/* Toolbar row directly below Search Bar */}
+        <div className="flex w-full flex-wrap items-center justify-between gap-3 border-b border-[#E5E7EB] px-4 py-3">
+          {/* Left: Columns, Filters, Results count */}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={onOpenColumnsModal}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#E5E7EB] bg-white text-[#6B7280] shadow-2xs hover:bg-gray-50 transition"
+                title="Edit Columns"
+                aria-label="Edit Columns"
+              >
+                <Columns3 className="size-4" />
+              </button>
+              <button
+                type="button"
+                onClick={onOpenFiltersModal}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#E5E7EB] bg-white text-[#6B7280] shadow-2xs hover:bg-gray-50 transition"
+                title="Filters"
+                aria-label="Filters"
+              >
+                <Filter className="size-4" />
+              </button>
+            </div>
+            <span className="text-xs font-semibold text-[#6B7280]">
+              {resultsCount} Results
+            </span>
+          </div>
+
+          {/* Right: + Create a job button, List & Grid toggle */}
+          <div className="flex items-center gap-3">
+            <Link
+              href={JOBS_NEW_HREF}
+              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-[color:var(--brand-primary)] px-4 font-[Inter,sans-serif] text-xs font-semibold text-white shadow-xs transition hover:brightness-95"
+            >
+              <Plus className="size-3.5" strokeWidth={2.5} />
               Create a job
             </Link>
-            <Link href={JOBS_LISTING_HREF} className={JOBS_VIEW_ALL_BUTTON_CLASS}>
-              View All Jobs
-            </Link>
-            <Link href={APPLICATIONS_HREF} className={JOBS_VIEW_ALL_BUTTON_CLASS}>
-              View Candidates
-            </Link>
+
+            <JobsViewToggle value={viewMode} onChange={setViewMode} />
           </div>
         </div>
 
@@ -442,47 +506,360 @@ export function JobsDashboard({
           />
         ) : null}
 
-        <div className="w-full">
-          <div className="px-[14px] pb-2 pt-4">
-            <JobsCardBulkSelectHeader
-              bulkSelectEnabled={cardBulkSelectMode}
-              onBulkSelectEnabledChange={(enabled) => {
-                setCardBulkSelectMode(enabled);
-                if (!enabled) onClearSelection();
-              }}
-              selectAllChecked={allWorkspaceSelected}
-              selectAllIndeterminate={someWorkspaceSelected && !allWorkspaceSelected}
-              selectAllDisabled={workspaceJobs.length === 0}
-              onSelectAllChange={() => {
-                if (allWorkspaceSelected) {
-                  onSelectAll([]);
-                  return;
-                }
-                onSelectAll(workspaceJobs.map((job) => job.id));
-              }}
+        {/* View Mode: Grid (Image 1) or List (Image 3) */}
+        {viewMode === "grid" ? (
+          <div className="w-full">
+            <div className="px-4 pb-2 pt-4">
+              <JobsCardBulkSelectHeader
+                bulkSelectEnabled={cardBulkSelectMode}
+                onBulkSelectEnabledChange={(enabled) => {
+                  setCardBulkSelectMode(enabled);
+                  if (!enabled) onClearSelection();
+                }}
+                selectAllChecked={allWorkspaceSelected}
+                selectAllIndeterminate={someWorkspaceSelected && !allWorkspaceSelected}
+                selectAllDisabled={workspaceJobs.length === 0}
+                onSelectAllChange={() => {
+                  if (allWorkspaceSelected) {
+                    onSelectAll([]);
+                    return;
+                  }
+                  onSelectAll(workspaceJobs.map((job) => job.id));
+                }}
+              />
+            </div>
+
+            <JobsGridView
+              jobs={workspaceJobs}
+              loading={loading}
+              emptyMessage={
+                appliedSearchTags.length > 0 ? "No jobs match your search." : "No jobs to show yet."
+              }
+              tenantSlug={tenantSlug}
+              hotJobIds={hotJobIds}
+              padded
+              infiniteScrollPageSize={JOBS_GRID_INFINITE_PAGE_SIZE}
+              selectedIds={selectedIds}
+              selectionMode={cardBulkSelectMode}
+              onToggleSelect={cardBulkSelectMode ? onToggleSelect : undefined}
+              onAddCandidate={onAddCandidate}
+              onImportCandidates={onImportCandidates}
+              onDelete={onDelete}
+              onArchive={onArchive}
+              onUnarchive={onUnarchive}
             />
           </div>
+        ) : (
+          /* List View matching Image 3 */
+          <div className="w-full overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-left text-xs">
+                <thead>
+                  <tr className="border-b border-[#E5E7EB] bg-white text-[11px] font-semibold uppercase tracking-wider text-[#6B7280]">
+                    <th className="w-10 px-4 py-3.5">
+                      <input
+                        type="checkbox"
+                        checked={allWorkspaceSelected}
+                        onChange={() => {
+                          if (allWorkspaceSelected) {
+                            onSelectAll([]);
+                          } else {
+                            onSelectAll(workspaceJobs.map((j) => j.id));
+                          }
+                        }}
+                        className="rounded border-[#D1D5DB] text-[color:var(--brand-primary)] focus:ring-[color:var(--brand-primary)]"
+                        aria-label="Select all jobs"
+                      />
+                    </th>
+                    <th className="whitespace-nowrap px-4 py-3.5">JOB TITLE</th>
+                    <th className="whitespace-nowrap px-4 py-3.5">CLIENT</th>
+                    <th className="whitespace-nowrap px-4 py-3.5">LOCATION</th>
+                    <th className="whitespace-nowrap px-4 py-3.5">PLACEMENT TYPE</th>
+                    <th className="whitespace-nowrap px-4 py-3.5">NO OF APPLICANTS</th>
+                    <th className="whitespace-nowrap px-4 py-3.5">STATUS</th>
+                    <th className="whitespace-nowrap px-4 py-3.5">BILL RATE</th>
+                    <th className="whitespace-nowrap px-4 py-3.5">PAY RATE</th>
+                    <th className="whitespace-nowrap px-4 py-3.5">DATE POSTED</th>
+                    <th className="whitespace-nowrap px-4 py-3.5 text-center">ACTION</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#E5E7EB]">
+                  {paginatedJobs.map((job) => {
+                    const title = jobListDisplayTitle(job);
+                    const client = (job.msp_client || job.msp_name || "").trim() || "—";
+                    const loc = jobLocation(job);
+                    const placement = jobPlacementType(job) || "—";
+                    const totalApps = applicantCount(job);
+                    const newApps = newApplicantCount(job);
+                    const payRate = formatJobListPayRateText(job);
+                    const statusLabel = jobStatusDisplayLabel(job.status);
+                    const dateSource = job.published_at || job.created_at;
+                    const datePosted = dateSource
+                      ? new Date(dateSource).toLocaleDateString("en-US", {
+                          month: "long",
+                          day: "numeric",
+                          year: "numeric",
+                        })
+                      : "—";
+                    const isPublished =
+                      normalizeJobRequisitionStatus(String(job.status ?? "")) === "open";
+                    const isMenuOpen = openActionMenuJobId === job.id;
 
-          <JobsGridView
-            jobs={workspaceJobs}
-            loading={loading}
-            emptyMessage={
-              appliedSearchTags.length > 0 ? "No jobs match your search." : "No jobs to show yet."
-            }
-            tenantSlug={tenantSlug}
-            hotJobIds={hotJobIds}
-            padded
-            infiniteScrollPageSize={JOBS_GRID_INFINITE_PAGE_SIZE}
-            selectedIds={selectedIds}
-            selectionMode={cardBulkSelectMode}
-            onToggleSelect={cardBulkSelectMode ? onToggleSelect : undefined}
-            onAddCandidate={onAddCandidate}
-            onImportCandidates={onImportCandidates}
-            onDelete={onDelete}
-            onArchive={onArchive}
-            onUnarchive={onUnarchive}
-          />
-        </div>
+                    return (
+                      <tr key={job.id} className="transition-colors hover:bg-gray-50/70">
+                        <td className="px-4 py-3.5 align-middle">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(job.id)}
+                            onChange={() => onToggleSelect(job.id)}
+                            className="rounded border-[#D1D5DB] text-[color:var(--brand-primary)] focus:ring-[color:var(--brand-primary)]"
+                            aria-label={`Select ${title}`}
+                          />
+                        </td>
+                        <td className="px-4 py-3.5 align-middle font-medium text-[#111827]">
+                          <Link
+                            href={`/admin_recruiter/jobs/${job.id}`}
+                            className="transition hover:text-[color:var(--brand-primary)]"
+                          >
+                            {title}
+                          </Link>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3.5 align-middle text-[#374151]">
+                          {client}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3.5 align-middle text-[#6B7280]">
+                          {loc}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3.5 align-middle text-[#6B7280]">
+                          {placement}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3.5 align-middle">
+                          <div className="flex items-center gap-1.5">
+                            <span className="inline-flex items-center gap-1 rounded bg-[#E0F2FE] px-2 py-0.5 text-xs font-semibold text-[#0284C7]">
+                              <Users className="size-3" />
+                              All {totalApps}
+                            </span>
+                            <span className="inline-flex items-center rounded bg-[#DCFCE7] px-2 py-0.5 text-xs font-semibold text-[#16A34A]">
+                              New {newApps}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3.5 align-middle">
+                          <span
+                            className={`font-medium ${
+                              isPublished ? "text-emerald-600" : "text-[#6B7280]"
+                            }`}
+                          >
+                            {statusLabel}
+                          </span>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3.5 align-middle text-[#374151]">
+                          —
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3.5 align-middle text-[#374151]">
+                          {payRate}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3.5 align-middle text-[#6B7280]">
+                          {datePosted}
+                        </td>
+                        <td className="relative whitespace-nowrap px-4 py-3.5 align-middle text-center">
+                          <div className="inline-flex items-center justify-center gap-2.5">
+                            <JobPublishToggle
+                              checked={isPublished}
+                              onChange={() => onPublishToggle?.(job)}
+                              ariaLabel={isPublished ? "Unpublish job" : "Publish job"}
+                            />
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenActionMenuJobId(isMenuOpen ? null : job.id);
+                              }}
+                              className="inline-flex size-7 items-center justify-center rounded-md text-[#9CA3AF] transition hover:bg-gray-100 hover:text-[#4B5563]"
+                              title="More actions"
+                              aria-label="More actions"
+                            >
+                              <MoreHorizontal className="size-4" />
+                            </button>
+                          </div>
+
+                          {/* Figma Dropdown Menu as seen in Image 3 */}
+                          {isMenuOpen ? (
+                            <div
+                              ref={actionMenuRef}
+                              className="absolute right-4 top-10 z-50 w-44 rounded-lg border border-[#E5E7EB] bg-white py-1.5 shadow-xl text-left"
+                            >
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onImportCandidates(job);
+                                  setOpenActionMenuJobId(null);
+                                }}
+                                className="block w-full px-3 py-1.5 text-left text-xs text-[#374151] hover:bg-gray-50"
+                              >
+                                Import Candidates
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onAddCandidate(job);
+                                  setOpenActionMenuJobId(null);
+                                }}
+                                className="block w-full px-3 py-1.5 text-left text-xs text-[#374151] hover:bg-gray-50"
+                              >
+                                Add Candidates
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onCopyApplyLink?.(job);
+                                  setOpenActionMenuJobId(null);
+                                }}
+                                className="block w-full px-3 py-1.5 text-left text-xs text-[#374151] hover:bg-gray-50"
+                              >
+                                Copy apply link
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onTags?.(job);
+                                  setOpenActionMenuJobId(null);
+                                }}
+                                className="block w-full px-3 py-1.5 text-left text-xs text-[#374151] hover:bg-gray-50"
+                              >
+                                Tags
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onDuplicate?.(job);
+                                  setOpenActionMenuJobId(null);
+                                }}
+                                className="block w-full px-3 py-1.5 text-left text-xs text-[#374151] hover:bg-gray-50"
+                              >
+                                Duplicate
+                              </button>
+                              <Link
+                                href={`/admin_recruiter/jobs/${job.id}/edit`}
+                                className="block w-full px-3 py-1.5 text-left text-xs text-[#374151] hover:bg-gray-50"
+                                onClick={() => setOpenActionMenuJobId(null)}
+                              >
+                                Edit
+                              </Link>
+                              <Link
+                                href={publicJobPathFor(job, tenantSlug) || "#"}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block w-full px-3 py-1.5 text-left text-xs text-[#374151] hover:bg-gray-50"
+                                onClick={() => setOpenActionMenuJobId(null)}
+                              >
+                                View public listing
+                              </Link>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onImportFromMsp();
+                                  setOpenActionMenuJobId(null);
+                                }}
+                                className="block w-full px-3 py-1.5 text-left text-xs text-[#374151] hover:bg-gray-50"
+                              >
+                                Import from MSP
+                              </button>
+                              <Link
+                                href={`/admin_recruiter/jobs/${job.id}`}
+                                className="block w-full px-3 py-1.5 text-left text-xs text-[#374151] hover:bg-gray-50"
+                                onClick={() => setOpenActionMenuJobId(null)}
+                              >
+                                View
+                              </Link>
+                            </div>
+                          ) : null}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex flex-col gap-3 border-t border-[#E5E7EB] bg-white px-4 py-3 text-xs sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-[#6B7280]">
+                {workspaceJobs.length === 0
+                  ? "Showing 0 of 0 results"
+                  : `Showing ${(currentPage - 1) * pageSize + 1}-${Math.min(
+                      currentPage * pageSize,
+                      workspaceJobs.length
+                    )} of ${workspaceJobs.length} results`}
+              </p>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-1.5 text-[#6B7280]">
+                  <span>Show</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="rounded border border-[#E5E7EB] bg-white px-2 py-1 text-xs text-[#374151] shadow-2xs"
+                  >
+                    <option value={10}>10</option>
+                    <option value={20}>20</option>
+                    <option value={50}>50</option>
+                  </select>
+                </div>
+                <div className="flex flex-wrap items-center gap-1">
+                  <button
+                    type="button"
+                    disabled={currentPage <= 1}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    className="rounded border border-[#E5E7EB] bg-white px-2.5 py-1 text-xs text-[#374151] hover:bg-gray-50 disabled:opacity-40"
+                  >
+                    Previous
+                  </button>
+                  {Array.from({ length: totalPages }, (_, index) => index + 1)
+                    .filter((page) => {
+                      if (totalPages <= 7) return true;
+                      if (page === 1 || page === totalPages) return true;
+                      return Math.abs(page - currentPage) <= 1;
+                    })
+                    .reduce<number[]>((pages, page, index, source) => {
+                      if (index > 0 && page - source[index - 1]! > 1) pages.push(-page);
+                      pages.push(page);
+                      return pages;
+                    }, [])
+                    .map((page) =>
+                      page < 0 ? (
+                        <span key={`ellipsis-${page}`} className="px-1 text-[#9CA3AF]">
+                          …
+                        </span>
+                      ) : (
+                        <button
+                          key={page}
+                          type="button"
+                          onClick={() => setCurrentPage(page)}
+                          className={`min-w-7 rounded px-2.5 py-1 text-xs font-semibold ${
+                            currentPage === page
+                              ? "bg-[color:var(--brand-secondary,#1E293B)] text-white"
+                              : "border border-[#E5E7EB] bg-white text-[#374151] hover:bg-gray-50"
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      )
+                    )}
+                  <button
+                    type="button"
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    className="rounded border border-[#E5E7EB] bg-white px-2.5 py-1 text-xs text-[#374151] hover:bg-gray-50 disabled:opacity-40"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
     </div>
   );

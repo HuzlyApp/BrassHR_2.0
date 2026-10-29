@@ -246,11 +246,7 @@ export default function NewApplicantProfileResumePage() {
               location={candidateLocation}
               statusLabel={candidateStatus}
             />
-            <DetailedTabs
-              applicantId={applicantId}
-              activeTab="Resume"
-              workerStatus={w?.status ?? null}
-            />
+            <DetailedTabs applicantId={applicantId} activeTab="Resume" />
             {/* <ProfileSubTabs applicantId={applicantId} activeTab="Resume" /> */}
 
             <div className="w-full min-w-0 admin-recruiter-content-width">

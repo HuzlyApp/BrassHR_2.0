@@ -10,10 +10,10 @@ const JOBS_ICONS = "/icons/jobs-icons";
 const CANDIDATES_ICONS = "/icons/candidates-icons";
 
 const PRIMARY_TOOLBAR_BUTTON_CLASS =
-  "inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-[color:var(--brand-primary)] px-3 text-xs font-semibold leading-4 text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-[color:var(--brand-primary)] px-4 text-xs font-semibold leading-4 text-white shadow-xs transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50";
 
 const OUTLINE_TOOLBAR_BUTTON_CLASS =
-  "inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3 text-xs font-semibold leading-4 text-[#475569] transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-[#D1D5DB] bg-white px-3.5 text-xs font-semibold leading-4 text-[#374151] shadow-xs transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50";
 
 function ListingGlyph({
   src,
@@ -109,8 +109,8 @@ export function JobsAdvancedSearchBar({
             ref={chipRef}
             embedded
             values={draftTags}
-            placeholder="Search by job title, MSP Source Job ID, skills, location..."
-            aria-label="Search by job title, MSP Source Job ID, skills, experience, location, and profession"
+            placeholder="Search by job title, skills, experience, location..."
+            aria-label="Search by job title, skills, experience, location, and profession"
             onChange={setDraftTags}
             onDraftTextChange={setDraftText}
             onEnterSubmit={(nextTags) => {
@@ -136,7 +136,7 @@ export function JobsAdvancedSearchBar({
             className={`${OUTLINE_TOOLBAR_BUTTON_CLASS} flex-1 sm:flex-none`}
           >
             <ResetSearchIcon />
-            Reset search
+            Reset
           </button>
         </div>
       </div>

@@ -1829,7 +1829,7 @@ export default function AdminRecruiterJobsPage() {
     toggleJobHot,
   ]);
 
-  if (!showListing) {
+  if (true) {
     return (
       <div className="box-border w-full min-w-0 max-w-full px-3 pb-8 pt-4 sm:px-5 sm:pt-5 lg:px-8" style={brandStyle}>
         {error ? (
@@ -1880,6 +1880,59 @@ export default function AdminRecruiterJobsPage() {
           onUnarchive={(jobId) => {
             void transition(jobId, "unarchive");
           }}
+          initialViewMode={showListing ? "list" : "grid"}
+          onPublishToggle={handlePublishToggle}
+          onCopyApplyLink={handleCopyApplyLink}
+          onTags={(job) => {
+            setTagsError(null);
+            setTagsJob(job);
+          }}
+          onDuplicate={(job) => void duplicateListJob(job)}
+          onOpenColumnsModal={() => setEditColumnsOpen(true)}
+          onOpenFiltersModal={() => setEditFiltersOpen(true)}
+        />
+        <ColumnsEditorModal
+          key={editColumnsOpen ? "job-cols-open" : "job-cols-closed"}
+          open={editColumnsOpen}
+          onOpenChange={setEditColumnsOpen}
+          options={JOB_COLUMN_OPTIONS}
+          value={listColumnOrder}
+          defaultValue={DEFAULT_JOB_COLUMNS}
+          title="Edit Columns"
+          description="Choose which columns appear in the jobs list and drag to reorder them."
+          onSave={(order) => {
+            setListColumnOrder(order);
+            saveJobColumnOrder(order);
+          }}
+        />
+        <EditJobsFiltersModal
+          key={editFiltersOpen ? "job-filters-open" : "job-filters-closed"}
+          open={editFiltersOpen}
+          onOpenChange={setEditFiltersOpen}
+          value={editFiltersValue}
+          options={{
+            professions: professionOptions,
+            employmentTypes: placementTypeOptions,
+            locations: locationOptions,
+            placementTypes: locationTypeOptions,
+            specialties: specialtyOptions,
+            contractGroups: contractGroupOptions,
+            w2Types: w2TypeOptions,
+            sourceTypes: sourceTypeOptions,
+            workflows: workflowOptions,
+          }}
+          onSave={handleSaveEditFilters}
+        />
+        <JobTagsModal
+          open={Boolean(tagsJob)}
+          jobTitle={tagsJob ? jobListDisplayTitle(tagsJob) : ""}
+          tags={tagsJob && Array.isArray(tagsJob.tags) ? tagsJob.tags : []}
+          busy={tagsBusy}
+          error={tagsError}
+          onOpenChange={(open) => {
+            if (!open) setTagsJob(null);
+          }}
+          onSave={(nextTags) => void saveListJobTags(nextTags)}
         />
         <AddCandidateModal
           open={Boolean(addCandidateJob)}
@@ -1922,7 +1975,10 @@ export default function AdminRecruiterJobsPage() {
           actionLabel={actionErrorModal?.editJobId ? "Edit job" : "Close"}
           onAction={
             actionErrorModal?.editJobId
-              ? () => router.push(`/admin_recruiter/jobs/${actionErrorModal.editJobId}/edit`)
+              ? () => {
+                  const editJobId = actionErrorModal.editJobId;
+                  if (editJobId) router.push(`/admin_recruiter/jobs/${editJobId}/edit`);
+                }
               : undefined
           }
         />
@@ -1935,13 +1991,26 @@ export default function AdminRecruiterJobsPage() {
           actionLabel="View job"
           actionHref={
             actionSuccessModal?.viewJobId
-              ? `/admin_recruiter/jobs/${actionSuccessModal.viewJobId}`
+              ? `/admin_recruiter/jobs/${String(actionSuccessModal.viewJobId)}`
               : undefined
           }
         />
       </div>
     );
   }
+
+  // Legacy listing UI kept below for restore; currently unreachable via `if (true)` above.
+  const legacyActionsMenu = openActionsMenu;
+  const legacyTagsJob = tagsJob;
+  const legacyRawTags = legacyTagsJob?.tags;
+  const legacyTagsList: string[] = Array.isArray(legacyRawTags)
+    ? (legacyRawTags as string[])
+    : [];
+  const legacyTagsTitle = legacyTagsJob
+    ? jobListDisplayTitle(legacyTagsJob as JobListRow)
+    : "";
+  const legacyErrorEditJobId = actionErrorModal?.editJobId ?? null;
+  const legacySuccessViewJobId = actionSuccessModal?.viewJobId ?? null;
 
   return (
     <div className="box-border w-full min-w-0 max-w-full px-3 pb-8 pt-4 sm:px-5 sm:pt-5 lg:px-8" style={brandStyle}>
@@ -2327,12 +2396,12 @@ export default function AdminRecruiterJobsPage() {
         </div>
       </div>
 
-      {openActionsMenu ? (
+      {legacyActionsMenu ? (
         <JobActionsMenuPortal
-          job={openActionsMenu.job}
-          anchor={openActionsMenu.anchor}
+          job={legacyActionsMenu!.job}
+          anchor={legacyActionsMenu!.anchor}
           tenantSlug={tenantSlug}
-          duplicateBusy={duplicateBusyId === openActionsMenu.job.id}
+          duplicateBusy={duplicateBusyId === legacyActionsMenu!.job.id}
           onClose={() => setOpenActionsMenu(null)}
           onImportFromMsp={handleImportFromMsp}
           onAddCandidate={(job) => {
@@ -2415,9 +2484,9 @@ export default function AdminRecruiterJobsPage() {
       />
 
       <JobTagsModal
-        open={Boolean(tagsJob)}
-        jobTitle={tagsJob ? jobListDisplayTitle(tagsJob) : ""}
-        tags={Array.isArray(tagsJob?.tags) ? tagsJob.tags : []}
+        open={Boolean(legacyTagsJob)}
+        jobTitle={legacyTagsTitle}
+        tags={legacyTagsList}
         busy={tagsBusy}
         error={tagsError}
         onOpenChange={(open) => {
@@ -2463,10 +2532,10 @@ export default function AdminRecruiterJobsPage() {
         onClose={() => setActionErrorModal(null)}
         title={actionErrorModal?.title ?? "Unable to update job"}
         message={actionErrorModal?.message ?? ""}
-        actionLabel={actionErrorModal?.editJobId ? "Edit job" : "Close"}
+        actionLabel={legacyErrorEditJobId ? "Edit job" : "Close"}
         onAction={
-          actionErrorModal?.editJobId
-            ? () => router.push(`/admin_recruiter/jobs/${actionErrorModal.editJobId}/edit`)
+          legacyErrorEditJobId
+            ? () => router.push(`/admin_recruiter/jobs/${legacyErrorEditJobId}/edit`)
             : undefined
         }
       />
@@ -2479,8 +2548,8 @@ export default function AdminRecruiterJobsPage() {
         size="large"
         actionLabel="View job"
         actionHref={
-          actionSuccessModal?.viewJobId
-            ? `/admin_recruiter/jobs/${actionSuccessModal.viewJobId}`
+          legacySuccessViewJobId
+            ? `/admin_recruiter/jobs/${legacySuccessViewJobId}`
             : undefined
         }
       />
