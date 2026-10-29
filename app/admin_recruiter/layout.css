@@ -74,6 +74,14 @@
   flex-direction: column;
 }
 
+/* Settings: lock shell height so mini-sidebar + content scroll independently */
+.admin-recruiter-main-wrap[data-settings-area="true"] {
+  min-height: 0;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
 .admin-recruiter-sidebar {
   transition: width 200ms ease-in-out;
 }

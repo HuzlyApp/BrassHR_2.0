@@ -131,8 +131,11 @@ export default function AdminRecruiterShell({ children }: { children: ReactNode 
           onMobileClose={() => setMobileSidebarOpen(false)}
         />
         <div
-          className="admin-recruiter-content admin-recruiter-main-wrap min-h-screen"
+          className={`admin-recruiter-content admin-recruiter-main-wrap ${
+            inSettingsArea ? "h-dvh max-h-dvh overflow-hidden" : "min-h-screen"
+          }`}
           data-mobile-nav-open={mobileSidebarOpen ? "true" : "false"}
+          data-settings-area={inSettingsArea ? "true" : "false"}
         >
           <GodAdminImpersonationBanner />
           <AdminRecruiterHeader
@@ -144,9 +147,9 @@ export default function AdminRecruiterShell({ children }: { children: ReactNode 
           <WorkflowDashboardHeaderProvider>
             <AdminRecruiterDashboardSubNav />
             {inSettingsArea ? (
-              <div className="flex min-h-0 min-w-0 w-full flex-1 items-start">
+              <div className="flex min-h-0 min-w-0 w-full flex-1 overflow-hidden">
                 <SettingsSidebar />
-                <div className="min-w-0 flex-1 px-5 pb-8 pt-5 lg:px-6">
+                <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain px-5 pb-8 pt-5 lg:px-6">
                   <SettingsMobileNav />
                   {pageBody}
                 </div>
