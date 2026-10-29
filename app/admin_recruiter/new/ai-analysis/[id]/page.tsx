@@ -90,8 +90,6 @@ export default function CandidateDetailAiAnalysisPage() {
   return (
     <div className="admin-recruiter-page-pad">
       <div className="admin-recruiter-content-width">
-        <DetailedTabs applicantId={applicantId} activeTab="AI Analysis" />
-
         {error ? (
           <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
             {error}
@@ -109,6 +107,11 @@ export default function CandidateDetailAiAnalysisPage() {
               workerId={applicantId}
               candidateEmail={worker?.email}
               aiAnalysisHref={null}
+            />
+            <DetailedTabs
+              applicantId={applicantId}
+              activeTab="AI Analysis"
+              workerStatus={worker?.status ?? null}
             />
             <Suspense
               fallback={

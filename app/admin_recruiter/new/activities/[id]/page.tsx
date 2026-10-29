@@ -302,8 +302,6 @@ export default function NewApplicantActivitiesPage() {
 
         <div className="flex-1 w-full min-w-0 overflow-auto admin-recruiter-page-pad">
           <div className="admin-recruiter-content-width">
-            <DetailedTabs applicantId={applicantId} activeTab="Activities" />
-
             {loadError ? (
               <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
                 {loadError}
@@ -321,6 +319,7 @@ export default function NewApplicantActivitiesPage() {
               workerId={applicantId}
               candidateEmail={applicant?.email ?? null}
             />
+            <DetailedTabs applicantId={applicantId} activeTab="Activities" />
 
             <nav
               className="mb-3 w-full overflow-x-auto border-b border-[#E5E7EB]"

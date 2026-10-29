@@ -24,10 +24,12 @@ export default function CandidateAvatarIcon({
 }: CandidateAvatarIconProps) {
   const trimmedPhoto = photoUrl?.trim();
 
+  const sizeClass = className.trim() || "h-[60px] w-[60px]";
+
   if (trimmedPhoto) {
     return (
       <span
-        className={`relative inline-flex h-[60px] w-[60px] shrink-0 overflow-hidden rounded-full border border-[#D1D5DB] bg-white ${className}`}
+        className={`relative inline-flex shrink-0 overflow-hidden rounded-full border border-[#D1D5DB] bg-white ${sizeClass}`}
         aria-hidden
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -40,7 +42,7 @@ export default function CandidateAvatarIcon({
   if (name.trim() && initials !== "?") {
     return (
       <span
-        className={`inline-flex h-[60px] w-[60px] shrink-0 items-center justify-center rounded-lg border border-[#D1D5DB] bg-white text-lg font-semibold ${className}`}
+        className={`inline-flex shrink-0 items-center justify-center rounded-full border border-[#D1D5DB] bg-white text-lg font-semibold ${sizeClass}`}
         style={{ color: "var(--brand-primary)" }}
         aria-hidden
       >
@@ -51,7 +53,7 @@ export default function CandidateAvatarIcon({
 
   return (
     <span
-      className={`inline-flex h-[60px] w-[60px] shrink-0 items-center justify-center rounded-lg border border-[#D1D5DB] bg-white p-[10px] ${className}`}
+      className={`inline-flex shrink-0 items-center justify-center rounded-full border border-[#D1D5DB] bg-white p-[10px] ${sizeClass}`}
       aria-hidden
     >
       <User className="h-9 w-9" style={{ color: "var(--brand-primary)" }} strokeWidth={2} />

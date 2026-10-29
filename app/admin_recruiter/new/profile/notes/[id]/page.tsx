@@ -4,7 +4,7 @@ import { useParams } from "next/navigation";
 import DetailedCandidateHeader from "../../../../components/DetailedCandidateHeader";
 import DetailedTabs from "../../../../components/DetailedTabs";
 import CandidateDetailLoader from "../../../../components/CandidateDetailLoader";
-import ProfileSubTabs from "../../../../components/ProfileSubTabs";
+// import ProfileSubTabs from "../../../../components/ProfileSubTabs";
 import { CandidateStatusHistoryPanel } from "../../../../components/CandidateApplicationStatusControl";
 import CandidateNotesPanel from "../../../../components/CandidateNotesPanel";
 import { useCandidateHeader } from "../../../../hooks/useCandidateHeader";
@@ -24,8 +24,6 @@ export default function NewApplicantProfileNotesPage() {
   return (
     <div className="min-h-screen bg-zinc-50 admin-recruiter-page-pad">
       <div className="admin-recruiter-content-width">
-        <DetailedTabs applicantId={id} activeTab="Profile" />
-
         {headerLoading ? (
           <CandidateDetailLoader label="Loading notes..." />
         ) : (
@@ -37,7 +35,10 @@ export default function NewApplicantProfileNotesPage() {
               workerId={id}
               candidateEmail={candidateEmail}
             />
+            <DetailedTabs applicantId={id} activeTab="Profile" />
+            {/* Notes was a Profile sub-tab; keep route, hide sub-tab chrome to match Figma.
             <ProfileSubTabs applicantId={id} activeTab="Notes" />
+            */}
 
             <div className="admin-recruiter-content-width">
               <CandidateStatusHistoryPanel workerId={id} layout="page" />

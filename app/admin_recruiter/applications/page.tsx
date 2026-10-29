@@ -1754,6 +1754,10 @@ export default function JobApplicationsPage() {
       dateApplied: dateAppliedFilter,
       job: listingJobFilter,
       skills: skillsFilter,
+      matchStatus: matchFilter === "All" ? "" : matchFilter,
+      client: clientFilter === "All" ? "" : clientFilter,
+      assignee:
+        ownerFilter === "All" || ownerFilter === "All Recruiters" ? "" : ownerFilter,
     }),
     [
       listingStatusFilter,
@@ -1765,6 +1769,9 @@ export default function JobApplicationsPage() {
       dateAppliedFilter,
       listingJobFilter,
       skillsFilter,
+      matchFilter,
+      clientFilter,
+      ownerFilter,
     ]
   );
 
@@ -1778,6 +1785,9 @@ export default function JobApplicationsPage() {
     setDateAppliedFilter(next.dateApplied);
     setListingJobFilter(next.job);
     setSkillsFilter(next.skills);
+    setMatchFilter(next.matchStatus || "");
+    setClientFilter(next.client || "");
+    setOwnerFilter(next.assignee || "");
   }, []);
 
   const activeFilterCount = useMemo(() => {
@@ -1790,6 +1800,11 @@ export default function JobApplicationsPage() {
       matchScoreFilter,
       dateAppliedFilter,
       listingJobFilter,
+      matchFilter && matchFilter !== "All" ? matchFilter : "",
+      clientFilter && clientFilter !== "All" ? clientFilter : "",
+      ownerFilter && ownerFilter !== "All" && ownerFilter !== "All Recruiters"
+        ? ownerFilter
+        : "",
     ].filter(Boolean).length;
   }, [
     listingStatusFilter,
@@ -1800,6 +1815,9 @@ export default function JobApplicationsPage() {
     matchScoreFilter,
     dateAppliedFilter,
     listingJobFilter,
+    matchFilter,
+    clientFilter,
+    ownerFilter,
   ]);
 
   const handleApplyApplicationsSearch = useCallback(
@@ -3737,6 +3755,8 @@ export default function JobApplicationsPage() {
           workflows: workflowOptions,
           jobs: listingJobOptions,
           showJobFilter: !jobId,
+          clients: dynamicClientOptions,
+          assignees: dynamicOwnerOptions,
         }}
         onSave={handleSaveEditFilters}
       />

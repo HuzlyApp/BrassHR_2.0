@@ -8,7 +8,7 @@ import CandidateCommunicationDialog from "../../../components/CandidateCommunica
 import DetailedCandidateHeader from "../../../components/DetailedCandidateHeader";
 import DetailedTabs from "../../../components/DetailedTabs";
 import CandidateDetailLoader from "../../../components/CandidateDetailLoader";
-import ProfileSubTabs from "../../../components/ProfileSubTabs";
+// import ProfileSubTabs from "../../../components/ProfileSubTabs";
 import BrandedPlusIcon from "../../../components/BrandedPlusIcon";
 import AssignFacilityModal from "../../../components/AssignFacilityModal";
 import AddWorkerSkillModal from "../../../components/AddWorkerSkillModal";
@@ -810,8 +810,6 @@ export default function NewApplicantProfilePage() {
 
         <div className="flex-1 w-full min-w-0 overflow-auto admin-recruiter-page-pad">
           <div className="admin-recruiter-content-width">
-            <DetailedTabs applicantId={applicantId} activeTab="Profile" />
-
             {error ? (
               <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
                 {error}
@@ -828,10 +826,34 @@ export default function NewApplicantProfilePage() {
               profilePhotoUrl={w?.profile_photo_url}
               workerId={applicantId}
               candidateEmail={w?.email ?? null}
+              phone={w?.phone ? formatPhoneForDisplay(w.phone) : null}
+              location={candidateLocation}
+              statusLabel={w?.status_label ?? null}
+              applicationDate={formatDate(w?.created_at)}
+              source={data?.activity?.source ?? null}
+              progressPercent={data?.onboardingCompletion?.percent ?? null}
+              progressInProgress={
+                data?.onboardingSteps
+                  ? data.onboardingSteps.filter((step) => step.state === "in_progress").length
+                  : null
+              }
+              progressUpcoming={
+                data?.onboardingSteps
+                  ? data.onboardingSteps.filter((step) => step.state === "pending").length
+                  : null
+              }
+              progressDate={formatDate(w?.updated_at ?? w?.created_at)}
               onMessageClick={() => setCommOpen(true)}
               messageDisabled={!w?.email?.trim() && !w?.phone?.trim()}
             />
+            <DetailedTabs
+              applicantId={applicantId}
+              activeTab="Profile"
+              workerStatus={w?.status ?? null}
+            />
+            {/* Profile sub-tabs (Details / Resume / Notes) — Resume is a top-level Figma tab now.
             <ProfileSubTabs applicantId={applicantId} activeTab="Details" />
+            */}
             <CandidateCommunicationDialog
               open={commOpen}
               onClose={() => setCommOpen(false)}
@@ -894,8 +916,8 @@ export default function NewApplicantProfilePage() {
                 <section className="min-w-0 space-y-0 border-b border-[#D1D5DB] lg:border-b-0 lg:border-r">
                   <div className="overflow-hidden bg-white">
                     <div className="flex min-h-11 items-center gap-2 border-b border-[#E5E7EB] px-3 sm:px-5">
-                      <h2 className="text-[17px] font-semibold leading-7 text-[#111827] sm:text-[20px]">
-                        Candidate Details
+                      <h2 className="text-[17px] font-semibold leading-7 text-[#012352] sm:text-[20px]">
+                        Applicant Details
                       </h2>
                     </div>
 
@@ -925,6 +947,7 @@ export default function NewApplicantProfilePage() {
                         fieldKind="date_of_birth"
                         isMissing={isMissingCandidateValue(w?.date_of_birth)}
                         placeholder="MM/DD/YYYY"
+                        maskUntilRevealed
                         saving={fieldSaving}
                         onSave={(value) => saveWorkerField("date_of_birth", value)}
                       />
@@ -999,6 +1022,7 @@ export default function NewApplicantProfilePage() {
                         fieldKind="ssn_last_four"
                         isMissing={isMissingCandidateValue(w?.ssn_last_four)}
                         placeholder="1234"
+                        maskUntilRevealed
                         saving={fieldSaving}
                         onSave={(value) => saveWorkerField("ssn_last_four", value)}
                       />
@@ -1151,7 +1175,7 @@ export default function NewApplicantProfilePage() {
                         <button
                           type="button"
                           onClick={() => router.push(nursingLicenseRedirectHref)}
-                          className="inline-flex h-9 w-full max-w-[280px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-[#0D9488] px-4 py-2 text-sm font-semibold text-[#0D9488] sm:w-auto sm:min-w-[175px]"
+                          className="inline-flex h-9 w-full max-w-[280px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-[color:var(--brand-primary)] px-4 py-2 text-sm font-semibold text-[color:var(--brand-primary)] sm:w-auto sm:min-w-[175px]"
                         >
                           <span className="text-base leading-none">+</span>
                           Add Nursing License
@@ -1211,7 +1235,7 @@ export default function NewApplicantProfilePage() {
                           >
                             <BrandedHistoryIcon className="mt-0.5 h-6 w-6 shrink-0" />
                             <div className="min-w-0">
-                              <div className="text-sm font-medium leading-5 text-[#0D9488]">
+                              <div className="text-sm font-medium leading-5 text-[color:var(--brand-primary)]">
                                 {entry.action ?? "Activity"}
                               </div>
                               <div className="text-xs leading-4 text-[#6B7280]">
@@ -1229,7 +1253,7 @@ export default function NewApplicantProfilePage() {
                 <section className="h-full w-full min-w-0 space-y-0 lg:border-l lg:border-[#D1D5DB]">
                   <div className="w-full bg-white pr-px">
                       <div className="flex min-h-11 items-center justify-between gap-2 border-b border-[#E5E7EB] px-3 sm:px-5">
-                        <div className="text-[17px] font-semibold leading-7 text-[#111827] sm:text-[20px]">
+                        <div className="text-[17px] font-semibold leading-7 text-[#012352] sm:text-[20px]">
                           Education
                         </div>
                         <ProfileSectionNavLink
@@ -1248,7 +1272,7 @@ export default function NewApplicantProfilePage() {
                                   href={line.href}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="text-[#0D9488] underline"
+                                  className="text-[color:var(--brand-primary)] underline"
                                 >
                                   {line.value}
                                 </a>
@@ -1266,7 +1290,7 @@ export default function NewApplicantProfilePage() {
 
                     <div className="w-full border-t border-[#E5E7EB] bg-white pr-px">
                       <div className="flex min-h-11 items-center justify-between gap-2 border-b border-[#E5E7EB] px-3 sm:px-5">
-                        <div className="text-[17px] font-semibold leading-7 text-[#111827] sm:text-[20px]">
+                        <div className="text-[17px] font-semibold leading-7 text-[#012352] sm:text-[20px]">
                           Experience
                         </div>
                         <ProfileSectionNavLink
@@ -1295,7 +1319,7 @@ export default function NewApplicantProfilePage() {
 
                     <div className="w-full border-t border-[#E5E7EB] bg-white pr-px">
                       <div className="flex min-h-11 items-center justify-between gap-2 border-b border-[#E5E7EB] px-3 sm:px-5">
-                        <div className="text-[17px] font-semibold leading-7 text-[#111827] sm:text-[20px]">
+                        <div className="text-[17px] font-semibold leading-7 text-[#012352] sm:text-[20px]">
                           Skills
                         </div>
                         <button
@@ -1334,7 +1358,7 @@ export default function NewApplicantProfilePage() {
 
                     <div className="w-full border-t border-b border-[#E5E7EB] bg-white pr-px">
                       <div className="flex min-h-11 items-center justify-between gap-2 border-b border-[#E5E7EB] px-3 sm:px-5">
-                        <div className="min-w-0 truncate text-[17px] font-semibold leading-7 text-[#111827] sm:text-[20px]">
+                        <div className="min-w-0 truncate text-[17px] font-semibold leading-7 text-[#012352] sm:text-[20px]">
                           Facilities Assigned
                         </div>
                         <ProfileSectionNavLink
@@ -1367,7 +1391,8 @@ export default function NewApplicantProfilePage() {
                           <button
                             type="button"
                             onClick={() => setShowAssignFacilityModal(true)}
-                            className="inline-flex h-9 w-full shrink-0 items-center justify-center gap-1.5 rounded-lg bg-[#0D9488] px-4 py-2 text-sm font-semibold text-white sm:w-auto"
+                            className="inline-flex h-9 w-full shrink-0 items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold text-white sm:w-auto"
+                            style={{ backgroundColor: "var(--brand-primary)" }}
                           >
                             + Add
                           </button>

@@ -13,11 +13,13 @@ import {
   type CandidatePipelineChecklistPayload,
   type CandidatePipelineProfilePayload,
 } from "@/lib/admin/candidate-pipeline-stepper";
-import CandidatePipelineStepper from "./CandidatePipelineStepper";
-import CandidateEmploymentJourney from "./CandidateEmploymentJourney";
-import CandidateWorkflowTags from "./CandidateWorkflowTags";
+// Figma applicant strip hides pipeline/journey chrome above tabs (keep imports for restore).
+// import CandidatePipelineStepper from "./CandidatePipelineStepper";
+// import CandidateEmploymentJourney from "./CandidateEmploymentJourney";
+// import CandidateWorkflowTags from "./CandidateWorkflowTags";
 import type { CandidateWorkflowPhaseView } from "@/lib/onboarding/candidate-workflow-phase-view";
 import {
+  candidateDetailTabLabel,
   candidateDetailTabs,
   type CandidateDetailTab,
 } from "@/lib/onboarding/candidate-detail-tabs";
@@ -55,6 +57,8 @@ function tabHref(tab: TabName, applicantId?: string) {
       return `/admin_recruiter/new/checklist/${id}`;
     case "Profile":
       return `/admin_recruiter/new/profile/${id}`;
+    case "Resume":
+      return `/admin_recruiter/new/profile/resume/${id}`;
     case "AI Analysis":
       return `/admin_recruiter/new/ai-analysis/${id}`;
     case "Pre-Hire":
@@ -77,6 +81,9 @@ function tabHref(tab: TabName, applicantId?: string) {
       return `/admin_recruiter/new/history/${id}`;
     case "Onboarded Applicant":
       return `/admin_recruiter/new/onboard-applicant/${id}`;
+    case "Applications":
+    case "Licenses & Certifications":
+      return `/admin_recruiter/new/profile/${id}`;
   }
 }
 
@@ -211,70 +218,40 @@ export default function DetailedTabs({
       }),
     [showOnboardedTab, phaseView?.postHireVisible, phaseView?.workflowHasPostHireSteps]
   );
-  const currentPhaseProgress =
-    phaseView?.postHireVisible && phaseView.currentStage === "post_hire"
-      ? phaseView.postHire?.progress
-      : phaseView?.preHire.progress;
-  const currentPhaseSteps =
-    phaseView?.postHireVisible && phaseView.currentStage === "post_hire"
-      ? phaseView.postHire?.steps ?? []
-      : phaseView?.preHire.steps ?? [];
+  // Pipeline UI is commented out for Figma; keep computation for quick restore.
+  void pipelineSteps;
+  void phaseView;
 
   return (
     <div className="mb-6 w-full min-w-0">
-      <CandidatePipelineStepper
-        steps={pipelineSteps ?? undefined}
-        applicantId={applicantId}
-        className="mb-6"
-      />
-      {phaseView ? (
-        <>
-          <CandidateEmploymentJourney
-            currentStage={phaseView.currentStage}
-            currentWorkflowName={phaseView.currentWorkflowName}
-            currentStepTitle={phaseView.currentStepTitle}
-            phaseProgressLabel={currentPhaseProgress?.label}
-            phaseStartedAt={phaseView.phaseStartedAt}
-            hiredAt={phaseView.hiredAt}
-            completedSteps={currentPhaseProgress?.complete}
-            pendingSteps={
-              currentPhaseProgress
-                ? currentPhaseProgress.total - currentPhaseProgress.complete
-                : undefined
-            }
-            blockedSteps={currentPhaseSteps.filter((step) => step.status === "failed").length}
-            postHireVisible={phaseView.postHireVisible}
-          />
-          <CandidateWorkflowTags tags={phaseView.tags} />
-        </>
-      ) : null}
+      {/* <CandidatePipelineStepper steps={pipelineSteps ?? undefined} applicantId={applicantId} className="mb-6" /> */}
 
       <nav className="w-full min-w-0" aria-label="Applicant sections">
-        <div className="candidate-detail-tabs-scroll overflow-x-auto pb-1 md:overflow-x-auto">
-            <div className="mx-auto flex w-max min-w-full flex-nowrap justify-center gap-1">
-              {tabs.map((tab) => {
-                const isActive = activeTab != null && tab === activeTab;
-                return (
-                  <Link
-                    key={tab}
-                    href={tabHref(tab, applicantId)}
-                    className={`inline-flex min-h-9 shrink-0 flex-col items-center justify-center rounded px-2.5 py-0.5 text-sm font-medium leading-none whitespace-nowrap transition-colors ${
-                      isActive
-                        ? "text-[color:var(--brand-primary)]"
-                        : "text-[#2B3D51] hover:text-[color:var(--brand-primary)]"
+        <div className="candidate-detail-tabs-scroll overflow-x-auto">
+          <div className="flex w-max min-w-full flex-nowrap items-end gap-1">
+            {tabs.map((tab) => {
+              const isActive = activeTab != null && tab === activeTab;
+              return (
+                <Link
+                  key={tab}
+                  href={tabHref(tab, applicantId)}
+                  className={`inline-flex min-h-9 shrink-0 flex-col items-center justify-center px-3 pb-2 pt-1 text-sm font-medium leading-none whitespace-nowrap transition-colors ${
+                    isActive
+                      ? "text-[color:var(--brand-primary)]"
+                      : "text-[#2B3D51] hover:text-[color:var(--brand-primary)]"
+                  }`}
+                >
+                  <span>{candidateDetailTabLabel(tab)}</span>
+                  <span
+                    className={`mt-2 block h-0.5 w-full rounded-full ${
+                      isActive ? "bg-[color:var(--brand-primary)]" : "bg-transparent"
                     }`}
-                  >
-                    <span>{tab}</span>
-                    <span
-                      className={`mt-1.5 block h-0.5 w-full rounded-full ${
-                        isActive ? "bg-[color:var(--brand-primary)]" : "bg-transparent"
-                      }`}
-                      aria-hidden
-                    />
-                  </Link>
-                );
-              })}
-            </div>
+                    aria-hidden
+                  />
+                </Link>
+              );
+            })}
+          </div>
         </div>
       </nav>
     </div>

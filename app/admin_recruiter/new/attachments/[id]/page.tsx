@@ -677,8 +677,6 @@ export default function NewApplicantAttachmentsFilledPage() {
 
         <div className="flex-1 w-full min-w-0 overflow-auto admin-recruiter-page-pad">
           <div className="admin-recruiter-content-width">
-            <DetailedTabs applicantId={applicantId} activeTab="Attachments" />
-
             {loadError ? (
               <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
                 {loadError}
@@ -718,6 +716,7 @@ export default function NewApplicantAttachmentsFilledPage() {
               workerId={applicantId}
               candidateEmail={applicant?.email ?? null}
             />
+            <DetailedTabs applicantId={applicantId} activeTab="Attachments" />
 
             <div className="w-full min-w-0 admin-recruiter-content-width">
               {/* Top */}
@@ -771,7 +770,7 @@ export default function NewApplicantAttachmentsFilledPage() {
                 <div>
                   <div className="mb-4 flex flex-wrap items-end justify-between gap-3 border-b border-[#E5E7EB] pb-4">
                     <div>
-                      <h3 className="text-[20px] font-semibold leading-7 text-[#111827]">Requirements Submitted</h3>
+                      <h3 className="text-[20px] font-semibold leading-7 text-[#012352]">Requirements Submitted</h3>
                       <p className="mt-1 text-sm text-[#6B7280]">
                         These documents come from the profession’s upload settings. Add another from settings if needed.
                       </p>

@@ -79,12 +79,6 @@ export default function CandidatePreHirePage() {
   return (
     <div className="admin-recruiter-page-pad">
       <div className="admin-recruiter-content-width">
-        <DetailedTabs
-          applicantId={applicantId}
-          activeTab="Pre-Hire"
-          workerStatus={worker?.status}
-        />
-
         {error ? (
           <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
             {error}
@@ -94,13 +88,20 @@ export default function CandidatePreHirePage() {
         {loading && !profile ? (
           <CandidateDetailLoader label="Loading candidate..." />
         ) : (
-          <DetailedCandidateHeader
-            name={name}
-            role={worker?.job_role ?? ""}
-            profilePhotoUrl={worker?.profile_photo_url}
-            workerId={applicantId}
-            candidateEmail={worker?.email}
-          />
+          <>
+            <DetailedCandidateHeader
+              name={name}
+              role={worker?.job_role ?? ""}
+              profilePhotoUrl={worker?.profile_photo_url}
+              workerId={applicantId}
+              candidateEmail={worker?.email}
+            />
+            <DetailedTabs
+              applicantId={applicantId}
+              activeTab="Pre-Hire"
+              workerStatus={worker?.status}
+            />
+          </>
         )}
 
         <Suspense

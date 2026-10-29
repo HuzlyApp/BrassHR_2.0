@@ -1,5 +1,6 @@
 "use client";
 
+import { Eye, EyeOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import BrandedEditIcon from "./BrandedEditIcon";
 import CandidateDetailAddButton from "./CandidateDetailAddButton";
@@ -11,6 +12,19 @@ import {
 import { PROFILE_FIELD_OPEN_EDIT_EVENT } from "@/lib/admin/candidate-profile-sections";
 import { PERSON_NAME_MAX_LENGTH } from "@/lib/person-name";
 
+function maskSensitiveDisplay(fieldKind: CandidateFieldKind, value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "—") return trimmed || "—";
+  if (fieldKind === "ssn_last_four") {
+    const digits = trimmed.replace(/\D/g, "").slice(-4);
+    return digits ? `***-**-${digits}` : "***-**-****";
+  }
+  if (fieldKind === "date_of_birth") {
+    return "********";
+  }
+  return trimmed;
+}
+
 type CandidateDetailEditableFieldProps = {
   label: string;
   displayValue: string;
@@ -20,6 +34,8 @@ type CandidateDetailEditableFieldProps = {
   editable?: boolean;
   placeholder?: string;
   highlightValue?: boolean;
+  /** Mask value until eye icon is clicked (DOB / SSN). */
+  maskUntilRevealed?: boolean;
   saving?: boolean;
   anchorId?: string;
   onSave: (value: string) => Promise<void>;
@@ -34,6 +50,7 @@ export default function CandidateDetailEditableField({
   editable = true,
   placeholder,
   highlightValue = false,
+  maskUntilRevealed = false,
   saving = false,
   anchorId,
   onSave,
@@ -42,7 +59,9 @@ export default function CandidateDetailEditableField({
   const [draft, setDraft] = useState(editValue);
   const [localSaving, setLocalSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [revealed, setRevealed] = useState(false);
   const busy = saving || localSaving;
+  const isSensitive = maskUntilRevealed;
 
   const inputMode =
     fieldKind === "email"
@@ -178,15 +197,35 @@ export default function CandidateDetailEditableField({
           <CandidateDetailAddButton onClick={openEditor} />
         ) : (
           <div className="group flex items-start justify-between gap-2">
-            <span className={highlightValue ? "text-[var(--brand-primary)]" : ""}>{displayValue}</span>
-            <button
-              type="button"
-              onClick={openEditor}
-              aria-label={`Edit ${label}`}
-              className="mt-0.5 shrink-0 cursor-pointer opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100"
-            >
-              <BrandedEditIcon className="h-4 w-4" />
-            </button>
+            <span className={highlightValue ? "text-[var(--brand-primary)]" : ""}>
+              {isSensitive && !revealed
+                ? maskSensitiveDisplay(fieldKind, displayValue)
+                : displayValue}
+            </span>
+            <div className="mt-0.5 flex shrink-0 items-center gap-1.5">
+              {isSensitive ? (
+                <button
+                  type="button"
+                  onClick={() => setRevealed((v) => !v)}
+                  aria-label={revealed ? `Hide ${label}` : `Show ${label}`}
+                  className="inline-flex cursor-pointer text-[#6B7280] transition-colors hover:text-[color:var(--brand-primary)]"
+                >
+                  {revealed ? (
+                    <Eye className="h-4 w-4" aria-hidden />
+                  ) : (
+                    <EyeOff className="h-4 w-4" aria-hidden />
+                  )}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={openEditor}
+                aria-label={`Edit ${label}`}
+                className="cursor-pointer opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100"
+              >
+                <BrandedEditIcon className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         )}
       </div>

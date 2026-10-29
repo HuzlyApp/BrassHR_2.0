@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import DetailedCandidateHeader from "../../../../components/DetailedCandidateHeader";
 import DetailedTabs from "../../../../components/DetailedTabs";
 import CandidateDetailLoader from "../../../../components/CandidateDetailLoader";
-import ProfileSubTabs from "../../../../components/ProfileSubTabs";
+// import ProfileSubTabs from "../../../../components/ProfileSubTabs";
 import {
   Briefcase,
   Calendar,
@@ -227,8 +227,6 @@ export default function NewApplicantProfileResumePage() {
 
         <div className="flex-1 w-full min-w-0 overflow-auto admin-recruiter-page-pad">
           <div className="admin-recruiter-content-width">
-            <DetailedTabs applicantId={applicantId} activeTab="Profile" />
-
             {error ? (
               <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
                 {error}
@@ -245,8 +243,15 @@ export default function NewApplicantProfileResumePage() {
               profilePhotoUrl={w?.profile_photo_url}
               workerId={applicantId}
               candidateEmail={w?.email ?? null}
+              location={candidateLocation}
+              statusLabel={candidateStatus}
             />
-            <ProfileSubTabs applicantId={applicantId} activeTab="Resume" />
+            <DetailedTabs
+              applicantId={applicantId}
+              activeTab="Resume"
+              workerStatus={w?.status ?? null}
+            />
+            {/* <ProfileSubTabs applicantId={applicantId} activeTab="Resume" /> */}
 
             <div className="w-full min-w-0 admin-recruiter-content-width">
             <div className="hidden p-6 items-center justify-between">
@@ -294,16 +299,20 @@ export default function NewApplicantProfileResumePage() {
               ) : null}
 
               {!loading && resumeUrl ? (
-                <div className="w-full overflow-hidden rounded-lg border border-black/10 bg-[#2A2A2A]">
-                  <div className="h-11 flex items-center px-4 text-white/85 bg-black/15 text-xs justify-between gap-3">
-                    <span className="min-w-0 truncate">{fileLabel(resumePath)}</span>
+                <div className="w-full overflow-hidden rounded-lg border border-[#E5E7EB] bg-white">
+                  <div className="flex h-14 items-center justify-between gap-3 border-b border-[#E5E7EB] px-4">
+                    <span className="min-w-0 truncate text-sm font-medium text-[#374151]">
+                      {fileLabel(resumePath)}
+                    </span>
                     <a
                       href={embedUrl ?? resumeUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="shrink-0 text-teal-300 hover:text-white underline"
+                      download
+                      className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md px-3 text-xs font-semibold text-white"
+                      style={{ backgroundColor: "var(--brand-primary)" }}
                     >
-                      Open in new tab
+                      Download Resume
                     </a>
                   </div>
                   {canEmbedPreview ? (
@@ -341,13 +350,14 @@ export default function NewApplicantProfileResumePage() {
                       </div>
                     </>
                   ) : (
-                    <div className="p-8 text-center text-white/90 text-sm">
+                    <div className="p-8 text-center text-sm text-[#374151]">
                       <p className="mb-4">Preview is available for PDF and Word (.docx) files.</p>
                       <a
                         href={resumeUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center justify-center rounded-xl bg-teal-600 hover:bg-teal-500 px-5 py-2.5 font-medium"
+                        className="inline-flex items-center justify-center rounded-lg px-5 py-2.5 text-sm font-semibold text-white"
+                        style={{ backgroundColor: "var(--brand-primary)" }}
                       >
                         Download {fileLabel(resumePath)}
                       </a>
