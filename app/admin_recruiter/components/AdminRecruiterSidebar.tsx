@@ -18,6 +18,10 @@ import {
   type SidebarLink,
   type SidebarSection,
 } from "@/app/admin_recruiter/components/sidebar-config";
+import {
+  SETTINGS_LANDING_HREF,
+  isSettingsMiniSidebarPath,
+} from "@/app/admin_recruiter/settings/settings-nav";
 import { visibleSidebarSections } from "@/lib/auth/sidebar-access";
 import SidebarNavIcon from "@/app/admin_recruiter/components/SidebarNavIcon";
 import { StaffProfileAvatar } from "@/app/admin_recruiter/components/StaffProfileAvatar";
@@ -223,6 +227,15 @@ export function AdminRecruiterSidebar({
     });
   }, [pathname, sidebarSections]);
 
+  /** Leaving Settings routes closes the Settings accordion in the main sidebar. */
+  useEffect(() => {
+    if (isSettingsMiniSidebarPath(pathname)) return;
+    setOpenSectionLabels((prev) => {
+      if (!prev.includes("Settings")) return prev;
+      return prev.filter((label) => label !== "Settings");
+    });
+  }, [pathname]);
+
   useEffect(() => {
     const nav = navRef.current;
     if (!nav) return;
@@ -372,7 +385,12 @@ export function AdminRecruiterSidebar({
             (isCollapsed || isMobileRail) && section.children?.length
               ? getFirstNavigableChildHref(section.children)
               : null;
-          const sectionExpandedOpen = !isCollapsed && !isMobileRail && isSectionOpen(section);
+          /** Settings children live in the mini-sidebar — never expand them in the main rail. */
+          const sectionExpandedOpen =
+            !isCollapsed &&
+            !isMobileRail &&
+            section.label !== "Settings" &&
+            isSectionOpen(section);
           /** Selected icon and the active line belong to the open page, not a parent that only has a submenu. */
 
           return (
@@ -404,16 +422,29 @@ export function AdminRecruiterSidebar({
                   title={section.disabled ? `${section.label} (Coming soon)` : section.label}
                   onClick={(event) => {
                     if (isCollapsed || isMobileRail) return;
+                    // Settings submenus live in the mini-sidebar: open Settings landing + collapse main rail.
+                    if (section.label === "Settings") {
+                      event.preventDefault();
+                      router.push(SETTINGS_LANDING_HREF);
+                      handleNavClick();
+                      return;
+                    }
                     handleSectionToggleClick(section.label, event);
                   }}
                   disabled={isCollapsed || isMobileRail}
-                  className={`group relative flex w-full cursor-pointer items-center gap-3 overflow-hidden rounded-md border-0 bg-transparent text-left transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 ${navTextClass(false)} ${
+                  className={`group relative flex w-full cursor-pointer items-center gap-3 overflow-hidden rounded-md border-0 bg-transparent text-left transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 ${navTextClass(
+                    section.label === "Settings" ? section.childActive || section.active : false
+                  )} ${
                     isCollapsed || isMobileRail
                       ? collapsedRowClass(isCollapsed, isMobileRail)
                       : "min-h-[44px] pl-0 pr-[6px]"
                   }`}
-                  aria-expanded={isSectionOpen(section)}
-                  aria-label={`${isSectionOpen(section) ? "Collapse" : "Expand"} ${section.label}`}
+                  aria-expanded={section.label === "Settings" ? false : isSectionOpen(section)}
+                  aria-label={
+                    section.label === "Settings"
+                      ? "Open Settings"
+                      : `${isSectionOpen(section) ? "Collapse" : "Expand"} ${section.label}`
+                  }
                 >
                   <div
                     className={`flex min-w-0 flex-1 items-center gap-3 ${
@@ -431,7 +462,7 @@ export function AdminRecruiterSidebar({
                       </span>
                     ) : null}
                   </div>
-                  {!isCollapsed && !isMobileRail ? (
+                  {!isCollapsed && !isMobileRail && section.label !== "Settings" ? (
                     <span className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center" aria-hidden>
                       <SidebarSubmenuToggleIcon
                         open={isSectionOpen(section)}

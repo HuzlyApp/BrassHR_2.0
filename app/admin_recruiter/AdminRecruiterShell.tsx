@@ -1,11 +1,14 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import toast from "react-hot-toast";
 import { AdminTenantBrandingProvider } from "@/app/components/tenant/AdminTenantBrandingProvider";
 import { AccountDataProvider } from "@/app/admin_recruiter/account/AccountDataProvider";
+import SettingsMobileNav from "@/app/admin_recruiter/settings/SettingsMobileNav";
+import SettingsSidebar from "@/app/admin_recruiter/settings/SettingsSidebar";
+import { isSettingsMiniSidebarPath } from "@/app/admin_recruiter/settings/settings-nav";
 import {
   AdminRecruiterSidebar,
   SIDEBAR_COLLAPSED_WIDTH,
@@ -23,6 +26,14 @@ import "./layout.css";
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "adminRecruiterSidebarCollapsed";
 
+function persistSidebarCollapsed(next: boolean) {
+  try {
+    localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(next));
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
  * Default body copy color for recruiter admin; pages still set explicit colors
  * (e.g. sidebar `text-white`, links `text-teal-*`) where needed.
@@ -30,7 +41,10 @@ const SIDEBAR_COLLAPSED_STORAGE_KEY = "adminRecruiterSidebarCollapsed";
 export default function AdminRecruiterShell({ children }: { children: ReactNode }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
+  const inSettingsArea = isSettingsMiniSidebarPath(pathname);
+  const wasInSettingsAreaRef = useRef<boolean | null>(null);
+  const settingsCollapseReadyRef = useRef(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -52,23 +66,50 @@ export default function AdminRecruiterShell({ children }: { children: ReactNode 
       else if (stored === "false") setSidebarCollapsed(false);
     } catch {
       /* ignore */
+    } finally {
+      settingsCollapseReadyRef.current = true;
     }
   }, []);
+
+  /** Enter Settings → collapse main rail + show mini-sidebar. Leave Settings → expand main rail. */
+  useEffect(() => {
+    if (!settingsCollapseReadyRef.current) return;
+    const wasInSettings = wasInSettingsAreaRef.current;
+    wasInSettingsAreaRef.current = inSettingsArea;
+    if (wasInSettings === null) {
+      if (inSettingsArea) {
+        setSidebarCollapsed(true);
+        persistSidebarCollapsed(true);
+      }
+      return;
+    }
+    if (inSettingsArea && !wasInSettings) {
+      setSidebarCollapsed(true);
+      persistSidebarCollapsed(true);
+      return;
+    }
+    if (!inSettingsArea && wasInSettings) {
+      setSidebarCollapsed(false);
+      persistSidebarCollapsed(false);
+    }
+  }, [inSettingsArea]);
 
   const toggleSidebarCollapsed = () => {
     setSidebarCollapsed((prev) => {
       const next = !prev;
-      try {
-        localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(next));
-      } catch {
-        /* ignore */
-      }
+      persistSidebarCollapsed(next);
       return next;
     });
   };
 
   const sidebarWidth = sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_EXPANDED_WIDTH;
-  const candidateDetailRoute = isCandidateDetailPage(pathname ?? "");
+  const candidateDetailRoute = isCandidateDetailPage(pathname);
+
+  const pageBody = candidateDetailRoute ? (
+    <div className="admin-candidate-detail-shell">{children}</div>
+  ) : (
+    children
+  );
 
   return (
     <AdminTenantBrandingProvider>
@@ -102,10 +143,16 @@ export default function AdminRecruiterShell({ children }: { children: ReactNode 
           />
           <WorkflowDashboardHeaderProvider>
             <AdminRecruiterDashboardSubNav />
-            {candidateDetailRoute ? (
-              <div className="admin-candidate-detail-shell">{children}</div>
+            {inSettingsArea ? (
+              <div className="flex min-h-0 min-w-0 w-full flex-1 items-start">
+                <SettingsSidebar />
+                <div className="min-w-0 flex-1 px-5 pb-8 pt-5 lg:px-6">
+                  <SettingsMobileNav />
+                  {pageBody}
+                </div>
+              </div>
             ) : (
-              children
+              pageBody
             )}
           </WorkflowDashboardHeaderProvider>
         </div>

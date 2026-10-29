@@ -263,3 +263,24 @@ export function isSettingsNavItemActive(item: SettingsNavItem, pathname: string)
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
   );
 }
+
+/** Default landing page when opening Settings from the main sidebar. */
+export const SETTINGS_LANDING_HREF = "/admin_recruiter/settings/branding";
+
+/** All path prefixes covered by the settings mini-sidebar. */
+export const SETTINGS_MINI_SIDEBAR_PREFIXES: string[] = Array.from(
+  new Set(
+    SETTINGS_NAV_GROUPS.flatMap((group) => group.items.flatMap((item) => item.matchPrefixes)).concat([
+      "/admin_recruiter/settings",
+    ])
+  )
+);
+
+/** True while the settings mini-sidebar should stay open for this route. */
+export function isSettingsMiniSidebarPath(pathname: string): boolean {
+  const path = pathname.trim();
+  if (!path) return false;
+  return SETTINGS_MINI_SIDEBAR_PREFIXES.some(
+    (prefix) => path === prefix || path.startsWith(`${prefix}/`)
+  );
+}
