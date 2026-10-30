@@ -8,6 +8,7 @@ export type EmploymentWorkerRecord = {
   email: string | null;
   phone: string | null;
   job_role: string | null;
+  job_id?: string | null;
   location: string | null;
   status: string | null;
   worker_type: string | null;
@@ -18,6 +19,22 @@ export type EmploymentWorkerRecord = {
   source_job_application_id?: string | null;
   documents_count?: number;
   application_snapshot?: Record<string, unknown> | null;
+  assignment_start_date?: string | null;
+  assignment_end_date?: string | null;
+  pay_rate?: string | null;
+  client?: string | null;
+  experience?: string | null;
+  manager?: string | null;
+  facilities?: string[] | null;
+  bill_rate?: string | null;
+  department?: string | null;
+  specialty?: string | null;
+  profession?: string | null;
+  shift_type?: string | null;
+  shift_details?: string | null;
+  hours_per_week?: string | null;
+  overtime_rate?: string | null;
+  hired_date?: string | null;
 };
 
 export function parseEmploymentWorkerTab(value: string | null | undefined): EmploymentWorkerTab {

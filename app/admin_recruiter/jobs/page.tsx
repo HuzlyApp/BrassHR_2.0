@@ -869,7 +869,10 @@ export default function AdminRecruiterJobsPage() {
   const [workflowFilter, setWorkflowFilter] = useState("");
   const [payRateFilter, setPayRateFilter] = useState("");
   const [datePostedFilter, setDatePostedFilter] = useState("");
-  const [searchTags, setSearchTags] = useState<string[]>([]);
+  const [searchTags, setSearchTags] = useState<string[]>(() => {
+    const q = searchParams.get("q") || searchParams.get("search");
+    return q ? [q.trim()] : [];
+  });
   const [industryFilter, setIndustryFilter] = useState("");
   const [editFiltersOpen, setEditFiltersOpen] = useState(false);
   const [filtersBarOpen, setFiltersBarOpen] = useState(false);
