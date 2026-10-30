@@ -1,7 +1,7 @@
 /** Figma Analytics/bg — lite-yellow (icon bg). Fixed bulk-selection snackbar background. */
 export const BULK_SELECTION_SNACKBAR_BG = "#FFF1BF";
 
-export const BULK_SELECTION_SNACKBAR_BG_CLASS = `bg-[${BULK_SELECTION_SNACKBAR_BG}]`;
+export const BULK_SELECTION_SNACKBAR_BG_CLASS = "bg-[#FFF1BF]";
 
 /** Primary tenant branding border for bulk-selection snackbars. */
 export const BULK_SELECTION_SNACKBAR_BORDER_CLASS = "border border-[color:var(--brand-primary)]";

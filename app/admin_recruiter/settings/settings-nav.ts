@@ -68,7 +68,7 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
         label: "Profile",
         href: "/admin_recruiter/account/personal",
         icon: UserCircle,
-        matchPrefixes: ["/admin_recruiter/account/personal"],
+        matchPrefixes: ["/admin_recruiter/account/personal", "/admin_recruiter/account"],
       },
       {
         id: "account",
@@ -272,6 +272,19 @@ export const SETTINGS_MINI_SIDEBAR_PREFIXES: string[] = Array.from(
   new Set(
     SETTINGS_NAV_GROUPS.flatMap((group) => group.items.flatMap((item) => item.matchPrefixes)).concat([
       "/admin_recruiter/settings",
+      "/admin_recruiter/account",
+      "/admin_recruiter/notifications",
+      "/admin_recruiter/dashboard/onboarding-flows",
+      "/admin_recruiter/dashboard/workflow-mappings",
+      "/admin_recruiter/dashboard/workflowlibrary",
+      "/admin_recruiter/dashboard/workflow-builder",
+      "/admin_recruiter/dashboard/workflows",
+      "/admin_recruiter/dashboard/templates",
+      "/admin_recruiter/dashboard/onboarding-builder",
+      "/admin_recruiter/template-builder",
+      "/admin_recruiter/email-templates",
+      "/admin_recruiter/help-support",
+      "/admin_recruiter/reports",
     ])
   )
 );

@@ -37,7 +37,7 @@ export default function SettingsSidebar() {
   return (
     <aside
       aria-label="Settings sections"
-      className="z-10 hidden h-full min-h-0 w-[195px] shrink-0 overflow-y-auto overscroll-y-contain border-x border-[#E5E7EB] bg-white px-3.5 py-5 lg:block"
+      className="z-10 hidden h-full min-h-0 w-[195px] shrink-0 overflow-y-auto overscroll-y-contain border-x border-[#E5E7EB] bg-white px-3.5 py-5 md:block"
     >
       <nav className="flex flex-col gap-3">
         {SETTINGS_NAV_GROUPS.map((group, groupIndex) => (

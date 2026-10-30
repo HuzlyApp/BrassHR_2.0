@@ -43,7 +43,7 @@ export default function SettingsSectionClient({ section }: SettingsSectionClient
   const showPageHeader = section !== "branding" && section !== "hiring-theme";
 
   return (
-    <div className="mx-auto w-full max-w-[960px] space-y-6">
+    <div className="w-full min-w-0 space-y-6">
       {showPageHeader ? (
         <SettingsSectionHeader title={meta.title} description={meta.description} />
       ) : null}

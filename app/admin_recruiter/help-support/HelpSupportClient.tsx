@@ -78,7 +78,7 @@ export default function HelpSupportClient() {
   }
 
   return (
-    <div className="px-5 pb-8 pt-5 lg:px-8">
+    <div className="w-full min-w-0">
       <div className="admin-recruiter-content-width">
         <div className="mb-5">
           <h1 className={CANDIDATES_PAGE_TITLE_CLASS} style={CANDIDATES_PAGE_TITLE_STYLE}>

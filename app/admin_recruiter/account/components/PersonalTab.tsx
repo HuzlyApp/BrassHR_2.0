@@ -233,7 +233,7 @@ export default function PersonalTab() {
         </span>
       </div>
 
-      <section className="w-full max-w-2xl rounded-lg border border-[#E5E7EB] bg-white px-4 py-5 sm:px-6 sm:py-6">
+      <section className="w-full max-w-4xl rounded-lg border border-[#E5E7EB] bg-white px-4 py-5 sm:px-6 sm:py-6">
         <h2 className="text-lg font-semibold leading-7 text-[#012352]">Basic Information</h2>
 
         <div className="mt-2.5 flex flex-col gap-5">

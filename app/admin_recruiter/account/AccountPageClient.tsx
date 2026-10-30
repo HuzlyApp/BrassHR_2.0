@@ -27,15 +27,15 @@ export default function AccountPageClient({ activeTab }: AccountPageClientProps)
   }, [activeTab, isLimitedStaff, loading, router]);
 
   return (
-    <main className="p-4 sm:p-6 lg:p-8">
-      <div className="mx-auto max-w-[1200px]">
-        <AccountTabNav activeTab={activeTab} />
+    <div className="w-full min-w-0 space-y-6">
+
+      <AccountTabNav activeTab={activeTab} />
 
         {activeTab === "personal" ? <PersonalTab /> : null}
         {!hideTab && activeTab === "business-info" ? <BusinessInfoTab /> : null}
         {!hideTab && activeTab === "account-settings" ? <AccountSettingsTab /> : null}
         {activeTab === "security" ? <SecurityTab /> : null}
-      </div>
-    </main>
+
+    </div>
   );
 }

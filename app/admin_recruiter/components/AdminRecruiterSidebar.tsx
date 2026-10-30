@@ -63,6 +63,7 @@ type AdminRecruiterSidebarProps = {
   isMobileOpen?: boolean;
   onMobileClose?: () => void;
   collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 };
 
 /** First enabled child link for collapsed-rail navigation. */
@@ -118,11 +119,13 @@ export function AdminRecruiterSidebar({
   isMobileOpen = false,
   onMobileClose,
   collapsed = false,
+  onToggleCollapsed,
 }: AdminRecruiterSidebarProps) {
   const branding = useTenantBranding();
   const { user, profile, organization } = useAccountData();
   const [logoSrc, setLogoSrc] = useState(branding.faviconUrl || branding.logoUrl || DEFAULT_TENANT_LOGO);
   const pathname = usePathname() ?? "";
+  const inSettingsArea = isSettingsMiniSidebarPath(pathname);
   const router = useRouter();
   const [openSectionLabels, setOpenSectionLabels] = useState<string[]>([]);
   const { viewer } = useEffectiveBranding();
@@ -396,7 +399,38 @@ export function AdminRecruiterSidebar({
           return (
           <div key={section.label} className={isMobileRail || isCollapsed ? "mb-1 w-full" : ""}>
             {section.children?.length ? (
-              collapsedNavHref ? (
+              section.label === "Settings" && inSettingsArea ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onToggleCollapsed?.();
+                  }}
+                  title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                  aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                  className={`group relative flex w-full cursor-pointer items-center overflow-hidden rounded-md border-0 bg-transparent text-left transition hover:bg-white ${collapsedRowClass(
+                    isCollapsed,
+                    isMobileRail
+                  )} ${navTextClass(section.childActive || section.active)}`}
+                >
+                  <div
+                    className={`flex min-w-0 flex-1 items-center gap-3 ${isCollapsed || isMobileRail ? "justify-center" : ""}`}
+                  >
+                    <SidebarNavIcon
+                      iconType={section.iconType}
+                      active={section.childActive || section.active}
+                      colorHex={iconTintHex}
+                    />
+                    {!isCollapsed && !isMobileRail ? (
+                      <span className="truncate font-normal text-[14px] leading-5 tracking-normal">
+                        {section.label}
+                      </span>
+                    ) : null}
+                  </div>
+                  {section.childActive || section.active ? (
+                    <span aria-hidden className="admin-recruiter-sidebar-active-indicator" />
+                  ) : null}
+                </button>
+              ) : collapsedNavHref ? (
                 <Link
                   href={collapsedNavHref}
                   onClick={handleNavClick}
@@ -425,6 +459,10 @@ export function AdminRecruiterSidebar({
                     // Settings submenus live in the mini-sidebar: open Settings landing + collapse main rail.
                     if (section.label === "Settings") {
                       event.preventDefault();
+                      if (inSettingsArea) {
+                        onToggleCollapsed?.();
+                        return;
+                      }
                       router.push(SETTINGS_LANDING_HREF);
                       handleNavClick();
                       return;
@@ -453,7 +491,7 @@ export function AdminRecruiterSidebar({
                   >
                     <SidebarNavIcon
                       iconType={section.iconType}
-                      active={false}
+                      active={section.label === "Settings" ? section.childActive || section.active : false}
                       colorHex={iconTintHex}
                     />
                     {!isCollapsed && !isMobileRail ? (

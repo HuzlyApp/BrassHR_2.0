@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -28,6 +28,7 @@ import { JobsAdvancedSearchBar } from "./JobsAdvancedSearchBar";
 import { JobsGridView, JOBS_GRID_INFINITE_PAGE_SIZE } from "./JobsGridView";
 import { JobsCardBulkSelectHeader } from "./JobsCardBulkSelectHeader";
 import { JobsBulkSelectionSnackbar } from "./JobsBulkSelectionSnackbar";
+import { ListTableCheckbox } from "@/app/admin_recruiter/components/ListTableCheckbox";
 import JobPublishToggle from "./JobPublishToggle";
 import { JobsViewToggle } from "./JobsViewToggle";
 import {
@@ -489,9 +490,9 @@ export function JobsDashboard({
           </div>
         </div>
 
-        {cardBulkSelectMode ? (
+        {selectedIds.size > 0 ? (
           <JobsBulkSelectionSnackbar
-            totalSelectedCount={workspaceSelectedCount}
+            totalSelectedCount={selectedIds.size}
             unpublishDisabled={selectedPublishedCount === 0}
             archiveDisabled={archiveBusy || selectedArchivableCount === 0}
             exportDisabled={exportDisabled}
@@ -556,10 +557,11 @@ export function JobsDashboard({
               <table className="w-full border-collapse text-left text-xs">
                 <thead>
                   <tr className="border-b border-[#E5E7EB] bg-white text-[11px] font-semibold uppercase tracking-wider text-[#6B7280]">
-                    <th className="w-10 px-4 py-3.5">
-                      <input
-                        type="checkbox"
+                    <th className="w-10 px-4 py-3.5 text-center cursor-pointer">
+                      <ListTableCheckbox
                         checked={allWorkspaceSelected}
+                        indeterminate={someWorkspaceSelected && !allWorkspaceSelected}
+                        disabled={workspaceJobs.length === 0}
                         onChange={() => {
                           if (allWorkspaceSelected) {
                             onSelectAll([]);
@@ -567,7 +569,6 @@ export function JobsDashboard({
                             onSelectAll(workspaceJobs.map((j) => j.id));
                           }
                         }}
-                        className="rounded border-[#D1D5DB] text-[color:var(--brand-primary)] focus:ring-[color:var(--brand-primary)]"
                         aria-label="Select all jobs"
                       />
                     </th>
@@ -607,12 +608,16 @@ export function JobsDashboard({
 
                     return (
                       <tr key={job.id} className="transition-colors hover:bg-gray-50/70">
-                        <td className="px-4 py-3.5 align-middle">
-                          <input
-                            type="checkbox"
+                        <td
+                          className="px-4 py-3.5 align-middle text-center cursor-pointer"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onToggleSelect(job.id);
+                          }}
+                        >
+                          <ListTableCheckbox
                             checked={selectedIds.has(job.id)}
                             onChange={() => onToggleSelect(job.id)}
-                            className="rounded border-[#D1D5DB] text-[color:var(--brand-primary)] focus:ring-[color:var(--brand-primary)]"
                             aria-label={`Select ${title}`}
                           />
                         </td>

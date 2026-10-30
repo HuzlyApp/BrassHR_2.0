@@ -665,7 +665,7 @@ export default function WorkersPage() {
           <table className="w-full min-w-[1020px] border-collapse text-left text-sm xl:min-w-full">
             <thead className="border-b border-[#E2E8F0] bg-white">
               <tr>
-                <th className="w-12 px-4 py-3.5 text-center whitespace-nowrap">
+                <th className="w-12 px-4 py-3.5 text-center whitespace-nowrap cursor-pointer">
                   <ListTableCheckbox
                     checked={allVisibleSelected}
                     indeterminate={someVisibleSelected}
@@ -744,7 +744,7 @@ export default function WorkersPage() {
                         isSelected ? "bg-[#F8FAFC]" : ""
                       }`}
                     >
-                      <td className="px-4 py-3.5 text-center whitespace-nowrap">
+                      <td className="px-4 py-3.5 text-center whitespace-nowrap cursor-pointer" onClick={(e) => { e.stopPropagation(); toggleSelectRow(w.id); }}>
                         <ListTableCheckbox
                           checked={isSelected}
                           onChange={() => toggleSelectRow(w.id)}

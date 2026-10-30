@@ -230,7 +230,7 @@ export default function SecurityTab() {
         Your current session is verified. Enter a new password below — no current password required.
       </p>
 
-      <section className="mt-4 w-full max-w-xl rounded-lg border border-[#E5E7EB] bg-white px-4 py-5 sm:px-6 sm:py-6">
+      <section className="mt-4 w-full max-w-2xl rounded-lg border border-[#E5E7EB] bg-white px-4 py-5 sm:px-6 sm:py-6">
         <div className="border-b border-[#E5E7EB] pb-5">
           <p className="text-base font-semibold text-[#012352]">{displayName}</p>
           <p className="mt-1 text-sm text-[#64748B]">{email}</p>

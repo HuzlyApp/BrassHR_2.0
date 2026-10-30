@@ -186,7 +186,16 @@ const TEMPLATES_CHILDREN: SidebarLink[] = [
 
 const TEMPLATES_ACTIVE_PREFIXES = [EMAIL_TEMPLATES_ROUTE, TEMPLATE_BUILDER_ROUTE];
 
+const JOBS_ROUTE = "/admin_recruiter/jobs";
+
+
 const RECRUITMENT_CHILDREN: SidebarLink[] = [
+  {
+    label: "Jobs",
+    href: JOBS_ROUTE,
+    resourceKey: "jobs",
+    matchPrefixes: [JOBS_ROUTE],
+  },
   // {
   //   label: "Candidates",
   //   href: "/admin_recruiter/candidates",
@@ -205,7 +214,7 @@ const RECRUITMENT_CHILDREN: SidebarLink[] = [
   },
 ];
 
-const HIRING_ACTIVE_PREFIXES = ["/admin_recruiter/applications", ...CANDIDATE_ROUTE_PREFIXES];
+const HIRING_ACTIVE_PREFIXES = [JOBS_ROUTE, "/admin_recruiter/applications", ...CANDIDATE_ROUTE_PREFIXES];
 
 const WORKFORCE_CHILDREN: SidebarLink[] = [
   {
@@ -266,7 +275,7 @@ const ORGANIZATION_CHILDREN: SidebarLink[] = [
   },
 ];
 
-const JOBS_ROUTE = "/admin_recruiter/jobs";
+// Jobs moved under Hiring
 
 const DASHBOARD_ACTIVE_PREFIXES = [DASHBOARD_OVERVIEW_BASE];
 
@@ -543,13 +552,6 @@ export const CLIENT_SIDEBAR_SECTIONS: SidebarSection[] = [
     children: ORGANIZATION_CHILDREN,
   },
   {
-    label: "Jobs",
-    href: JOBS_ROUTE,
-    resourceKey: "jobs",
-    iconType: ICON.jobs,
-    matchPrefixes: [JOBS_ROUTE],
-  },
-  {
     label: "Scheduling",
     href: "#",
     resourceKey: "scheduling",
@@ -665,13 +667,6 @@ export const GOD_ADMIN_SIDEBAR_SECTIONS: SidebarSection[] = [
     iconType: ICON.organization,
     matchPrefixes: ["/admin_recruiter/facilities"],
     children: ORGANIZATION_CHILDREN,
-  },
-  {
-    label: "Jobs",
-    href: JOBS_ROUTE,
-    resourceKey: "jobs",
-    iconType: ICON.jobs,
-    matchPrefixes: [JOBS_ROUTE],
   },
   {
     label: "Automation",

@@ -636,7 +636,7 @@ export default function BrandingSettingsPanel({
       {activeTab === "hiring-journey" ? (
         <HireJourneyThemePanel />
       ) : (
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(240px,280px)] xl:items-start">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(260px,320px)] xl:items-start">
         <div className="min-w-0 space-y-5">
           {activeTab === "logo" ? (
             <div className="space-y-4">

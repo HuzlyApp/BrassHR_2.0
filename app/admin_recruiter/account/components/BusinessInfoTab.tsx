@@ -372,7 +372,7 @@ export default function BusinessInfoTab() {
 
       <AccountTenantHeader />
 
-      <section className="mt-6 w-full max-w-2xl">
+      <section className="mt-6 w-full max-w-4xl">
         <h2 className="text-lg font-semibold leading-7 text-[#012352]">Business Information</h2>
         <p className="mt-1 text-sm text-[#64748B]">Add your business info.</p>
 

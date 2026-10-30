@@ -126,7 +126,7 @@ export default function ReportCenterClient() {
     activeCategory === "all" && !searchQuery.trim() ? "Suggest Reports" : "Reports";
 
   return (
-    <div className="flex flex-col gap-5 px-4 py-[30px] sm:px-6 lg:px-8">
+    <div className="flex w-full min-w-0 flex-col gap-5">
       <div className="flex flex-col gap-4 py-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="font-[Inter,sans-serif] text-[30px] font-semibold leading-[36px] text-black">

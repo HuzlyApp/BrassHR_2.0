@@ -3552,7 +3552,7 @@ export default function JobApplicationsPage() {
             <table className="min-w-[960px] w-full border-collapse text-left text-sm xl:min-w-full">
               <thead className="border-b border-[#E2E8F0] bg-[#F8FAFC]">
                 <tr>
-                  <th className="w-12 px-4 py-3.5 text-center">
+                  <th className="w-12 px-4 py-3.5 text-center cursor-pointer">
                     <ListTableCheckbox
                       checked={allVisibleSelected}
                       indeterminate={someVisibleSelected && !allVisibleSelected}
@@ -3615,8 +3615,11 @@ export default function JobApplicationsPage() {
                       className="align-middle transition-colors hover:bg-[#F8FAFC]"
                     >
                       <td
-                        className="px-4 py-3 text-center align-middle"
-                        onClick={(event) => event.stopPropagation()}
+                        className="px-4 py-3 text-center align-middle cursor-pointer"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleSelect(row.id);
+                        }}
                       >
                         <ListTableCheckbox
                           checked={selectedIds.has(row.id)}

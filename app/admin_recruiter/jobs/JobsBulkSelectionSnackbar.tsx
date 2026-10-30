@@ -3,6 +3,7 @@
 import BrandedSvgIcon from "@/app/components/BrandedSvgIcon";
 import { ListExportDropdown } from "@/app/admin_recruiter/components/ListExportDropdown";
 import {
+  BULK_SELECTION_SNACKBAR_BG,
   BULK_SELECTION_SNACKBAR_CLASS,
   BULK_SELECTION_SNACKBAR_LABEL_CLASS,
   BULK_SELECTION_SNACKBAR_ACTION_CLASS,
@@ -70,7 +71,15 @@ export function JobsBulkSelectionSnackbar({
     totalSelectedCount === 1 ? "1 job selected" : `${totalSelectedCount} jobs selected`;
 
   return (
-    <div className={BULK_SELECTION_SNACKBAR_CLASS} role="status" aria-live="polite">
+    <div
+      className={`sticky top-0 z-20 ${BULK_SELECTION_SNACKBAR_CLASS}`}
+      style={{
+        backgroundColor: BULK_SELECTION_SNACKBAR_BG,
+        borderColor: "var(--brand-primary)",
+      }}
+      role="status"
+      aria-live="polite"
+    >
       <p className={BULK_SELECTION_SNACKBAR_LABEL_CLASS}>
         {selectionLabel}
       </p>
