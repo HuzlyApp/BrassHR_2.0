@@ -8,6 +8,7 @@ import CandidateStatusesPanel from "@/app/admin_recruiter/settings/CandidateStat
 import ProfessionDocumentsPanel from "@/app/admin_recruiter/settings/ProfessionDocumentsPanel";
 import RolePermissionsPanel from "@/app/admin_recruiter/settings/RolePermissionsPanel";
 import SettingsSectionHeader from "@/app/admin_recruiter/settings/SettingsSectionHeader";
+import TemplatesSettingsPanel from "@/app/admin_recruiter/settings/TemplatesSettingsPanel";
 import {
   SETTINGS_SECTION_META,
   type SettingsSectionSlug,
@@ -50,6 +51,8 @@ export default function SettingsSectionClient({ section }: SettingsSectionClient
 
       {section === "roles" ? (
         <RolePermissionsPanel canEdit={company.canEdit} canDelete={company.canDelete} />
+      ) : section === "templates" ? (
+        <TemplatesSettingsPanel />
       ) : (
         <fieldset disabled={!company.canEdit} className="min-w-0 space-y-6 border-0 p-0 disabled:opacity-80">
           {section === "branding" || section === "hiring-theme" ? (

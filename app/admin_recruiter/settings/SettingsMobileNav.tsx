@@ -1,16 +1,46 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import {
   SETTINGS_NAV_GROUPS,
   isSettingsNavItemActive,
+  visibleSettingsNavGroups,
 } from "@/app/admin_recruiter/settings/settings-nav";
 
 /** Compact horizontal nav for viewports where the Figma sidebar is hidden. */
 export default function SettingsMobileNav() {
   const pathname = usePathname() ?? "";
-  const items = SETTINGS_NAV_GROUPS.flatMap((group) => group.items);
+  const [viewKeys, setViewKeys] = useState<Set<string> | null>(null);
+  const [unrestricted, setUnrestricted] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/admin/access")
+      .then(async (response) => {
+        if (!response.ok) return;
+        const body = (await response.json()) as { godAdmin?: boolean; viewKeys?: string[] };
+        if (cancelled) return;
+        if (body.godAdmin) {
+          setUnrestricted(true);
+          setViewKeys(new Set(["*"]));
+          return;
+        }
+        setViewKeys(new Set(body.viewKeys ?? []));
+      })
+      .catch(() => {
+        if (!cancelled) setViewKeys(new Set());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const items = useMemo(
+    () => visibleSettingsNavGroups(SETTINGS_NAV_GROUPS, viewKeys, unrestricted).flatMap((group) => group.items),
+    [unrestricted, viewKeys]
+  );
 
   return (
     <nav

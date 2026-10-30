@@ -182,25 +182,24 @@ const TEMPLATES_CHILDREN: SidebarLink[] = [
     href: EMAIL_TEMPLATES_ROUTE,
     matchPrefixes: [EMAIL_TEMPLATES_ROUTE],
   },
+  {
+    label: "Onboarding Templates",
+    href: "/admin_recruiter/dashboard/templates",
+    matchPrefixes: ["/admin_recruiter/dashboard/templates"],
+  },
 ];
 
-const TEMPLATES_ACTIVE_PREFIXES = [EMAIL_TEMPLATES_ROUTE, TEMPLATE_BUILDER_ROUTE];
+const TEMPLATES_ACTIVE_PREFIXES = [
+  EMAIL_TEMPLATES_ROUTE,
+  TEMPLATE_BUILDER_ROUTE,
+  "/admin_recruiter/settings/templates",
+  "/admin_recruiter/dashboard/templates",
+];
 
 const JOBS_ROUTE = "/admin_recruiter/jobs";
 
 
 const RECRUITMENT_CHILDREN: SidebarLink[] = [
-  {
-    label: "Jobs",
-    href: JOBS_ROUTE,
-    resourceKey: "jobs",
-    matchPrefixes: [JOBS_ROUTE],
-  },
-  // {
-  //   label: "Candidates",
-  //   href: "/admin_recruiter/candidates",
-  //   matchPrefixes: CANDIDATE_ROUTE_PREFIXES,
-  // },
   {
     label: "Applicants",
     href: "/admin_recruiter/applications",
@@ -211,6 +210,12 @@ const RECRUITMENT_CHILDREN: SidebarLink[] = [
     href: "/admin_recruiter/calendar",
     matchPrefixes: ["/admin_recruiter/calendar"],
     matchExact: true,
+  },
+  {
+    label: "Jobs",
+    href: JOBS_ROUTE,
+    resourceKey: "jobs",
+    matchPrefixes: [JOBS_ROUTE],
   },
 ];
 

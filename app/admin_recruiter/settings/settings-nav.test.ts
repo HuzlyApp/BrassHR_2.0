@@ -3,7 +3,7 @@ import {
   isSettingsMiniSidebarPath,
   isSettingsNavItemActive,
   SETTINGS_NAV_GROUPS,
-  SETTINGS_MINI_SIDEBAR_PREFIXES,
+  visibleSettingsNavGroups,
 } from "./settings-nav";
 
 describe("Settings Navigation & Mini-Sidebar Persistence", () => {
@@ -35,6 +35,7 @@ describe("Settings Navigation & Mini-Sidebar Persistence", () => {
       "/admin_recruiter/settings/profession",
       "/admin_recruiter/settings/assessment",
       "/admin_recruiter/settings/statuses",
+      "/admin_recruiter/settings/templates",
       "/admin_recruiter/template-builder",
       "/admin_recruiter/email-templates",
 
@@ -97,6 +98,23 @@ describe("Settings Navigation & Mini-Sidebar Persistence", () => {
     expect(
       isSettingsNavItemActive(profileItem!, "/admin_recruiter/account/personal")
     ).toBe(true);
+
+    const templatesItem = SETTINGS_NAV_GROUPS.flatMap((g) => g.items).find(
+      (item) => item.id === "templates"
+    );
+    expect(templatesItem).toBeDefined();
+    expect(
+      isSettingsNavItemActive(templatesItem!, "/admin_recruiter/settings/templates")
+    ).toBe(true);
+    expect(
+      isSettingsNavItemActive(templatesItem!, "/admin_recruiter/template-builder")
+    ).toBe(true);
+    expect(
+      isSettingsNavItemActive(templatesItem!, "/admin_recruiter/email-templates")
+    ).toBe(true);
+    expect(
+      isSettingsNavItemActive(templatesItem!, "/admin_recruiter/dashboard/templates")
+    ).toBe(true);
   });
 
   it("recognizes settings routes where settings icon acts as a main sidebar toggle", () => {
@@ -105,5 +123,20 @@ describe("Settings Navigation & Mini-Sidebar Persistence", () => {
     expect(isSettingsMiniSidebarPath("/admin_recruiter/settings/branding")).toBe(true);
     expect(isSettingsMiniSidebarPath("/admin_recruiter/account/security")).toBe(true);
   });
-});
 
+  it("hides Reports in the mini-sidebar when settings_reports view is missing", () => {
+    const withoutReports = visibleSettingsNavGroups(
+      SETTINGS_NAV_GROUPS,
+      new Set(["settings_company", "settings_profile", "settings_help"])
+    );
+    const ids = withoutReports.flatMap((group) => group.items.map((item) => item.id));
+    expect(ids).not.toContain("reports");
+    expect(ids).toContain("branding");
+
+    const withReports = visibleSettingsNavGroups(
+      SETTINGS_NAV_GROUPS,
+      new Set(["settings_reports", "settings_profile"])
+    );
+    expect(withReports.flatMap((group) => group.items.map((item) => item.id))).toContain("reports");
+  });
+});
