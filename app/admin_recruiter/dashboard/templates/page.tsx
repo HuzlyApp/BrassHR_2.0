@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft } from "lucide-react";
 import BrandedSvgIcon from "@/app/components/BrandedSvgIcon";
 import CreateTemplateModal, {
   type CreateTemplatePayload,
@@ -370,6 +371,13 @@ export default function AdminRecruiterTemplatesPage() {
     <div className="min-h-screen overflow-x-hidden" style={{ backgroundColor: PAGE_BG }}>
       <div className="w-full min-w-0 px-3 py-4 max-[369px]:px-2.5 sm:px-5 sm:py-6 lg:px-8">
         <header className="mb-6 sm:mb-8">
+          <Link
+            href="/admin_recruiter/settings/templates"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-[#475569] hover:text-[#0F172A] hover:underline mb-3"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Back to Templates
+          </Link>
           <h1 className="text-[24px] font-semibold leading-[30px] text-[#000000] max-[369px]:text-[22px] max-[369px]:leading-[28px] min-[500px]:text-[30px] min-[500px]:leading-[36px]">
             My Templates
           </h1>

@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import {
   SETTINGS_NAV_GROUPS,
   isSettingsNavItemActive,
+  visibleSettingsNavGroups,
   type SettingsNavItem,
 } from "@/app/admin_recruiter/settings/settings-nav";
 
@@ -24,15 +26,41 @@ function NavItemLink({ item, active }: { item: SettingsNavItem; active: boolean 
         className="size-5 shrink-0"
         strokeWidth={1.5}
         aria-hidden
-        style={active ? { color: "var(--brand-primary)" } : { color: "var(--brand-primary)" }}
+        style={{ color: "var(--brand-primary)" }}
       />
-      <span className={active ? "font-normal" : "font-normal"}>{item.label}</span>
+      <span className="font-normal">{item.label}</span>
     </Link>
   );
 }
 
 export default function SettingsSidebar() {
   const pathname = usePathname() ?? "";
+  const [viewKeys, setViewKeys] = useState<Set<string> | null>(null);
+  const [unrestricted, setUnrestricted] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/admin/access")
+      .then(async (response) => {
+        if (!response.ok) return;
+        const body = (await response.json()) as { godAdmin?: boolean; viewKeys?: string[] };
+        if (cancelled) return;
+        if (body.godAdmin) {
+          setUnrestricted(true);
+          setViewKeys(new Set(["*"]));
+          return;
+        }
+        setViewKeys(new Set(body.viewKeys ?? []));
+      })
+      .catch(() => {
+        if (!cancelled) setViewKeys(new Set());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const groups = visibleSettingsNavGroups(SETTINGS_NAV_GROUPS, viewKeys, unrestricted);
 
   return (
     <aside
@@ -40,7 +68,7 @@ export default function SettingsSidebar() {
       className="z-10 hidden h-full min-h-0 w-[195px] shrink-0 overflow-y-auto overscroll-y-contain border-x border-[#E5E7EB] bg-white px-3.5 py-5 md:block"
     >
       <nav className="flex flex-col gap-3">
-        {SETTINGS_NAV_GROUPS.map((group, groupIndex) => (
+        {groups.map((group, groupIndex) => (
           <div key={group.id} className="flex flex-col gap-3">
             {groupIndex > 0 ? <div className="h-px w-full bg-[#E5E7EB]" role="separator" /> : null}
             <div className="flex flex-col gap-3">

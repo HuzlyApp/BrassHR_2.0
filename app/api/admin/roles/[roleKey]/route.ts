@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireStaffApiSession } from "@/lib/auth/api-session";
 import { requireUserManagement } from "@/lib/auth/user-management";
-import { withRequiredView, type StoredGrant } from "@/lib/auth/permission-catalog";
+import {
+  seededGrantForRole,
+  withRequiredView,
+  type StoredGrant,
+} from "@/lib/auth/permission-catalog";
 import { resolveStaffTenantId } from "@/lib/jobs/tenant";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { loadStaffRoles, matchStaffRole } from "@/lib/admin/staff-roles";
@@ -24,7 +28,8 @@ function cleanText(value: unknown, max: number): string {
 
 async function readPermissions(
   supabase: ReturnType<typeof createServiceRoleClient>,
-  value: unknown
+  value: unknown,
+  isAdmin: boolean
 ): Promise<Array<{ resourceKey: string } & StoredGrant> | null> {
   if (!supabase || !Array.isArray(value)) return null;
   const { data, error } = await supabase.from("permission_resources").select("key").eq("always_granted", false);
@@ -45,8 +50,17 @@ async function readPermissions(
       }),
     });
   }
+  // Missing keys use the seed matrix so a partial save cannot silently revoke
+  // newly added resources (e.g. settings_reports) as all-false.
   for (const key of allowed) {
-    if (!seen.has(key)) grants.push({ resourceKey: key, canView: false, canEdit: false, canDelete: false });
+    if (seen.has(key)) continue;
+    const seeded = seededGrantForRole(isAdmin, key);
+    grants.push({
+      resourceKey: key,
+      canView: seeded?.canView === true,
+      canEdit: seeded?.canEdit === true,
+      canDelete: seeded?.canDelete === true,
+    });
   }
   return grants;
 }
@@ -80,10 +94,10 @@ export async function PATCH(request: Request, context: RouteContext) {
   } | null;
   const label = cleanText(body?.label, 80);
   const description = cleanText(body?.description, 240);
-  const permissions = await readPermissions(supabase, body?.permissions);
+  const role = existing as { is_admin?: boolean; is_system?: boolean };
+  const permissions = await readPermissions(supabase, body?.permissions, role.is_admin === true);
   if (!label || !permissions) return NextResponse.json({ error: "Role details are invalid." }, { status: 400 });
 
-  const role = existing as { is_admin?: boolean; is_system?: boolean };
   const company = permissions.find((permission) => permission.resourceKey === "settings_company");
   if (role.is_admin && role.is_system && (!company?.canView || !company.canEdit)) {
     return NextResponse.json(
